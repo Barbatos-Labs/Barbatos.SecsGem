@@ -1,0 +1,53 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/Barbatos.SecsGem.Serialization.Ini/Barbatos.SecsGem.Serialization.Ini.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Serialization.Xml/Barbatos.SecsGem.Serialization.Xml.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Mapper/Barbatos.SecsGem.Mapper.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Gem/Barbatos.SecsGem.Gem.csproj" />
+    <Project Path="src/Barbatos.SecsGem.SourceGenerators/Barbatos.SecsGem.SourceGenerators.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Hsms/Barbatos.SecsGem.Hsms.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Core/Barbatos.SecsGem.Core.csproj" />
+    <Project Path="src/Barbatos.SecsGem/Barbatos.SecsGem.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Serialization.Json/Barbatos.SecsGem.Serialization.Json.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Serialization.Sml/Barbatos.SecsGem.Serialization.Sml.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Barbatos.SecsGem.Samples.Transcode/Barbatos.SecsGem.Samples.Transcode.csproj" />
+    <Project Path="samples/Barbatos.SecsGem.Samples.Shared/Barbatos.SecsGem.Samples.Shared.csproj" />
+    <Project Path="samples/Barbatos.SecsGem.Samples.Equipment/Barbatos.SecsGem.Samples.Equipment.csproj" />
+    <Project Path="samples/Barbatos.SecsGem.Samples.Host/Barbatos.SecsGem.Samples.Host.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Barbatos.SecsGem.SourceGenerators.UnitTests/Barbatos.SecsGem.SourceGenerators.UnitTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.Gem.UnitTests/Barbatos.SecsGem.Gem.UnitTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.IntegrationTests/Barbatos.SecsGem.IntegrationTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.Mapper.UnitTests/Barbatos.SecsGem.Mapper.UnitTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.Core.UnitTests/Barbatos.SecsGem.Core.UnitTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.Hsms.UnitTests/Barbatos.SecsGem.Hsms.UnitTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.Serialization.UnitTests/Barbatos.SecsGem.Serialization.UnitTests.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Barbatos.SecsGem.Benchmarks/Barbatos.SecsGem.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="nuget.config" />
+    <File Path="README.md" />
+    <File Path="API-REFERENCE.md" />
+    <File Path="CLAUDE.md" />
+    <File Path="LICENSE.md" />
+    <File Path="ThirdPartyNotices.txt" />
+  </Folder>
+  <Folder Name="/.github/">
+    <File Path=".github/workflows/ci.yml" />
+  </Folder>
+</Solution>

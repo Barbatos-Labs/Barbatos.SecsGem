@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-latest, ubuntu-latest ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore Barbatos.SecsGem.slnx
+
+      - name: Build
+        run: dotnet build Barbatos.SecsGem.slnx -c Release --no-restore
+
+      # Not `-f net8.0`: passing a framework at the solution level forces it onto every project,
+      # including the netstandard2.0 Roslyn component, which then fails with NETSDK1005. The
+      # test projects multi-target, so a plain run already covers all three runtimes.
+      # To narrow locally, pass -f to a single test project instead.
+      - name: Test
+        run: dotnet test Barbatos.SecsGem.slnx -c Release --no-build
+
+      - name: Pack
+        if: matrix.os == 'windows-latest'
+        run: dotnet pack Barbatos.SecsGem.slnx -c Release --no-build -o artifacts

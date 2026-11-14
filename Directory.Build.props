@@ -1,0 +1,112 @@
+<Project>
+
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0</AssemblyVersion>
+    <FileVersion>0.1.0</FileVersion>
+  </PropertyGroup>
+
+  <!-- ===========================================================================
+       Target frameworks for the whole repository live here and nowhere else.
+       Every multi-targeted project writes <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>.
+
+       net11.0 is deliberately NOT in this list yet: the .NET 11 SDK is not installed on the
+       development machine, and a TFM without its SDK fails the build with NETSDK1045.
+       When the SDK is installed, append it here - one line, 22 projects follow.
+       =========================================================================== -->
+  <PropertyGroup>
+    <BarbatosTargetFrameworks>net8.0;net9.0;net10.0</BarbatosTargetFrameworks>
+    <BarbatosSampleTargetFramework>net10.0</BarbatosSampleTargetFramework>
+  </PropertyGroup>
+
+  <!-- Package identity shared by every shipping project. -->
+  <PropertyGroup>
+    <Authors>Pham The Hung</Authors>
+    <Company>Barbatos Labs</Company>
+    <Product>Barbatos.SecsGem</Product>
+    <Copyright>(c) 2026 Barbatos Labs | Pham The Hung and Barbatos.SecsGem Contributors. All rights reserved.</Copyright>
+    <PackageProjectUrl>https://github.com/Barbatos-Labs/Barbatos.SecsGem</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Barbatos-Labs/Barbatos.SecsGem</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReleaseNotes>https://github.com/Barbatos-Labs/Barbatos.SecsGem/releases</PackageReleaseNotes>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <!-- Words every package shares. A project appends its own through <PackageTags>;
+         Directory.Build.targets joins the two. -->
+    <CommonTags>dotnet;secs;secsgem;hsms;gem;semi;semiconductor;equipment;automation;fab;factory</CommonTags>
+    <!-- Each package may ship its own icon; falls back to the shared repository logo.
+         Both the icon and the <PackageIcon> property below are gated on the file existing,
+         so dotnet pack works on a fresh clone that has no art yet. -->
+    <PackageIconSourceFile Condition="'$(PackageIconSourceFile)' == ''">nuget.png</PackageIconSourceFile>
+  </PropertyGroup>
+
+  <!-- Language and analysis. C# 14 needs the .NET 10 SDK, which global.json rolls forward to;
+       compiler-only features are fine on every runtime here, but anything whose TYPE ships with
+       the runtime (System.Threading.Lock, for one) needs a #if NET9_0_OR_GREATER guard. -->
+  <PropertyGroup>
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Deterministic>true</Deterministic>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <!-- Suppress ref-safety warnings in unsafe contexts (dotnet/csharplang#6476): used to replace
+         Unsafe.SizeOf<T>() with sizeof(T). Reaching these APIs already requires an unsafe context. -->
+    <NoWarn>$(NoWarn);CS8500</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RepositoryDirectory>$(MSBuildThisFileDirectory)</RepositoryDirectory>
+    <BuildToolsDirectory>$(RepositoryDirectory)build\</BuildToolsDirectory>
+  </PropertyGroup>
+
+  <!-- Project classification drives packing, analyzers and AOT settings below. -->
+  <PropertyGroup>
+    <IsTestProject>$(MSBuildProjectName.Contains('Test'))</IsTestProject>
+    <IsSampleProject>$(MSBuildProjectName.Contains('Samples'))</IsSampleProject>
+    <IsBenchmarkProject>$(MSBuildProjectName.Contains('Benchmark'))</IsBenchmarkProject>
+    <IsShippingProject Condition="$(IsTestProject) or $(IsSampleProject) or $(IsBenchmarkProject)">false</IsShippingProject>
+    <IsShippingProject Condition="'$(IsShippingProject)' == ''">true</IsShippingProject>
+  </PropertyGroup>
+
+  <Choose>
+    <When Condition="$(IsShippingProject)">
+      <PropertyGroup>
+        <IsPackable>true</IsPackable>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <!-- Deliberate deviation from Barbatos.Wpf: packing 10 projects x 3 TFMs on every build
+             is a lot of friction during development. Pass -p:PackOnBuild=true (or run
+             dotnet pack) when you want the .nupkg files. -->
+        <GeneratePackageOnBuild Condition="'$(PackOnBuild)' == 'true'">true</GeneratePackageOnBuild>
+      </PropertyGroup>
+    </When>
+    <Otherwise>
+      <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <!-- CA1819 (properties should not return arrays) is right for a library and wrong for a
+             sample DTO: an array property is exactly what demonstrates how a SECS-II array item
+             maps, and wrapping it in a read-only collection would hide the point. -->
+        <NoWarn>$(NoWarn);CS1591;CS8002;CA1819</NoWarn>
+      </PropertyGroup>
+    </Otherwise>
+  </Choose>
+
+  <Choose>
+    <When Condition="'$(SourceLinkEnabled)' != 'false' and $(IsShippingProject)">
+      <PropertyGroup>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+        <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+      </PropertyGroup>
+      <ItemGroup>
+        <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+      </ItemGroup>
+    </When>
+  </Choose>
+
+</Project>

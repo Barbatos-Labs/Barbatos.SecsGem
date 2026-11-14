@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.Serialization.Json</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Serialization.Json</RootNamespace>
+    <PackageTags>json;secs;utf8json;reader;writer;spoke</PackageTags>
+    <Description>JSON reader and writer for Barbatos.SecsGem, built directly on Utf8JsonReader/Utf8JsonWriter - a Hub-and-Spoke format spoke that plugs into SecsTranscoder through AddSecsJson().</Description>
+  </PropertyGroup>
+
+  <!-- No platform-specific API: usable from WebAssembly tooling. -->
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+  </ItemGroup>
+
+</Project>

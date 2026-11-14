@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(BarbatosSampleTargetFramework)</TargetFramework>
+    <RootNamespace>Barbatos.SecsGem.Benchmarks</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <Optimize>true</Optimize>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Sml\Barbatos.SecsGem.Serialization.Sml.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Json\Barbatos.SecsGem.Serialization.Json.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,53 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditLevel>moderate</NuGetAuditLevel>
+  </PropertyGroup>
+
+  <ItemGroup Label="Runtime">
+    <!-- Pooling primitives: ArrayPoolBufferWriter<T>, MemoryOwner<T>, SpanOwner<T>, StringPool.
+         The only third-party dependency in Barbatos.SecsGem.Core, and the only one allowed there. -->
+    <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.2" />
+    <PackageVersion Include="System.IO.Pipelines" Version="10.0.15" />
+  </ItemGroup>
+
+  <ItemGroup Label="Microsoft.Extensions - keep the whole block in lockstep">
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.Abstractions" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.15" />
+  </ItemGroup>
+
+  <ItemGroup Label="Roslyn - pinned LOW on purpose">
+    <!-- 4.8.0 is the floor the generator compiles against so it loads in every SDK from
+         .NET 8 onwards. Raising this raises the minimum SDK of every consumer. -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Build">
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.404" />
+  </ItemGroup>
+
+  <ItemGroup Label="Test">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.12.0" />
+    <PackageVersion Include="xunit.v3.mtp-off" Version="4.0.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
+    <PackageVersion Include="coverlet.collector" Version="10.1.0" />
+    <!-- FakeTimeProvider: how T3/T5/T6/T7/T8 are tested without waiting on a wall clock. -->
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Benchmarks">
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+  </ItemGroup>
+
+</Project>

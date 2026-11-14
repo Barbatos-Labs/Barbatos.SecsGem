@@ -1,0 +1,39 @@
+## Build
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+*.binlog
+*.user
+*.suo
+*.userprefs
+
+## IDE
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+
+## Test / coverage
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+*.coveragexml
+BenchmarkDotNet.Artifacts/
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/packages/
+packages/
+
+## Secrets - the strong-name key never belongs in the repository
+*.snk
+*.pfx
+
+## OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,59 @@
+<Project>
+
+  <!-- PackageTags = shared words + whatever the project added. -->
+  <PropertyGroup>
+    <PackageTags Condition="'$(PackageTags)' != ''">$(CommonTags);$(PackageTags)</PackageTags>
+    <PackageTags Condition="'$(PackageTags)' == ''">$(CommonTags)</PackageTags>
+  </PropertyGroup>
+
+  <!-- Trimming and AOT. Evaluated per inner build, so netstandard2.0 (the Roslyn component)
+       is skipped: IsAotCompatible is only meaningful on .NETCoreApp. -->
+  <PropertyGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETCoreApp' and $(IsShippingProject)">
+    <!-- This one property switches on the trim, AOT and single-file analyzers together, so a
+         project that cannot honour them yet (today: the reflection-based mapper) opts out of all
+         three by setting it to false, rather than suppressing warnings one by one. -->
+    <IsAotCompatible Condition="'$(IsAotCompatible)' == ''">true</IsAotCompatible>
+  </PropertyGroup>
+
+  <!-- Symbols travel as .snupkg; PDBs are never embedded in the main .nupkg as well, or
+       NuGet.org rejects the snupkg for duplicating them. -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <DeterministicSourcePaths Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</DeterministicSourcePaths>
+  </PropertyGroup>
+
+  <!-- <PackageIcon> is only declared when the art actually exists, so a fresh clone can pack. -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true' and Exists('$(BuildToolsDirectory)$(PackageIconSourceFile)')">
+    <PackageIcon>Icon.png</PackageIcon>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="$(BuildToolsDirectory)$(PackageIconSourceFile)"
+          Condition="Exists('$(BuildToolsDirectory)$(PackageIconSourceFile)')"
+          Pack="true" PackagePath="\Icon.png" Visible="false" />
+    <None Include="$(RepositoryDirectory)LICENSE.md" Pack="true" PackagePath="\LICENSE.md" Visible="false" />
+    <None Include="$(RepositoryDirectory)ThirdPartyNotices.txt" Pack="true" PackagePath="\" Visible="false" />
+    <!-- Each package ships the README.md sitting beside its own .csproj: that file is the
+         nuget.org landing page, so it is written for a reader who has never seen the repository. -->
+    <None Include="$(MSBuildProjectDirectory)\README.md" Condition="Exists('$(MSBuildProjectDirectory)\README.md')"
+          Pack="true" PackagePath="\README.md" />
+  </ItemGroup>
+
+  <!-- Strong naming is gated on the key being present: it is git-ignored, so only release
+       builds that supply build\barbatos.snk produce signed assemblies. -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true' and Exists('$(RepositoryDirectory)build\barbatos.snk')">
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(RepositoryDirectory)build\barbatos.snk</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+
+  <Target Name="AddCommitHashToAssemblyAttributes" BeforeTargets="GetAssemblyAttributes">
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'$(SourceRevisionId)' != ''">
+        <_Parameter1>CommitHash</_Parameter1>
+        <_Parameter2>$(SourceRevisionId)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
+</Project>

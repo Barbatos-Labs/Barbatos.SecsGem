@@ -1,0 +1,17 @@
+Barbatos.SecsGem - Third Party Notices
+======================================
+
+This product bundles no third-party source code. It takes a dependency on the
+following packages, each under its own licence:
+
+CommunityToolkit.HighPerformance   MIT   https://github.com/CommunityToolkit/dotnet
+System.IO.Pipelines                MIT   https://github.com/dotnet/runtime
+Microsoft.Extensions.*             MIT   https://github.com/dotnet/runtime
+Microsoft.CodeAnalysis.*           MIT   https://github.com/dotnet/roslyn
+
+Design acknowledgement
+----------------------
+The zero-allocation approach to the SECS-II item model and the pipelined decoder
+were informed by secs4net (MIT, https://github.com/mkjeff/secs4net). No code was
+copied; the message-level SML and JSON shapes are kept wire-compatible on purpose,
+so existing secs4net fixtures remain readable.

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(BarbatosSampleTargetFramework)</TargetFramework>
+    <RootNamespace>Barbatos.SecsGem.Samples.Shared</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
+  </ItemGroup>
+
+</Project>

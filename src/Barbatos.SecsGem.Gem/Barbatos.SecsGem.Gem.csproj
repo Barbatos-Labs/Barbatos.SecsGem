@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.Gem</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Gem</RootNamespace>
+    <PackageTags>gem;e30;e5;ceid;svid;ecid;alid;collectionevent;alarm</PackageTags>
+    <Description>GEM (SEMI E30) layer for Barbatos.SecsGem: communication and control state models, S1F13/S1F14 establish-communications, collection events, status and equipment constants, alarms and remote commands. Placeholder - see the roadmap in README.md.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+</Project>

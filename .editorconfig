@@ -1,0 +1,60 @@
+# Barbatos.SecsGem - the style authority for this repository.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{csproj,props,targets,slnx,xml,config}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+indent_size = 4
+csharp_using_directive_placement = outside_namespace:warning
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = true:silent
+csharp_style_prefer_primary_constructors = true:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line:silent
+csharp_style_expression_bodied_properties = true:silent
+csharp_new_line_before_open_brace = all
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Every new .cs file under src/ and tests/ carries this header.
+file_header_template = This Source Code Form is subject to the terms of the MIT License.\nIf a copy of the MIT was not distributed with this file, You can obtain one at https://opensource.org/licenses/MIT.\nCopyright (C) Barbatos Labs | Pham The Hung and Barbatos.SecsGem Contributors.\nAll Rights Reserved.
+dotnet_diagnostic.IDE0073.severity = warning
+
+# Naming
+dotnet_naming_rule.private_fields_underscore.severity = warning
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.required_prefix = _
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+
+# Public API discipline: a missing XML doc on a shipping member is a build warning.
+dotnet_diagnostic.CS1591.severity = warning
+
+# Performance analyzers worth failing a review over in a library this hot.
+dotnet_diagnostic.CA1819.severity = warning   # properties should not return arrays
+dotnet_diagnostic.CA1825.severity = warning   # avoid zero-length array allocations
+dotnet_diagnostic.CA1852.severity = warning   # seal internal types
+dotnet_diagnostic.CA2016.severity = warning   # forward CancellationToken
+
+[tests/**/*.cs]
+dotnet_diagnostic.CS1591.severity = none
+dotnet_diagnostic.CA1819.severity = none
+
+[samples/**/*.cs]
+dotnet_diagnostic.CS1591.severity = none

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.SourceGenerators</PackageId>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>Barbatos.SecsGem.SourceGenerators</RootNamespace>
+    <ImplicitUsings>false</ImplicitUsings>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <!-- The generator assembly travels in analyzers/, never in lib/. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <Description>Roslyn incremental source generator and analyzer for Barbatos.SecsGem.Mapper. Reads property declaration order straight from the syntax tree, so SECS-II mapping is exact, reflection-free and Native AOT friendly.</Description>
+    <PackageTags>sourcegenerator;roslyn;analyzer;aot;mapper</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+  </ItemGroup>
+
+</Project>

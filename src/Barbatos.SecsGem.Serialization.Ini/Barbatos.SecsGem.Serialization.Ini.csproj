@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.Serialization.Ini</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Serialization.Ini</RootNamespace>
+    <PackageTags>ini;secs;reader;writer;spoke;configuration</PackageTags>
+    <Description>INI reader and writer for Barbatos.SecsGem using path-addressed keys (1.2.3 = U4 1234) - a Hub-and-Spoke format spoke that plugs into SecsTranscoder through AddSecsIni().</Description>
+  </PropertyGroup>
+
+  <!-- No platform-specific API: usable from WebAssembly tooling. -->
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+  </ItemGroup>
+
+</Project>

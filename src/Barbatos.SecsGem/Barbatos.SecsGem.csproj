@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <!-- Metapackage: dependencies only, no assembly of its own. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <Description>Metapackage for Barbatos.SecsGem - installs Barbatos.SecsGem.Core, Barbatos.SecsGem.Hsms and Barbatos.SecsGem.Serialization.Sml in one reference. Ships no assembly of its own.</Description>
+    <PackageTags>secs;secsgem;hsms;gem;metapackage</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Sml\Barbatos.SecsGem.Serialization.Sml.csproj" />
+  </ItemGroup>
+
+</Project>
