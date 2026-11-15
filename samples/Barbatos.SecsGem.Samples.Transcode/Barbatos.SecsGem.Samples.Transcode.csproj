@@ -18,6 +18,13 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Xml\Barbatos.SecsGem.Serialization.Xml.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Ini\Barbatos.SecsGem.Serialization.Ini.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
+
+    <!-- The generator, so the DTOs in this sample are mapped from their syntax rather than from
+         reflection. Nothing in Program.cs changes: SecsTypeInfoResolver.Default asks the generated
+         contracts first, so adding this package is the whole of the switch. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.SourceGenerators\Barbatos.SecsGem.SourceGenerators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

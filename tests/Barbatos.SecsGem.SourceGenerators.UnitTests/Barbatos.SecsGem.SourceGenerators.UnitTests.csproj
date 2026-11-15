@@ -21,6 +21,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.SourceGenerators\Barbatos.SecsGem.SourceGenerators.csproj" />
+
+    <!-- Referenced as a library, not as an analyzer: the tests compile snippets against the real
+         attributes and then check that what the generator emitted compiles against the real
+         contracts. A generator tested against a stand-in for its own target is a generator tested
+         against the wrong thing. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
   </ItemGroup>
 
 </Project>

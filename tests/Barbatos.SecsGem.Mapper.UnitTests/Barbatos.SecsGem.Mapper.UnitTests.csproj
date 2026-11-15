@@ -18,6 +18,13 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Sml\Barbatos.SecsGem.Serialization.Sml.csproj" />
+
+    <!-- The generator runs over this project's own types, so the tests compare what it emits
+         against what reflection works out for the same type. Two resolvers that disagree is the
+         one bug this design could not survive, and this is where that is checked. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.SourceGenerators\Barbatos.SecsGem.SourceGenerators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

@@ -23,4 +23,11 @@
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Release tracking for the analyzer's diagnostics. Required by RS2008 once a descriptor is
+         declared, and the reason a rule cannot be renumbered or silently dropped later. -->
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" Condition="Exists('AnalyzerReleases.Shipped.md')" />
+  </ItemGroup>
+
 </Project>

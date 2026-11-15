@@ -43,6 +43,11 @@ Console.WriteLine(personItem.ToSml());
 var personBack = SecsSerializer.Deserialize<Person>(personItem, mapper)!;
 Console.WriteLine($"round trip -> {personBack.Name}, {personBack.Age}, [{string.Join(", ", personBack.Emails)}]");
 Console.WriteLine($"equal      -> {personBack.Name == person.Name && personBack.Age == person.Age && personBack.Emails.SequenceEqual(person.Emails)}");
+
+// This project references Barbatos.SecsGem.SourceGenerators, so the contract above came from the
+// syntax tree at compile time rather than from reflection - with nothing in this file saying so.
+// Take the package reference out and every line of it still works, one layer slower.
+Console.WriteLine($"generated  -> {SecsTypeInfoResolver.Generated.Contains(typeof(Person))}");
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------------------------

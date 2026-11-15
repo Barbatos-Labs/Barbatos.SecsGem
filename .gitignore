@@ -37,3 +37,5 @@ packages/
 ## OS
 .DS_Store
 Thumbs.db
+# Emitted by EmitCompilerGeneratedFiles, for looking at what a source generator produced.
+generated/
