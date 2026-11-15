@@ -143,7 +143,8 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 5 | Source generator, analyzer BSG001, generated-against-reflection parity tests. | Done |
 | 6 | BenchmarkDotNet suite, and a README plus an API reference for every shipping package. The benchmarks found a missing contract cache that made the source generator slower than the reflection it replaces. | Done |
 | 7 | GEM (E30) equipment layer: both state models as actors, the standard message set, host-configured report definitions, alarms, remote commands gated on the control state. Brought `DeselectAsync` and container-resolved message handlers back into the HSMS package. | Done |
-| 8 | The deferred E30 messages - namelists, alarm listings, host-requested reports - and `Barbatos.SecsGem.Catalog`, the 524-message reference table. | Done |
+| 8 | The deferred E30 messages - namelists, alarm listings, host-requested reports, and opt-in process program management (stream 7) - plus `Barbatos.SecsGem.Catalog`, the 524-message reference table. | Done |
+| 9 | Spooling: holding reports while the host is away and delivering them when it returns. | Next |
 
 ## Licence
 
