@@ -31,6 +31,7 @@ dependencies the `.nuspec` declares and nothing else.
 | The analyzer package wrote a contract | the generator not loading from `analyzers/dotnet/cs` |
 | The embedded table came out of the package | the 40 KB catalogue resource not embedded |
 | The container resolves the equipment | a dependency missing from a `.nuspec`, anywhere in Gem -> Hsms -> Core - and the two stream 7 capabilities colliding over the messages they share |
+| The host side resolves on a builder of its own | `AddGemHost` not declaring what `GemHost.HandledMessages` says it does |
 
 The generator check is the one no other test in the repository can make. `SecsSerializer` falls
 back to reflection when there is no generated contract, so serializing would succeed either way -

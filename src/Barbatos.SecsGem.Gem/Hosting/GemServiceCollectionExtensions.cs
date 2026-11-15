@@ -143,6 +143,74 @@ public static class GemServiceCollectionExtensions
         return builder;
     }
 
+    /// <summary>Adds the GEM host layer: the other end of a GEM conversation.</summary>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <param name="configuration">Binds <c>Barbatos:GemHost</c> when given.</param>
+    /// <param name="configure">Adjusts the options after binding.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// Registers <see cref="GemHost"/> and a handler for every pair in
+    /// <see cref="GemHost.HandledMessages"/> - S1F1, S1F13, S5F1, S6F11, S6F13 and stream 9.
+    /// Everything else a host does, it initiates, so there is nothing more to declare and no
+    /// hosted service to run: a host has its own control flow, and E30 gives the <em>equipment</em>
+    /// the duty of retrying until communications are established.
+    /// </para>
+    /// <para>
+    /// A host connection is normally the active end - <c>link.Mode = HsmsConnectionMode.Active</c> -
+    /// which is the opposite of the equipment's. Nothing here enforces that; E37 allows either end
+    /// to be either, and a fab occasionally needs the unusual one.
+    /// </para>
+    /// <para>
+    /// Do not call this and <c>AddGemEquipment</c> on the same builder. Both declare S1F1 and
+    /// S1F13, which the routing table refuses - and one process answering as both ends of the same
+    /// link is not a thing E30 describes. Two connections in one process, as the host sample does,
+    /// means two builders.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemHost(
+        this ISecsGemBuilder builder,
+        IConfiguration? configuration = null,
+        Action<GemHostOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        var optionsBuilder = builder.Services.AddOptions<GemHostOptions>();
+
+        if (configuration is not null)
+        {
+            optionsBuilder.Bind(configuration.GetSection(GemHostOptions.SectionName));
+        }
+
+        if (configure is not null)
+        {
+            optionsBuilder.Configure(configure);
+        }
+
+        optionsBuilder.ValidateOnStart();
+        builder.Services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<GemHostOptions>, GemHostOptionsValidator>());
+
+        // Built by hand for the same reason the equipment is: the logger is optional, and an
+        // application that never called AddLogging should still get a working host.
+        builder.Services.TryAddSingleton(provider => new GemHost(
+            provider.GetRequiredService<IOptions<GemHostOptions>>().Value,
+            provider.GetRequiredService<HsmsConnection>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<ILogger<GemHost>>()));
+
+        // Resolved inside the handler rather than inside the factory, the same cycle the equipment
+        // registration solves the same way: the host needs the connection, the connection needs
+        // the router, and the router is what this is being registered into.
+        foreach (var (stream, function) in GemHost.HandledMessages)
+        {
+            builder.OnPrimary(stream, function, static provider =>
+                (transaction, token) => provider.GetRequiredService<GemHost>().HandleAsync(transaction, token));
+        }
+
+        return builder;
+    }
+
     /// <summary>Adds process program management, backed by the in-memory store.</summary>
     /// <param name="builder">The builder.</param>
     /// <returns>The builder, for chaining.</returns>

@@ -44,6 +44,15 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
   - [`GemProcessProgramCommand`](#gemprocessprogramcommand)
   - [`GemProcessProgramGrant`](#gemprocessprogramgrant)
   - [`GemProcessProgramAcknowledgement`](#gemprocessprogramacknowledgement)
+- [The host side](#the-host-side)
+  - [`GemHost`](#gemhost)
+  - [`GemHostOptions`](#gemhostoptions)
+  - [`GemEquipmentIdentity`](#gemequipmentidentity)
+  - [`GemVariableDescription`](#gemvariabledescription)
+  - [`GemConstantDescription`](#gemconstantdescription)
+  - [`GemAlarmReport`](#gemalarmreport)
+  - [`GemReceivedReport`](#gemreceivedreport)
+  - [Event arguments](#event-arguments)
 - [Acknowledgement codes](#acknowledgement-codes)
 - [Options](#options)
   - [`GemOptions`](#gemoptions)
@@ -52,6 +61,7 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
   - [`AddGemEquipment`](#addgemequipment)
   - [`AddGemProcessPrograms`](#addgemprocessprograms)
   - [`AddGemFormattedProcessPrograms`](#addgemformattedprocessprograms)
+  - [`AddGemHost`](#addgemhost)
 
 ---
 
@@ -693,6 +703,131 @@ is answered `LengthError` rather than stored as an empty program.
 
 ---
 
+## The host side
+
+### `GemHost`
+
+`public sealed class GemHost : IAsyncDisposable`
+
+The other end of `GemEquipment`. One instance sits on one `HsmsConnection`; it does not run the
+connection, and unlike the equipment it has no loop of its own - a host is an application with its
+own control flow, and E30 gives the *equipment* the duty of retrying until communications are
+established.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemHost(GemHostOptions options, HsmsConnection connection, TimeProvider? timeProvider = null, ILogger<GemHost>? logger = null)` | |
+| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S1F1, S1F13, S5F1, S6F11, S6F13 and stream 9 functions 1 through 13 - everything a machine may send a host unprompted. |
+| `IsCommunicating` | `bool { get; }` | Set by an accepted S1F13 in either direction, cleared when the link leaves Selected. **Not** the same question as `HsmsConnection.IsSelected`: that is a socket, this is an agreement. |
+| `HandleAsync` | `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken cancellationToken = default)` | Handles one inbound primary. Wired to every pair in `HandledMessages`. |
+| `EventReportReceived` | `event EventHandler<GemEventReportEventArgs>?` | S6F11 and S6F13, before the acknowledgement. |
+| `AlarmReceived` | `event EventHandler<GemHostAlarmEventArgs>?` | S5F1, before the acknowledgement. |
+| `ErrorReported` | `event EventHandler<GemHostErrorEventArgs>?` | Stream 9. No reply exists to send. |
+| `CommunicationStateChanged` | `event EventHandler<GemHostCommunicationStateChangedEventArgs>?` | |
+
+**Requests.** Every primary `GemEquipment` answers has one, which a test asserts rather than this
+table claiming it.
+
+| Method | Sends | Returns |
+| --- | --- | --- |
+| `AreYouThereAsync` | S1F1 | `GemEquipmentIdentity?` - `null` for the zero-length list off-line equipment answers with |
+| `EstablishCommunicationsAsync` | S1F13 | `GemCommunicationAcknowledgement`; sets `IsCommunicating` when accepted |
+| `ReadStatusAsync(svids)` | S1F3 | `SecsMessage` - **the caller disposes it**. Empty list asks for every status variable |
+| `ReadStatusNamelistAsync(svids)` | S1F11 | `IReadOnlyList<GemVariableDescription>` |
+| `RequestOfflineAsync` | S1F15 | `GemOfflineAcknowledgement` |
+| `RequestOnlineAsync` | S1F17 | `GemOnlineAcknowledgement` |
+| `ReadConstantsAsync(ecids)` | S2F13 | `SecsMessage` - **the caller disposes it** |
+| `WriteConstantsAsync(values)` | S2F15 | `GemEquipmentConstantAcknowledgement`. The value items are placed in the request and disposed with it |
+| `ReadClockAsync` | S2F17 | `DateTimeOffset?` in UTC; `null` when TIME was none of E5's three formats |
+| `SetClockAsync(when)` | S2F31 | `GemTimeAcknowledgement`. `null` sends this host's current time |
+| `ReadConstantNamelistAsync(ecids)` | S2F29 | `IReadOnlyList<GemConstantDescription>` |
+| `DefineReportsAsync(reports)` | S2F33 | `GemDefineReportAcknowledgement` |
+| `DeleteAllReportsAsync` | S2F33, empty | `GemDefineReportAcknowledgement`. Worth doing before defining a set, so a host inherits nothing from whoever had the link last |
+| `LinkEventsAsync(links)` | S2F35 | `GemLinkReportAcknowledgement` |
+| `EnableEventsAsync(enable, ceids)` | S2F37 | `GemEnableEventAcknowledgement`. Empty list means every event |
+| `SendCommandAsync(command, parameters)` | S2F41 | `GemHostCommandAcknowledgement`. **`CompletionLater` (4) is a success** |
+| `EnableAlarmAsync(enable, alarmId)` | S5F3 | `GemAlarmAcknowledgement`. Zero as the identifier means all of them. ALED is sent as E5 defines it: a `B[1]` whose top bit is the choice |
+| `ListAlarmsAsync(alarmIds)` | S5F5 | `IReadOnlyList<GemAlarmReport>` - which alarms are *in alarm* |
+| `ListEnabledAlarmsAsync` | S5F7 | `IReadOnlyList<GemAlarmReport>` - which the host has asked to hear about. A different question |
+| `RequestEventReportAsync(ceid)` | S6F15 | `SecsMessage` - **the caller disposes it**. A zero-length body means no such event |
+| `RequestReportAsync(rptid)` | S6F19 | `SecsMessage` - **the caller disposes it** |
+| `RequestSpooledDataAsync(request)` | S6F23 | `GemSpooledDataAcknowledgement`. Accepted means the equipment agreed, not that the messages have arrived |
+| `InquireProcessProgramAsync(id, length)` | S7F1 | `GemProcessProgramGrant` |
+| `SendProcessProgramAsync(id, body)` | S7F3 | `GemProcessProgramAcknowledgement` |
+| `RequestProcessProgramAsync(id)` | S7F5 | `ReadOnlyMemory<byte>?` - `null` is the zero-length refusal S7F6 uses, because it has no code for one |
+| `DeleteProcessProgramsAsync(ids)` | S7F17 | `GemProcessProgramAcknowledgement`. Empty list means every program |
+| `ListProcessProgramsAsync` | S7F19 | `IReadOnlyList<string>` |
+| `SendFormattedProcessProgramAsync(program)` | S7F23 | `GemProcessProgramAcknowledgement` |
+| `RequestFormattedProcessProgramAsync(id)` | S7F25 | `GemFormattedProcessProgram?` |
+
+A reply that does not carry the acknowledgement code E5 defines for it throws `SecsException`
+rather than coming back as a refusal. Every one of these enums has zero meaning accepted, so a
+missing body read as zero would turn a broken machine into a silent success.
+
+`GemHost` covers the equipment side of this library and no more. A host that needs stream 3, 10 or
+14 uses the connection directly - the helper is a layer over the link, not a wall in front of it.
+
+### `GemHostOptions`
+
+`public sealed class GemHostOptions` - bound from `Barbatos:GemHost`, validated on start by
+`GemHostOptionsValidator`.
+
+| Member | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `SectionName` | `const string` | `Barbatos:GemHost` | |
+| `ModelName` | `string` | `BRBTOS-HOST` | The **host's** MDLN, for S1F2 and S1F14. Capped at `GemOptions.MaxIdentityLength`. |
+| `SoftwareRevision` | `string` | `0.1.0` | The host's SOFTREV. |
+| `AcceptCommunications` | `bool` | `true` | Off answers an equipment-initiated S1F13 with COMMACK 1, which is how a host under maintenance tells a machine to keep retrying rather than time out against silence. It does not disable `EstablishCommunicationsAsync` - contradictory, and the host's contradiction to make. |
+
+### `GemEquipmentIdentity`
+
+`public sealed class GemEquipmentIdentity` - `ModelName`, `SoftwareRevision`, and a `ToString` of
+both.
+
+### `GemVariableDescription`
+
+`public sealed class GemVariableDescription` - one S1F12 entry: `Id`, `Name`, `Units`, and
+`Exists`, which is `Name.Length > 0`. E5 answers an unknown SVID with its name and units both
+zero-length rather than by leaving it out, so an empty name is the equipment saying "not mine".
+
+### `GemConstantDescription`
+
+`public sealed class GemConstantDescription` - one S2F30 entry: `Id`, `Name`, `Units`, `Exists`,
+and `Minimum` / `Maximum` / `Default` as `ReadOnlyMemory<byte>`.
+
+The bounds are **encoded items** rather than values, for the same reason `GemSpooledMessage.Body`
+is: an ECMIN may be any format E5 allows, and the reply it arrived in is disposed as soon as the
+call returns. Decode one with `SecsItem.Decode` when you need it. Empty means the equipment
+documented no bound - E5 says that with a zero-length item, and this says it without making a
+caller decode two bytes to find out.
+
+### `GemAlarmReport`
+
+`public sealed class GemAlarmReport` - `Code` (ALCD), `Id`, `Text`, and `IsSet`, which is ALCD bit
+7. The same message carries both the set and the clear, which is why that is a bit and not a
+function.
+
+### `GemReceivedReport`
+
+`public sealed class GemReceivedReport` - `Id` (RPTID) and `Values`.
+
+**`Values` is alive only while the handler runs.** It is a view into the message that arrived, and
+that message is disposed as soon as the event returns. Read what you need, or copy it.
+
+### Event arguments
+
+| Type | Carries | Settable |
+| --- | --- | --- |
+| `GemEventReportEventArgs` | `DataId`, `EventId`, `Reports` | `Acknowledgement` (ACKC6) |
+| `GemHostAlarmEventArgs` | `Alarm` | `Acknowledgement` (ACKC5) |
+| `GemHostErrorEventArgs` | `Function`, `OffendingHeader` (ten bytes, copied; empty for S9F13), `Description` (S9F13's MEXP and EDID, else empty) | - |
+| `GemHostCommunicationStateChangedEventArgs` | `IsCommunicating`, `Reason` | - |
+
+The acknowledgement is settable because whether a host could store what it was sent is the one
+decision about an inbound report that cannot be made for it. The default is accepted.
+
+---
+
 ## Acknowledgement codes
 
 Every one of these is `: byte`, and in every one **zero means accepted**. A handler that tests for
@@ -831,3 +966,24 @@ and the connection depends on the router the handlers are registered into. The r
 it by resolving the equipment **inside the handler** rather than inside the factory - see
 [`SecsMessageRouterBuilder.OnPrimary`](../Barbatos.SecsGem.Hsms/API-REFERENCE.md#secsmessagerouterbuilder),
 which is the overload that makes it possible and the place the trap is documented.
+
+### `AddGemHost`
+
+```csharp
+public static ISecsGemBuilder AddGemHost(
+    this ISecsGemBuilder builder,
+    IConfiguration? configuration = null,
+    Action<GemHostOptions>? configure = null)
+```
+
+Registers `GemHost`, binds `Barbatos:GemHost` when given a configuration, validates it on start,
+and declares every pair in `GemHost.HandledMessages`. Everything else a host does, it initiates -
+so there is nothing more to declare and no hosted service to run.
+
+A host connection is normally the active end, `link.Mode = HsmsConnectionMode.Active`, which is the
+opposite of the equipment's. Nothing here enforces it: E37 allows either end to be either, and a
+fab occasionally needs the unusual one.
+
+**Do not call this and `AddGemEquipment` on the same builder.** Both declare S1F1 and S1F13, which
+the routing table refuses - and one process answering as both ends of the same link is not a thing
+E30 describes. Two connections in one process, as the host sample does, means two builders.

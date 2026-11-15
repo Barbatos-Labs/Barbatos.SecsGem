@@ -1,7 +1,9 @@
 # Barbatos.SecsGem.Gem
 
-The GEM (SEMI E30) equipment layer for **.NET 8, 9 and 10**: both state models, the standard
-message set, and host-configured reporting - on top of an HSMS link that already works.
+The GEM (SEMI E30) layer for **.NET 8, 9 and 10**: both state models, the standard message set,
+and host-configured reporting - on top of an HSMS link that already works. Both ends of it:
+`GemEquipment` is the machine, and [`GemHost`](#the-other-end-of-the-conversation) is the host
+driving it.
 
 > Part of **[Barbatos.SecsGem](https://github.com/Barbatos-Labs/Barbatos.SecsGem)** - a modern, allocation-conscious SECS-II / HSMS-SS / GEM stack
 > for .NET 8, 9 and 10.
@@ -471,13 +473,78 @@ state, and the loser silently undid the winner. So the establish transition is *
 equipment's loop and applied there in order. Control transitions happen in the handler, under a
 gate, because a host asking for off-line has to be answered with the state its request produced.
 
+## The other end of the conversation
+
+E30 models the *equipment*, so everything above is the machine's side. `GemHost` is the host's:
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()                                    // link.Mode = Active, for a host
+    .AddGemHost(builder.Configuration);
+```
+
+```csharp
+var host = provider.GetRequiredService<GemHost>();
+
+await host.EstablishCommunicationsAsync();
+await host.DeleteAllReportsAsync();
+await host.DefineReportsAsync([(6_000, [2, 10])]);
+await host.LinkEventsAsync([(1_001, [6_000])]);
+await host.EnableEventsAsync(enable: true, [1_001]);
+
+host.EventReportReceived += (_, e) =>
+    Console.WriteLine($"CEID {e.EventId}: {e.Reports[0].Values[0].FirstValueOrDefault<double>()}");
+
+var hcack = await host.SendCommandAsync("START", [("LOTID", "LOT-1")]);
+```
+
+**It is not a second state machine.** A host has no control state to defend, nothing to spool and
+no reports of its own, so there is no loop to run and nothing to configure but an identity. E30
+gives the *equipment* the duty of retrying until communications are established; a host decides
+when it wants to talk.
+
+**What it is, is the acknowledgement codes.** `HCACK` 4 means accepted and `HCACK` 1 means
+refused. `DRACK` 0, `LRACK` 0, `ERACK` 0, `PPGNT` 0 and `ACKC7` 0 all mean yes, and
+`GemOnlineAcknowledgement.AlreadyOnline` is not a failure. A host written against
+`reply.Item?.FirstValueOrDefault<byte>()` is one typo from treating a refusal as a success, and no
+test it writes will say so. Every method here returns the enum.
+
+**Every primary the equipment answers has a method**, and [a test asserts
+that](../../tests/Barbatos.SecsGem.Gem.UnitTests/GemHostTests.cs) rather than this paragraph
+claiming it: the equipment records what it is asked, the test calls every host method once, and
+the recorded set has to cover `HandledMessages`, `ProcessProgramMessages`,
+`FormattedProcessProgramMessages` and `SpoolMessages` together.
+
+| Reply | What you get back |
+| --- | --- |
+| An acknowledgement code | The enum - `GemDefineReportAcknowledgement`, `GemHostCommandAcknowledgement`, `ACKC7`, and the rest |
+| A shape E5 pins down | Decoded: `GemEquipmentIdentity`, `GemVariableDescription`, `GemConstantDescription`, `GemAlarmReport`, `GemFormattedProcessProgram`, a `DateTimeOffset`, a list of PPIDs |
+| Equipment data - S1F4, S2F14, S6F16, S6F20 | The `SecsMessage`, which **the caller disposes**. A typed wrapper over "whatever this machine calls a value" would be a guess with an API attached |
+
+What the machine says unprompted arrives as an event: `EventReportReceived` (S6F11 and S6F13),
+`AlarmReceived` (S5F1) and `ErrorReported` (stream 9). Each carries a settable acknowledgement,
+because whether a host could store what it was sent is the one decision about an inbound report
+that cannot be made for it.
+
+**Stream 9 is declared, and that matters.** An entity that has not declared stream 9 answers an
+incoming S9F5 with another S9F5, and the two ends then explain the problem to each other until
+something gives out. The hand-written host this replaced had that bug.
+
+One thing to know about the event arguments: the values in a report are a **view into the message
+that arrived**, and it is disposed the moment the handler returns. Read what you need inside the
+handler - the host sample does.
+
+`GemHost` covers the equipment side of this library and no more. A host that needs stream 3,
+stream 10 or stream 14 still has the connection it was built over: this is a layer over the link,
+not a wall in front of it.
+
 ## What is not here yet
 
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
 | The rest of stream 7 | Both halves E30 asks for are here: S7F1-S7F6 and S7F17-S7F20 unformatted, S7F23-S7F26 formatted. What is left - the directory pair S7F7/F8, verification S7F9/F10, the matrix messages S7F11 through S7F16, references S7F21/F22, and everything from S7F27 up - is outside the GEM capability, and every one of them is an entry [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) flags as representative: a starting point for reading E5 rather than a definition to implement against. Implementing one means reading the standard first, not copying a table |
-| A host-side GEM helper | E30 models the *equipment*. A host sends messages and reads replies, which the HSMS layer already does - see the host sample |
+| Streams this library does not implement at either end | Stream 3 material status, stream 10 terminal services, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |
 
 ## Documentation
 

@@ -8,7 +8,6 @@ using Barbatos.SecsGem;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
-using Barbatos.SecsGem.Samples.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -21,9 +20,10 @@ namespace Barbatos.SecsGem.Samples.Host;
 /// <para>Two ways to run it.</para>
 /// <para>
 /// With no arguments it runs <em>both</em> entities in one process over an in-memory transport -
-/// a real host connection, a real equipment connection and a real <see cref="GemEquipment"/> on
-/// top of it, with real timers and real encoded frames and no port. That is the version worth
-/// reading: the whole conversation is in one file and it either works or exits non-zero.
+/// a real host connection, a real equipment connection, a real <see cref="GemEquipment"/> and a
+/// real <see cref="GemHost"/>, with real timers and real encoded frames and no port. That is the
+/// version worth reading: the whole conversation is in one file and it either works or exits
+/// non-zero.
 /// </para>
 /// <code>dotnet run --project samples/Barbatos.SecsGem.Samples.Host</code>
 /// <para>With <c>--tcp</c> it connects to the equipment sample over a socket instead.</para>
@@ -31,6 +31,11 @@ namespace Barbatos.SecsGem.Samples.Host;
 /// dotnet run --project samples/Barbatos.SecsGem.Samples.Equipment
 /// dotnet run --project samples/Barbatos.SecsGem.Samples.Host -- --tcp
 /// </code>
+/// <para>
+/// Every message this host sends goes through <see cref="GemHost"/>, which is why there is no
+/// table of hand-built bodies here any more and why nothing in this file compares an
+/// acknowledgement byte against a literal.
+/// </para>
 /// </remarks>
 internal static class Program
 {
@@ -67,19 +72,27 @@ internal static class Program
             DefaultControlState = GemControlState.OnlineRemote,
         };
 
+        var hostOptions = new GemHostOptions
+        {
+            ModelName = "BRBTOS-HOST",
+            SoftwareRevision = "0.1.0",
+        };
+
         // Two transports wired to each other. Both halves are real pipes, so each connection sees
         // the same segmented reads it would see on a socket.
         var (active, passive) = InMemorySecsTransport.CreatePair();
 
-        // The cycle the GEM registration solves with a deferred factory, written out by hand
-        // because this sample has no container: the router needs the handlers, the handlers need
-        // the equipment, and the equipment needs the connection the router is being built for.
-        GemEquipment? pending = null;
+        // The cycle the registrations solve with a deferred factory, written out by hand twice
+        // because this sample has no container: a router needs its handlers, the handlers need the
+        // GEM object, and the GEM object needs the connection the router is being built for.
+        GemEquipment? pendingEquipment = null;
+        GemHost? pendingHost = null;
+
         var equipmentRoutes = new SecsMessageRouterBuilder();
 
         foreach (var (stream, function) in GemEquipment.HandledMessages)
         {
-            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pending!.HandleAsync(transaction, token));
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
         }
 
         // And the formatted half of stream 7, declared on its own because it is a capability of its
@@ -87,44 +100,59 @@ internal static class Program
         // leaves these out and answers S9F3 for stream 7, which is the honest answer.
         foreach (var (stream, function) in GemEquipment.FormattedProcessProgramMessages)
         {
-            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pending!.HandleAsync(transaction, token));
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
+        }
+
+        // The host's side of the same arrangement. S1F13, S1F1, S5F1, S6F11, S6F13 and stream 9 -
+        // everything a machine may send a host unprompted.
+        var hostRoutes = new SecsMessageRouterBuilder();
+
+        foreach (var (stream, function) in GemHost.HandledMessages)
+        {
+            hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingHost!.HandleAsync(transaction, token));
         }
 
         await using var equipmentLink = new HsmsConnection(options, passive, equipmentRoutes.Build());
-        await using var host = new HsmsConnection(options, active, HostRoutes().Build());
+        await using var hostLink = new HsmsConnection(options, active, hostRoutes.Build());
         await using var equipment = new GemEquipment(
             gemOptions,
             BuildModel(),
             equipmentLink,
             formattedProcessPrograms: new GemInMemoryFormattedProcessProgramStore());
-        pending = equipment;
+        await using var host = new GemHost(hostOptions, hostLink);
+
+        pendingEquipment = equipment;
+        pendingHost = host;
+
+        Subscribe(host);
 
         equipmentLink.StateChanged += (_, state) => Console.WriteLine($"   [equipment link] {state}");
-        host.StateChanged += (_, state) => Console.WriteLine($"   [host link]      {state}");
+        hostLink.StateChanged += (_, state) => Console.WriteLine($"   [host link]      {state}");
         equipment.CommunicationStateChanged += (_, state) => Console.WriteLine($"   [equipment comms]   {state}");
         equipment.ControlStateChanged += (_, state) => Console.WriteLine($"   [equipment control] {state}");
+        host.CommunicationStateChanged += (_, state) => Console.WriteLine($"   [host comms]        {state}");
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var running = Task.WhenAll(
-            host.RunAsync(cts.Token),
+            hostLink.RunAsync(cts.Token),
             equipmentLink.RunAsync(cts.Token),
             equipment.RunAsync(cts.Token));
 
         try
         {
-            await WaitUntilAsync(() => host.IsSelected && equipmentLink.IsSelected, "both ends to be selected");
+            await WaitUntilAsync(() => hostLink.IsSelected && equipmentLink.IsSelected, "both ends to be selected");
 
             // The equipment sends its own S1F13 as soon as the link is selected; the host answers
-            // it from the routing table below. This is the moment a selected link becomes a GEM
+            // it from its routing table. This is the moment a selected link becomes a GEM
             // conversation, and nothing may be reported before it.
             await WaitUntilAsync(() => equipment.IsCommunicating, "the equipment to establish communications");
 
-            var ok = await ConversationAsync(host, equipment, cts.Token);
+            var ok = await ConversationAsync(host, hostLink, equipment, cts.Token);
 
             Console.WriteLine();
             Console.WriteLine("-- decode paths --");
             Console.WriteLine();
-            Console.WriteLine($"   host      : {host.FastPathFrames} fast, {host.SlowPathFrames} slow");
+            Console.WriteLine($"   host      : {hostLink.FastPathFrames} fast, {hostLink.SlowPathFrames} slow");
             Console.WriteLine($"   equipment : {equipmentLink.FastPathFrames} fast, {equipmentLink.SlowPathFrames} slow");
             Console.WriteLine();
             Console.WriteLine(ok ? "OK" : "UNEXPECTED");
@@ -184,26 +212,29 @@ internal static class Program
                 options.LinkTestInterval = TimeSpan.FromSeconds(15);
             })
             .UseTcp()
-            .OnPrimary(1, 13, AcceptCommunicationsAsync)
-            .OnPrimary(6, 11, RecordEventReportAsync)
-            .OnPrimary(5, 1, RecordAlarmReportAsync)
-            .OnPrimary(9, 5, RecordErrorReportAsync)
-            .OnPrimary(9, 3, RecordErrorReportAsync);
+
+            // One call in place of the five OnPrimary lines this used to need, and it declares
+            // stream 9 as well - which the hand-written version did not, so an S9F7 from the
+            // machine used to be answered with an S9F5 about the S9F7.
+            .AddGemHost(configure: host => host.ModelName = "BRBTOS-HOST");
 
         await using var provider = services.BuildServiceProvider();
-        var host = provider.GetRequiredService<HsmsConnection>();
+        var link = provider.GetRequiredService<HsmsConnection>();
+        var host = provider.GetRequiredService<GemHost>();
+
+        Subscribe(host);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-        var running = host.RunAsync(cts.Token);
+        var running = link.RunAsync(cts.Token);
 
         try
         {
-            await WaitUntilAsync(() => host.IsSelected, "the equipment to select");
+            await WaitUntilAsync(() => link.IsSelected, "the equipment to select");
 
-            var ok = await ConversationAsync(host, equipment: null, cts.Token);
+            var ok = await ConversationAsync(host, link, equipment: null, cts.Token);
 
             Console.WriteLine();
-            Console.WriteLine($"   host: {host.FastPathFrames} fast, {host.SlowPathFrames} slow");
+            Console.WriteLine($"   host: {link.FastPathFrames} fast, {link.SlowPathFrames} slow");
             Console.WriteLine(ok ? "OK" : "UNEXPECTED");
 
             return ok ? 0 : 1;
@@ -217,9 +248,18 @@ internal static class Program
 
     // ------------------------------------------------------------------ the conversation
 
-    /// <summary>Establish, identify, read, configure reporting, command, and ask for something absent.</summary>
+    /// <summary>Establish, identify, read, configure reporting, command, send a recipe, and ask for something absent.</summary>
+    /// <param name="host">The GEM host. Everything this conversation sends goes through it.</param>
+    /// <param name="link">
+    /// The connection underneath. Needed for the one message at the end that <see cref="GemHost"/>
+    /// has no method for, which is the point of that part.
+    /// </param>
+    /// <param name="equipment">The loopback equipment, or null when talking to another process.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether every answer was the one expected.</returns>
     private static async Task<bool> ConversationAsync(
-        HsmsConnection host,
+        GemHost host,
+        HsmsConnection link,
         GemEquipment? equipment,
         CancellationToken cancellationToken)
     {
@@ -231,101 +271,69 @@ internal static class Program
 
         // S1F13 from this side too. The equipment has already established from its end, so this is
         // the second half of a handshake that E30 lets either side start.
-        using (var request = SampleMessages.EstablishCommunications())
-        using (var reply = await host.SendAsync(request, cancellationToken))
+        var commack = await host.EstablishCommunicationsAsync(cancellationToken);
+        Console.WriteLine($"   S1F13 -> COMMACK={commack}");
+        ok &= commack == GemCommunicationAcknowledgement.Accepted;
+
+        // Null is not a failure: E30 has off-line equipment answer S1F1 with a zero-length list
+        // rather than its identity, which is how a host learns the machine is alive but not
+        // available without asking a second question.
+        var identity = await host.AreYouThereAsync(cancellationToken);
+        Console.WriteLine($"   S1F1  -> {identity?.ToString() ?? "a zero-length list: the machine is off-line"}");
+        ok &= identity is not null;
+
+        using (var status = await host.ReadStatusAsync([ControlStateVariable, PressureVariable], cancellationToken))
         {
-            var commack = reply.Item?[0].FirstValueOrDefault<byte>();
-            var model = reply.Item?[1][0].GetString()?.Trim();
-            Console.WriteLine($"   S1F13 -> {reply}: COMMACK={commack}, MDLN={model}");
-            ok &= commack == 0;
+            // One of the four replies whose body only the equipment knows the shape of, so it
+            // arrives as the message and this sample disposes it. Position two is the second thing
+            // asked for, because E5 answers an unknown identifier with a zero-length item in its
+            // place rather than by leaving it out.
+            var state = status.Item![0].FirstValueOrDefault<byte>();
+            var pressure = status.Item[1].FirstValueOrDefault<double>();
+
+            Console.WriteLine($"   S1F3  -> CONTROLSTATE={state}, PRESSURE={pressure:F2}");
+            ok &= status.Item.Count == 2;
         }
 
-        using (var request = SampleMessages.AreYouThere())
-        using (var reply = await host.SendAsync(request, cancellationToken))
-        {
-            Console.WriteLine($"   S1F1  -> {reply}: {reply.Item}");
-            ok &= reply is { S: 1, F: 2 } && reply.Item?.Count == 2;
-        }
-
-        // S1F3: read the status variables by identifier.
-        using (var request = new SecsMessage(1, 3, replyExpected: true)
-        {
-            Name = "SelectedEquipmentStatusRequest",
-            Item = SecsItem.L(SecsItem.U4(ControlStateVariable), SecsItem.U4(PressureVariable)),
-        })
-        using (var reply = await host.SendAsync(request, cancellationToken))
-        {
-            Console.WriteLine($"   S1F3  -> {reply}: {reply.Item}");
-            ok &= reply.Item?.Count == 2;
-        }
+        // And a namelist, which has a shape E5 pins down - so it arrives decoded, and an
+        // identifier the machine does not have says so rather than coming back as a blank.
+        var namelist = await host.ReadStatusNamelistAsync([PressureVariable, 999], cancellationToken);
+        Console.WriteLine($"   S1F11 -> {string.Join("; ", namelist.Select(v => v.Exists ? v.ToString() : $"{v.Id} is not one of mine"))}");
+        ok &= namelist.Count == 2;
 
         Console.WriteLine();
         Console.WriteLine("-- and configures its own reporting --");
         Console.WriteLine();
 
-        // S2F33: the host defines the report it wants, rather than taking whatever the equipment
-        // happens to offer. This is the part of GEM that makes equipment usable by a host nobody
-        // wrote it for.
-        using (var request = new SecsMessage(2, 33, replyExpected: true)
-        {
-            Name = "DefineReport",
-            Item = SecsItem.L(
-                SecsItem.U4(1u),
-                SecsItem.L(SecsItem.L(
-                    SecsItem.U4(HostReport),
-                    SecsItem.L(SecsItem.U4(PressureVariable), SecsItem.U4(LotIdVariable))))),
-        })
-        using (var reply = await host.SendAsync(request, cancellationToken))
-        {
-            var drack = reply.Item?.FirstValueOrDefault<byte>();
-            Console.WriteLine($"   S2F33 -> {reply}: DRACK={drack}");
-            ok &= drack == 0;
-        }
+        // The host defines the report it wants rather than taking whatever the equipment happens to
+        // offer. This is the part of GEM that makes equipment usable by a host nobody wrote it for.
+        var drack = await host.DefineReportsAsync([(HostReport, [PressureVariable, LotIdVariable])], cancellationToken);
+        Console.WriteLine($"   S2F33 -> DRACK={drack}");
+        ok &= drack == GemDefineReportAcknowledgement.Accepted;
 
-        // S2F35: and says which event it belongs to.
-        using (var request = new SecsMessage(2, 35, replyExpected: true)
-        {
-            Name = "LinkEventReport",
-            Item = SecsItem.L(
-                SecsItem.U4(1u),
-                SecsItem.L(SecsItem.L(
-                    SecsItem.U4(ProcessEndEvent),
-                    SecsItem.L(SecsItem.U4(HostReport))))),
-        })
-        using (var reply = await host.SendAsync(request, cancellationToken))
-        {
-            var lrack = reply.Item?.FirstValueOrDefault<byte>();
-            Console.WriteLine($"   S2F35 -> {reply}: LRACK={lrack}");
-            ok &= lrack == 0;
-        }
+        var lrack = await host.LinkEventsAsync([(ProcessEndEvent, [HostReport])], cancellationToken);
+        Console.WriteLine($"   S2F35 -> LRACK={lrack}");
+        ok &= lrack == GemLinkReportAcknowledgement.Accepted;
 
-        // S2F37: and turns it on.
-        using (var request = new SecsMessage(2, 37, replyExpected: true)
-        {
-            Name = "EnableDisableEventReport",
-            Item = SecsItem.L(SecsItem.Boolean(true), SecsItem.L(SecsItem.U4(ProcessEndEvent))),
-        })
-        using (var reply = await host.SendAsync(request, cancellationToken))
-        {
-            var erack = reply.Item?.FirstValueOrDefault<byte>();
-            Console.WriteLine($"   S2F37 -> {reply}: ERACK={erack}");
-            ok &= erack == 0;
-        }
+        var erack = await host.EnableEventsAsync(true, [ProcessEndEvent], cancellationToken);
+        Console.WriteLine($"   S2F37 -> ERACK={erack}");
+        ok &= erack == GemEnableEventAcknowledgement.Accepted;
 
         Console.WriteLine();
         Console.WriteLine("-- then tells the equipment to do something --");
         Console.WriteLine();
 
-        using (var request = SampleMessages.HostCommand("START", ("LOTID", "LOT-2026-1115"), ("PPID", "RECIPE-7")))
-        using (var reply = await host.SendAsync(request, cancellationToken))
-        {
-            var hcack = reply.Item?[0].FirstValueOrDefault<byte>();
-            Console.WriteLine($"   S2F41 -> {reply}: HCACK={hcack}");
+        var hcack = await host.SendCommandAsync(
+            "START",
+            [("LOTID", "LOT-2026-1115"), ("PPID", "RECIPE-7")],
+            cancellationToken);
 
-            // 0 is "done" and 4 is "accepted, completion will be a collection event". Both are
-            // success; anything else is not.
-            ok &= hcack is 0 or 4;
-        }
+        Console.WriteLine($"   S2F41 -> HCACK={hcack}");
+
+        // Accepted is "done" and CompletionLater is "accepted, completion will be a collection
+        // event". Both are success, which is the fact a host reading the raw byte is one typo away
+        // from getting backwards.
+        ok &= hcack is GemHostCommandAcknowledgement.Accepted or GemHostCommandAcknowledgement.CompletionLater;
 
         if (equipment is not null)
         {
@@ -349,60 +357,41 @@ internal static class Program
         Console.WriteLine("-- and sends a recipe the standard gives a shape to --");
         Console.WriteLine();
 
-        // S7F23. A formatted process program is PPID, the model and revision it was written for,
-        // and a list of CCODE commands each with its own parameters - structure E5 defines, where
-        // S7F3 carries a block of bytes whose meaning is private between this host and this
-        // machine. The equipment reads it, so it can refuse one it cannot represent instead of
-        // storing something else and reporting success.
-        using (var request = new SecsMessage(7, 23, replyExpected: true)
-        {
-            Name = "FormattedProcessProgramSend",
-            Item = SecsItem.L(
-                SecsItem.A("RECIPE-7").Named("PPID"),
-                SecsItem.A("BRBTOS-1").Named("MDLN"),
-                SecsItem.A("0.1.0").Named("SOFTREV"),
-                SecsItem.L(
-                    SecsItem.L(
-                        SecsItem.U1(12).Named("CCODE"),
-                        SecsItem.L(SecsItem.A("SETPOINT"), SecsItem.A("350.0"))),
-                    SecsItem.L(
-                        SecsItem.U1(13).Named("CCODE"),
-                        SecsItem.L(SecsItem.A("RAMP"), SecsItem.A("5.0"))))),
-        })
-        using (var reply = await host.SendAsync(request, cancellationToken))
-        {
-            var ackc7 = reply.Item?.FirstValueOrDefault<byte>();
-            Console.WriteLine($"   S7F23 -> {reply}: ACKC7={ackc7}");
-            ok &= ackc7 == 0;
-        }
+        // A formatted process program is PPID, the model and revision it was written for, and a
+        // list of CCODE commands - structure E5 defines, where S7F3 carries a block of bytes whose
+        // meaning is private between this host and this machine.
+        var recipe = new GemFormattedProcessProgram(
+            "RECIPE-7",
+            "BRBTOS-1",
+            "0.1.0",
+            [
+                new(12, ["SETPOINT", "350.0"]),
+                new(13, ["RAMP", "5.0"]),
+            ]);
 
-        // S7F25 reads it back, and S7F26 is the same four items again. "No such program" would be
-        // a zero-length list: S7F26 has no acknowledgement code to carry a refusal.
-        using (var request = new SecsMessage(7, 25, replyExpected: true)
-        {
-            Name = "FormattedProcessProgramRequest",
-            Item = SecsItem.A("RECIPE-7").Named("PPID"),
-        })
-        using (var reply = await host.SendAsync(request, cancellationToken))
-        {
-            var commands = reply.Item is { Count: 4 } body ? body[3].Count : 0;
-            Console.WriteLine($"   S7F25 -> {reply}: {commands} command(s)");
-            ok &= commands == 2;
-        }
+        var ackc7 = await host.SendFormattedProcessProgramAsync(recipe, cancellationToken);
+        Console.WriteLine($"   S7F23 -> ACKC7={ackc7}");
+        ok &= ackc7 == GemProcessProgramAcknowledgement.Accepted;
 
-        // Stream 3 is not in the routing table at all, so the equipment answers S9F3 rather than
-        // leaving the host to wait out T3. Posted with W=0, because an S9 is what comes back
-        // instead of a secondary.
+        var back = await host.RequestFormattedProcessProgramAsync("RECIPE-7", cancellationToken);
+        Console.WriteLine($"   S7F25 -> {back?.ToString() ?? "no such program"}");
+        ok &= back?.Commands.Count == 2;
+
         Console.WriteLine();
         Console.WriteLine("-- and asks for a stream that is not there --");
         Console.WriteLine();
 
-        // S3, not S7. The equipment sample now calls AddGemProcessPrograms, so stream 7 is a thing
-        // it answers - which is the point of that call, and is also exactly how this probe stopped
-        // working when it was added. Material status is a stream neither mode implements.
+        // The one message here that goes to the connection rather than through GemHost, because
+        // GemHost covers what the equipment side of this library implements and stream 3 is not
+        // part of that. A host that needs a message outside the set still has the link: the helper
+        // is a layer over it, not a wall in front of it.
+        //
+        // Material status, not stream 7: the equipment sample answers stream 7 now, and this probe
+        // stopped working the day it started. Stream 3 is one neither mode implements. Posted with
+        // W=0, because an S9 is what comes back instead of a secondary.
         using (var absent = new SecsMessage(3, 1, replyExpected: false) { Item = SecsItem.U4(1u) })
         {
-            await host.PostAsync(absent, cancellationToken);
+            await link.PostAsync(absent, cancellationToken);
         }
 
         await WaitUntilAsync(() => !ErrorReports.IsEmpty, "an error report to come back");
@@ -415,88 +404,49 @@ internal static class Program
         return ok;
     }
 
-    private static SecsMessageRouterBuilder HostRoutes() => new SecsMessageRouterBuilder()
-        .OnPrimary(1, 13, AcceptCommunicationsAsync)
-        .OnPrimary(6, 11, RecordEventReportAsync)
-        .OnPrimary(5, 1, RecordAlarmReportAsync)
-        .OnPrimary(9, 5, RecordErrorReportAsync)
-        .OnPrimary(9, 3, RecordErrorReportAsync);
-
-    /// <summary>Answers the equipment's S1F13, which is how a host agrees to talk.</summary>
-    private static async ValueTask AcceptCommunicationsAsync(
-        SecsTransaction transaction,
-        CancellationToken cancellationToken)
+    /// <summary>Wires the three things a machine may say unprompted into the queues above.</summary>
+    /// <param name="host">The host.</param>
+    /// <remarks>
+    /// Three event handlers in place of three routing-table entries that each had to parse a body
+    /// and build an acknowledgement. The acknowledgement is still this host's decision - every one
+    /// of these event arguments carries a settable code - but the default is the right one and the
+    /// parsing is done.
+    /// </remarks>
+    private static void Subscribe(GemHost host)
     {
-        using var reply = new SecsMessage(1, 14, replyExpected: false)
+        host.EventReportReceived += (_, e) =>
         {
-            Name = "EstablishCommunicationsRequestAcknowledge",
-            Item = SecsItem.L(
-                SecsItem.B(0).Named("COMMACK"),
-                SecsItem.L(SecsItem.A("HOST", 6), SecsItem.A("0.1.0"))),
+            var values = 0;
+
+            foreach (var report in e.Reports)
+            {
+                values += report.Values.Count;
+            }
+
+            Reports.Enqueue($"S6F11 arrived: CEID={e.EventId}, {e.Reports.Count} report(s), {values} value(s)");
         };
 
-        await transaction.ReplyAsync(reply, cancellationToken);
-    }
+        host.AlarmReceived += (_, e) => Reports.Enqueue($"S5F1 arrived: {e.Alarm}");
 
-    /// <summary>Records an event report and acknowledges it.</summary>
-    private static async ValueTask RecordEventReportAsync(
-        SecsTransaction transaction,
-        CancellationToken cancellationToken)
-    {
-        var body = transaction.Message.Item;
-        var ceid = body is { Count: 3 } ? body[1].FirstValueOrDefault<uint>() : 0u;
-        var reports = body is { Count: 3 } ? body[2].Count : 0;
-
-        Reports.Enqueue($"S6F11 arrived: CEID={ceid}, {reports} report(s) -> {body}");
-
-        if (transaction.ReplyExpected)
+        host.ErrorReported += (_, e) =>
         {
-            using var reply = new SecsMessage(6, 12, replyExpected: false) { Item = SecsItem.B(0).Named("ACKC6") };
-            await transaction.ReplyAsync(reply, cancellationToken);
-        }
-    }
+            // Barbatos.SecsGem.Catalog earning its place. Without it this line reads
+            // "S9F3 came back: S7F1 is not implemented", which is correct and makes you go and
+            // look both of them up.
+            var offending = "an unknown message";
 
-    /// <summary>Records an alarm report and acknowledges it.</summary>
-    private static async ValueTask RecordAlarmReportAsync(
-        SecsTransaction transaction,
-        CancellationToken cancellationToken)
-    {
-        var body = transaction.Message.Item;
+            if (e.OffendingHeader.Length == MessageHeader.Length)
+            {
+                var header = MessageHeader.Parse(e.OffendingHeader.Span);
+                offending = SecsCatalog.Describe(header.Stream, header.Function);
+            }
+            else if (e.Description.Length > 0)
+            {
+                offending = e.Description;
+            }
 
-        if (body is { Count: 3 })
-        {
-            var set = (body[0].FirstValueOrDefault<byte>() & 0x80) != 0;
-            Reports.Enqueue($"S5F1 arrived: ALID={body[1].FirstValueOrDefault<uint>()} {(set ? "SET" : "CLEARED")} - {body[2].GetString()}");
-        }
-
-        if (transaction.ReplyExpected)
-        {
-            using var reply = new SecsMessage(5, 2, replyExpected: false) { Item = SecsItem.B(0).Named("ACKC5") };
-            await transaction.ReplyAsync(reply, cancellationToken);
-        }
-    }
-
-    /// <summary>Records an incoming Stream 9 report, decoding the MHEAD it points at.</summary>
-    private static ValueTask RecordErrorReportAsync(SecsTransaction transaction, CancellationToken cancellationToken)
-    {
-        var body = transaction.Message.Item;
-        var mhead = body is null ? default : body.GetSpan<byte>();
-
-        // Barbatos.SecsGem.Catalog earning its place. Without it this line reads
-        // "S9F3 came back: S7F1 [0x7B2D347A] is not implemented", which is correct and makes you
-        // go and look both of them up.
-        var offending = "an unknown message";
-
-        if (mhead.Length == MessageHeader.Length)
-        {
-            var header = MessageHeader.Parse(mhead);
-            offending = SecsCatalog.Describe(header.Stream, header.Function);
-        }
-
-        ErrorReports.Enqueue(
-            $"{SecsCatalog.Describe(transaction.S, transaction.F)} came back: {offending} is not implemented");
-
-        return ValueTask.CompletedTask;
+            ErrorReports.Enqueue($"{SecsCatalog.Describe(9, e.Function)} came back: {offending} is not implemented");
+        };
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, string what)

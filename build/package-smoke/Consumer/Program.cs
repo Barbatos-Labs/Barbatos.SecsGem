@@ -74,6 +74,7 @@ internal static class Program
         await Run("generator: the analyzer package wrote a contract", GeneratedContractAsync).ConfigureAwait(false);
         await Run("catalog: the embedded table came out of the package", CatalogAsync).ConfigureAwait(false);
         await Run("gem + hsms: the container resolves the equipment", GemResolvesAsync).ConfigureAwait(false);
+        await Run("gem: the host side resolves on a builder of its own", GemHostResolvesAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -323,5 +324,38 @@ internal static class Program
         Assert(read is not null, "the formatted store lost the program it had just accepted");
         Assert(read!.Commands.Count == 1, $"the program came back with {read.Commands.Count} command(s)");
         Assert(read.Commands[0].Code == 12, $"CCODE came back as {read.Commands[0].Code}");
+    }
+
+    /// <summary>
+    /// The host half of the GEM package, which needs a container of its own.
+    /// </summary>
+    /// <remarks>
+    /// Not the same <c>ServiceCollection</c> as the check above, and that is the point: both sides
+    /// declare S1F1 and S1F13, the routing table refuses a pair twice, and one process answering as
+    /// both ends of one link is not a thing E30 describes. Two connections means two builders.
+    /// </remarks>
+    private static async Task GemHostResolvesAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddGemHost(configure: options => options.ModelName = "SMOKE-HOST");
+
+        await using var provider = services.BuildServiceProvider();
+
+        var host = provider.GetRequiredService<GemHost>();
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(!host.IsCommunicating, "a host that has not established communications says it has");
+        Assert(GemHost.HandledMessages.Count > 0, "the host declares no messages");
+
+        foreach (var (stream, function) in GemHost.HandledMessages)
+        {
+            Assert(
+                router.TryGetHandler(stream, function, out _),
+                $"the router has no handler for S{stream}F{function}, so AddGemHost did not declare it");
+        }
     }
 }
