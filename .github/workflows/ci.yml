@@ -36,6 +36,25 @@ jobs:
       - name: Test
         run: dotnet test Barbatos.SecsGem.slnx -c Release --no-build
 
+      # Packed on both legs, not just Windows: `dotnet pack` is part of what can break, and it
+      # breaking only on Linux is exactly the kind of thing a Windows-only pack step would ship.
+      # The feed directory is the one build/package-smoke/nuget.config names.
       - name: Pack
+        run: dotnet pack Barbatos.SecsGem.slnx -c Release --no-build -o artifacts/smoke-feed
+
+      # ProjectReference answers "does the code work". This answers "do the packages work", which
+      # is a different question and the one a consumer asks. It restores the .nupkg files just
+      # packed into a project outside this solution and runs it on all three runtimes - the only
+      # check that sees lib/ layout, declared dependencies, embedded resources, and whether the
+      # compiler loads the generator out of analyzers/dotnet/cs.
+      - name: Package smoke test
+        shell: pwsh
+        run: ./build/package-smoke/verify-packages.ps1 -SkipPack
+
+      - name: Upload packages
         if: matrix.os == 'windows-latest'
-        run: dotnet pack Barbatos.SecsGem.slnx -c Release --no-build -o artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/smoke-feed/*.*pkg
+          if-no-files-found: error

@@ -1,0 +1,8 @@
+<!-- Deliberately empty, and it has to stay here.
+
+     MSBuild walks up from the project directory until it finds a Directory.Build.props, so
+     without this file the consumer would inherit the repository's own: central package
+     management, $(BarbatosTargetFrameworks), the analyzer set, the strong-name gate. It would
+     then be a project inside this repository that happens to use PackageReference, which proves
+     nothing. A consumer has to look like somebody else's project. -->
+<Project />

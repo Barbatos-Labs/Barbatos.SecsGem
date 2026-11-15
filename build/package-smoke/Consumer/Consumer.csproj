@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>PackageSmokeTest</RootNamespace>
+    <AssemblyName>PackageSmokeTest</AssemblyName>
+    <!-- A warning a consumer sees is the point of this project, so none of them are allowed to
+         scroll past. NU1603 and NU1701 in particular are how a wrong dependency range or a wrong
+         target framework in a shipped package announces itself. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Supplied by verify-packages.ps1, which reads it from Directory.Build.props so that the
+         version is stated in exactly one place in the repository. -->
+    <BarbatosVersion Condition="'$(BarbatosVersion)' == ''">0.1.0</BarbatosVersion>
+  </PropertyGroup>
+
+  <ItemGroup Label="Everything this repository ships, as a consumer gets it">
+    <!-- The metapackage, which is how Core + Hsms + Sml arrive in one reference. -->
+    <PackageReference Include="Barbatos.SecsGem" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.Serialization.Json" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.Serialization.Xml" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.Serialization.Ini" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.Mapper" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.Catalog" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.Gem" Version="$(BarbatosVersion)" />
+    <!-- No PrivateAssets: the assembly travels under analyzers/dotnet/cs, and whether the
+         compiler actually picks it up from there is one of the things being tested. -->
+    <PackageReference Include="Barbatos.SecsGem.SourceGenerators" Version="$(BarbatosVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Label="What the packages do not bring, and should not">
+    <!-- The stack depends on DependencyInjection.Abstractions. The container itself is the
+         application's choice, which is why this line is here and not in any .nuspec. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15" />
+  </ItemGroup>
+
+</Project>

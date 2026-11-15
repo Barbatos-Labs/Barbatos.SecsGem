@@ -12,7 +12,7 @@ src/Shared/   compile-linked source, not a package: the serialization hub regist
 samples/      equipment (passive), host (active), transcode CLI, shared
 tests/        one xUnit project per package + IntegrationTests
 benchmarks/   BenchmarkDotNet
-build/        package icons, strong-name key (git-ignored)
+build/        package icons, strong-name key (git-ignored), the package smoke test
 assets/       SML/JSON conformance fixtures
 ```
 
@@ -55,6 +55,17 @@ dotnet test tests/Barbatos.SecsGem.Core.UnitTests -f net10.0
 ```
 
 Run one target framework at a time.
+
+After touching a `.csproj`, `Directory.Build.*`, `Directory.Packages.props` or anything else that
+changes what gets packed:
+
+```
+pwsh build/package-smoke/verify-packages.ps1
+```
+
+It packs, then builds a consumer against the `.nupkg` files. A `ProjectReference` build resolves
+assemblies from `bin/` and cannot see a packaging mistake - both found so far were invisible to the
+whole test suite.
 
 ## Documentation is part of the change
 

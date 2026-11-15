@@ -1,0 +1,3 @@
+<!-- Empty for the same reason as Directory.Build.props beside it: Directory.Build.targets is
+     found by its own walk up the tree, so shielding one does not shield the other. -->
+<Project />

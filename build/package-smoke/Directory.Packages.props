@@ -1,0 +1,10 @@
+<!-- Central package management is found by its own walk up the tree as well. A consumer pins its
+     own versions in its own project file, so turn it off rather than inherit the repository's
+     Directory.Packages.props. -->
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+</Project>

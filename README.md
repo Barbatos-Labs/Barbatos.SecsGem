@@ -61,6 +61,11 @@ services.AddSecsGem(builder.Configuration)
 services.AddSecsSml().AddSecsJson().AddSecsXml().AddSecsIni().AddSecsMapper();
 ```
 
+`services` there belongs to a host builder, and `Microsoft.Extensions.Hosting` brings the container
+with it. A console tool that builds its own `ServiceCollection` references
+`Microsoft.Extensions.DependencyInjection` itself: every package here depends on the DI
+*abstractions* and never on a container - and `Barbatos.SecsGem.Core` depends on neither.
+
 Converting files needs none of the protocol stack:
 
 ```csharp
@@ -145,6 +150,7 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 7 | GEM (E30) equipment layer: both state models as actors, the standard message set, host-configured report definitions, alarms, remote commands gated on the control state. Brought `DeselectAsync` and container-resolved message handlers back into the HSMS package. | Done |
 | 8 | The deferred E30 messages - namelists, alarm listings, host-requested reports, and opt-in process program management (stream 7) - plus `Barbatos.SecsGem.Catalog`, the 524-message reference table. | Done |
 | 9 | Spooling: holding reports while the host is away, and handing them over - or throwing them away - when it asks with S6F23. | Done |
+| 10 | A consumer that restores the packed `.nupkg` files rather than the projects, on all three runtimes and both CI legs. The first check of `lib/` layout, declared dependencies, embedded resources, and whether the compiler loads the generator out of `analyzers/dotnet/cs`. | Done |
 
 ## Licence
 
