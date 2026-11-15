@@ -110,7 +110,11 @@ public static class GemServiceCollectionExtensions
             // GetService, not GetRequiredService: process programs are opt-in, and equipment that
             // does not manage them resolves null here and never declares stream 7. Order does not
             // matter - AddGemProcessPrograms may come before or after this call.
-            provider.GetService<IGemProcessProgramStore>()));
+            provider.GetService<IGemProcessProgramStore>(),
+
+            // Also GetService: spooling is opt-in the same way, and null here is what makes
+            // IsSpooling false and leaves S6F23 undeclared.
+            provider.GetService<IGemSpool>()));
 
         // Every GEM message, registered as a factory - and the equipment is resolved inside the
         // handler rather than inside the factory. That distinction is the whole game.
@@ -181,6 +185,66 @@ public static class GemServiceCollectionExtensions
 
         builder.Services.TryAddSingleton(store);
         return DeclareProcessPrograms(builder);
+    }
+
+    /// <summary>Adds spooling, backed by a bounded in-memory spool sized from the options.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// Uses <see cref="GemOptions.SpoolCapacity"/> and <see cref="GemOptions.SpoolOverflow"/>.
+    /// Nothing here is durable: equipment that must hold reports across its own restart wants an
+    /// <see cref="IGemSpool"/> over a file or a database.
+    /// </remarks>
+    public static ISecsGemBuilder AddGemSpooling(this ISecsGemBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton<IGemSpool>(provider =>
+        {
+            var options = provider.GetRequiredService<IOptions<GemOptions>>().Value;
+            return new GemInMemorySpool(options.SpoolCapacity, options.SpoolOverflow);
+        });
+
+        return DeclareSpooling(builder);
+    }
+
+    /// <summary>Adds spooling, backed by a spool of your own.</summary>
+    /// <typeparam name="TSpool">The spool.</typeparam>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    public static ISecsGemBuilder AddGemSpooling<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TSpool>(
+        this ISecsGemBuilder builder)
+        where TSpool : class, IGemSpool
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton<IGemSpool, TSpool>();
+        return DeclareSpooling(builder);
+    }
+
+    /// <summary>Adds spooling, backed by a spool you have already built.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="spool">The spool.</param>
+    /// <returns>The builder, for chaining.</returns>
+    public static ISecsGemBuilder AddGemSpooling(this ISecsGemBuilder builder, IGemSpool spool)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(spool);
+
+        builder.Services.TryAddSingleton(spool);
+        return DeclareSpooling(builder);
+    }
+
+    private static ISecsGemBuilder DeclareSpooling(ISecsGemBuilder builder)
+    {
+        foreach (var (stream, function) in GemEquipment.SpoolMessages)
+        {
+            builder.OnPrimary(stream, function, static provider =>
+                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
+        }
+
+        return builder;
     }
 
     private static ISecsGemBuilder DeclareProcessPrograms(ISecsGemBuilder builder)

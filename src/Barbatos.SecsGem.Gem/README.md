@@ -184,6 +184,68 @@ while the chamber was out of range.
 **S6F15 answers a disabled event.** S2F37 governs what the equipment sends on its own; a host
 asking directly has already said it wants this one now.
 
+## Holding reports for a host that is not there
+
+A machine does not stop while the host is away. Spooling is E30's answer: hold what could not be
+delivered, and let the host decide what to do with it.
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => { /* ... */ })
+    .AddGemSpooling()                            // bounded, in memory
+    .RunAsHostedService();
+```
+
+```csharp
+equipment.SpoolState;            // Inactive, Active, Full
+equipment.SpoolCountActual;      // held now
+equipment.SpoolCountTotal;       // held since spooling became active
+equipment.SpoolCountDiscarded;   // lost because it was full
+equipment.SpoolStartTime;        // how much history is on offer
+```
+
+Those five are E30's spool status variables, and wiring them as SVIDs is a line each - the
+numbering is yours.
+
+**It never pushes the backlog.** When communication returns, the equipment waits. The host sends
+**S6F23** with RSDC 0 to ask for the spooled data or RSDC 1 to throw it away, and the equipment
+answers S6F24. A host that has just come up may not want an hour of history, and that is its call
+to make rather than something it has done to it.
+
+Three things in here are decisions worth knowing:
+
+**A held report carries the values from when the event happened.** The spool holds an *encoded*
+message, not a note to go and read the variables later:
+
+```csharp
+_pressure = 500;
+await equipment.TriggerEventAsync(ProcessEnd);   // held, at 500
+_pressure = 1200;                                // the machine moves on
+// ... the host returns, asks with S6F23, and receives 500
+```
+
+A report timestamped an hour ago carrying today's pressure is worse than no report at all.
+Encoding at spool time also hands the pooled buffers straight back, which matters when a thousand
+reports are waiting for a host that returns in an hour.
+
+**`TriggerEventAsync` still returns `false` for a held report.** Nothing reached the host, so
+saying it had would be a lie. `SpoolCountActual` is what distinguishes kept from dropped. An event
+the host *disabled* is never held - putting it in the spool would only deliver it later, which is
+not what disabling it meant.
+
+**A full spool keeps the oldest by default.** A host replaying a backlog wants the beginning of
+what it missed: the first events after the link dropped are the ones that explain the rest.
+`GemSpoolOverflowPolicy.DiscardOldest` is there for equipment where the latest value matters more
+than the history.
+
+`MaxSpoolTransmit` caps one burst. Without it, a thousand transactions land the moment a link
+recovers, which is how equipment knocks over the host that was waiting for it.
+
+Equipment that never calls `AddGemSpooling` does not spool and answers S9F5 for S6F23 - "I do not
+do that", which is a different answer from RSDA 1 and a more useful one for a host deciding whether
+to wait.
+
 ## Recipes, if the machine has any
 
 Stream 7 moves process programs - recipes - onto the machine and off it. It is **opt-in**, and that
@@ -293,7 +355,7 @@ gate, because a host asking for off-line has to be answered with the state its r
 
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
-| Spooling (E30 §spooling) | A whole subsystem: durable storage, an overflow policy, S6F23 purge, and a conversation about what happens when the disk fills |
+| A durable spool | Spooling is here, and the spool that ships with it is in memory. Holding reports across the equipment's own restart means an `IGemSpool` over a file or a database - E30 does not require durability and this one does not pretend to it |
 | The rest of stream 7 | The five unformatted pairs are here. The matrix messages (S7F11 through S7F16), verification (S7F9/F10) and formatted programs (S7F23/F24) are not |
 | A host-side GEM helper | E30 models the *equipment*. A host sends messages and reads replies, which the HSMS layer already does - see the host sample |
 

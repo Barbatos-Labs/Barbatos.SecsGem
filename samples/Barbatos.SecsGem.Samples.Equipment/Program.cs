@@ -167,6 +167,11 @@ internal static class Program
             // answer for a machine that does not hold recipes. Real equipment supplies its own
             // IGemProcessProgramStore over whatever it already persists.
             .AddGemProcessPrograms()
+
+            // Spooling, bounded in memory. Reports raised while no host is listening are held, and
+            // handed over only when the host asks with S6F23 - it may also tell the equipment to
+            // throw them away, which is a decision a host that has just come up is entitled to.
+            .AddGemSpooling()
             .RunAsHostedService();
 
         builder.Services.AddHostedService<ChamberRunner>();

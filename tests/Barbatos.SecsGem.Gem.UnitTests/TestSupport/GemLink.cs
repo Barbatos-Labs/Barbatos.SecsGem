@@ -88,7 +88,8 @@ internal sealed class GemLink : IAsyncDisposable
     public static GemLink Start(
         Action<GemEquipmentModelBuilder>? model = null,
         Action<GemOptions>? configure = null,
-        IGemProcessProgramStore? programs = null)
+        IGemProcessProgramStore? programs = null,
+        IGemSpool? spool = null)
     {
         var linkOptions = new SecsGemOptions
         {
@@ -123,9 +124,19 @@ internal sealed class GemLink : IAsyncDisposable
         GemEquipment? equipment = null;
         var routes = new SecsMessageRouterBuilder();
 
-        var declared = programs is null
-            ? GemEquipment.HandledMessages
-            : [.. GemEquipment.HandledMessages, .. GemEquipment.ProcessProgramMessages];
+        // Declared exactly the way AddGemEquipment and its opt-in companions declare it, so a test
+        // sees the same S9F3 and S9F5 behaviour an application would.
+        List<(byte Stream, byte Function)> declared = [.. GemEquipment.HandledMessages];
+
+        if (programs is not null)
+        {
+            declared.AddRange(GemEquipment.ProcessProgramMessages);
+        }
+
+        if (spool is not null)
+        {
+            declared.AddRange(GemEquipment.SpoolMessages);
+        }
 
         foreach (var (stream, function) in declared)
         {
@@ -133,7 +144,7 @@ internal sealed class GemLink : IAsyncDisposable
         }
 
         var connection = new HsmsConnection(linkOptions, transport, routes.Build(), clock);
-        equipment = new GemEquipment(gemOptions, builder.Build(), connection, clock, logger: null, programs);
+        equipment = new GemEquipment(gemOptions, builder.Build(), connection, clock, logger: null, programs, spool);
 
         return new GemLink(transport, connection, equipment, linkOptions, gemOptions, clock);
     }

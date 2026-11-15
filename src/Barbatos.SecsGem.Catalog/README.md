@@ -94,6 +94,19 @@ refreshing the data cannot quietly put the error back.
 That ratio is the useful number to carry away: on the part that could be checked against working
 code, the source was 97% right. Good enough to index E5 with; not good enough to implement from.
 
+### One entry disagrees and is left alone
+
+S6F23 and S6F24 are the spooling pair. The reference flags both as a representative subset and
+gives S6F23's body as `DATAID`, with `RSDC` listed as `U2`. E30 has S6F23 carry `RSDC` - 0 to
+transmit the spooled data, 1 to purge it - and `RSDA` comes back in S6F24.
+
+`Barbatos.SecsGem.Gem` implements the E30 reading, and the catalogue still says what the reference
+says. The difference from the S6F11 case is evidence: there, the whole GEM flow working end to end
+against a host proved the direction, and the correction rests on something. Here there is only my
+reading of E30 against theirs, and silently rewriting their data on that basis would make the
+catalogue look more authoritative than it is. The GEM layer reads RSDC in any numeric format for
+the same reason.
+
 ### 74 names appear in bodies with no dictionary entry
 
 `ACKC2`, `RIACK`, `PRACK` and 71 others are named by a message body and not defined anywhere in the

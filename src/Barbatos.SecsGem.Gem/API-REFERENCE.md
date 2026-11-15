@@ -340,6 +340,114 @@ handler; do not keep one past the call, and do not dispose one.
 
 ---
 
+## Spooling
+
+Opt-in. Without `AddGemSpooling`, S6F23 is not in the routing table and the connection answers S9F5
+for it.
+
+### On `GemEquipment`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `SpoolMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | Just S6F23. Separate from `HandledMessages` so equipment that does not spool answers S9F5 rather than RSDA 1. |
+| `IsSpooling` | `bool { get; }` | A spool is configured **and** `GemOptions.SpoolingEnabled` is set. |
+| `SpoolState` | `GemSpoolState { get; }` | |
+| `SpoolCountActual` | `int { get; }` | Held and not yet transmitted. E30's SpoolCountActual. |
+| `SpoolCountTotal` | `int { get; }` | Held since spooling last became active. Successful holds only. |
+| `SpoolCountDiscarded` | `int { get; }` | Lost because the spool was full. E30 leaves this to be inferred; counting it saves a host doing arithmetic to find out whether it missed anything. |
+| `SpoolStartTime` | `DateTimeOffset? { get; }` | When spooling became active, or `null`. |
+| `SpoolFullTime` | `DateTimeOffset? { get; }` | When the spool last filled up, or `null`. |
+
+`SpoolState` and `SpoolCountActual` change together, in the same step - so a host reading both never
+sees a spool that is empty and active at once.
+
+### `GemSpoolState`
+
+`public enum GemSpoolState` - `Inactive`, `Active`, `Full`.
+
+`Full` means the last attempt to hold a message was refused, or something had to be dropped to make
+room. Defined that way rather than as "the count reached the capacity", because capacity belongs to
+the `IGemSpool` and a custom one need not have a number to compare against.
+
+### `GemSpoolOverflowPolicy`
+
+`public enum GemSpoolOverflowPolicy`
+
+| Member | Behaviour |
+| --- | --- |
+| `DiscardNewest` | Refuse the new message, keep what is held. The default. |
+| `DiscardOldest` | Drop the oldest to make room. |
+
+### `GemSpooledDataRequest` / `GemSpooledDataAcknowledgement`
+
+S6F23 RSDC: `Transmit` 0, `Purge` 1. S6F24 RSDA: `Accepted` 0, `Denied` 1.
+
+RSDC is read in any numeric format. `Barbatos.SecsGem.Catalog` flags S6F23 as a representative
+subset and gives its body as `DATAID` with RSDC as `U2`, while E30 says `U1` - so being strict about
+the width would mean failing against a host built from the other reading. RSDA is written as `B`,
+like every other acknowledgement code in this layer.
+
+### `GemSpooledMessage`
+
+`public sealed class GemSpooledMessage`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemSpooledMessage(byte stream, byte function, bool replyExpected, ReadOnlyMemory<byte> body, DateTimeOffset spooledAt, string? name = null)` | |
+| `Stream` / `Function` / `ReplyExpected` / `Name` | | |
+| `Body` | `ReadOnlyMemory<byte> { get; }` | The **encoded** item tree. Empty for a message with no body. |
+| `SpooledAt` | `DateTimeOffset { get; }` | |
+| `From` | `static GemSpooledMessage From(SecsMessage message, DateTimeOffset spooledAt)` | Encodes. Does not consume the message. |
+| `ToMessage` | `SecsMessage ToMessage()` | Decodes. **The caller owns the result.** |
+
+The body is bytes rather than a live item tree for two reasons: a message above the pooled
+threshold holds rented memory, and a thousand of them waiting for a host that returns in an hour
+would pin a thousand buffers out of `ArrayPool` for that hour - and bytes are what a durable spool
+needs anyway.
+
+### `IGemSpool`
+
+| Member | Signature |
+| --- | --- |
+| `CountAsync` | `ValueTask<int> CountAsync(CancellationToken cancellationToken)` |
+| `TryAppendAsync` | `ValueTask<bool> TryAppendAsync(GemSpooledMessage message, CancellationToken cancellationToken)` |
+| `TryPeekAsync` | `ValueTask<GemSpooledMessage?> TryPeekAsync(CancellationToken cancellationToken)` |
+| `RemoveHeadAsync` | `ValueTask<bool> RemoveHeadAsync(CancellationToken cancellationToken)` |
+| `PurgeAsync` | `ValueTask PurgeAsync(CancellationToken cancellationToken)` |
+
+Taking is two steps - peek, then remove - rather than one dequeue. A transmit that fails half way
+must leave the rest spooled **in order**, and a dequeue that has to put something back puts it at
+the wrong end.
+
+### `GemInMemorySpool`
+
+`public sealed class GemInMemorySpool : IGemSpool`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemInMemorySpool(int capacity = 1000, GemSpoolOverflowPolicy overflow = DiscardNewest)` | Throws `ArgumentOutOfRangeException` for a capacity below 1: a spool that holds nothing is a slower way of dropping the message. |
+| `Capacity` / `Overflow` | | |
+| `Discarded` | `int { get; }` | |
+
+Bounded, and never grows past its capacity - the only honest way to hold data for a host that may
+never come back. Not durable.
+
+### `AddGemSpooling`
+
+```csharp
+public static ISecsGemBuilder AddGemSpooling(this ISecsGemBuilder builder)
+public static ISecsGemBuilder AddGemSpooling<TSpool>(this ISecsGemBuilder builder)
+    where TSpool : class, IGemSpool
+public static ISecsGemBuilder AddGemSpooling(this ISecsGemBuilder builder, IGemSpool spool)
+```
+
+The parameterless overload builds a `GemInMemorySpool` from `GemOptions.SpoolCapacity` and
+`GemOptions.SpoolOverflow`. Registering a spool is the switch; `SpoolingEnabled` is the
+configuration override, and defaults to `true` because having registered one the sensible thing is
+to use it.
+
+---
+
 ## Process programs
 
 Everything here is opt-in. Without `AddGemProcessPrograms`, stream 7 is not in the routing table
@@ -453,6 +561,10 @@ truthiness rather than for zero has it exactly backwards.
 | `AlarmReportsExpectReply` | `bool { get; set; }` | `true` | |
 | `AcceptHostClockSet` | `bool { get; set; }` | `true` | Moves an internal offset, never the operating system clock. |
 | `ResetLinkStateOnDisconnect` | `bool { get; set; }` | `true` | Report definitions do not survive a reconnection. |
+| `SpoolingEnabled` | `bool { get; set; }` | `true` | The configuration override, not the switch - registering an `IGemSpool` is what turns spooling on. |
+| `SpoolCapacity` | `int { get; set; }` | `1000` | Sizes the default in-memory spool. Must be at least 1 when spooling is enabled. |
+| `SpoolOverflow` | `GemSpoolOverflowPolicy { get; set; }` | `DiscardNewest` | |
+| `MaxSpoolTransmit` | `int { get; set; }` | `0`, meaning all of them | E30's MaxSpoolTransmit: how many messages one S6F23 transmit sends. |
 
 ### `GemOptionsValidator`
 

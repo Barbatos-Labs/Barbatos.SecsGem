@@ -53,6 +53,7 @@ public sealed class GemEquipment : IAsyncDisposable
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly IGemProcessProgramStore? _programs;
+    private readonly IGemSpool? _spool;
     private readonly Channel<LinkEvent> _events =
         Channel.CreateUnbounded<LinkEvent>(new UnboundedChannelOptions { SingleReader = true });
 
@@ -61,6 +62,13 @@ public sealed class GemEquipment : IAsyncDisposable
     // Which alarms are in alarm right now, as opposed to which are allowed to report. S5F6 has to
     // answer the first question and S5F3 configures the second, so they cannot be the same set.
     private readonly ConcurrentDictionary<ulong, byte> _active = new();
+
+    private GemSpoolState _spoolState;
+    private int _spoolActual;
+    private int _spoolTotal;
+    private int _spoolDiscarded;
+    private DateTimeOffset? _spoolStart;
+    private DateTimeOffset? _spoolFull;
 
     private GemCommunicationState _communication;
     private GemControlState _control;
@@ -80,13 +88,19 @@ public sealed class GemEquipment : IAsyncDisposable
     /// Where process programs are kept. <see langword="null"/> means this equipment does not manage
     /// them, and stream 7 is not answered at all - see <see cref="ProcessProgramMessages"/>.
     /// </param>
+    /// <param name="spool">
+    /// Where reports wait for an absent host. <see langword="null"/>, or
+    /// <see cref="GemOptions.SpoolingEnabled"/> left off, means a report that cannot be delivered is
+    /// logged and dropped - see <see cref="SpoolMessages"/>.
+    /// </param>
     public GemEquipment(
         GemOptions options,
         GemEquipmentModel model,
         HsmsConnection connection,
         TimeProvider? timeProvider = null,
         ILogger<GemEquipment>? logger = null,
-        IGemProcessProgramStore? processPrograms = null)
+        IGemProcessProgramStore? processPrograms = null,
+        IGemSpool? spool = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         Model = model ?? throw new ArgumentNullException(nameof(model));
@@ -94,6 +108,7 @@ public sealed class GemEquipment : IAsyncDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger<GemEquipment>.Instance;
         _programs = processPrograms;
+        _spool = spool;
 
         _communication = options.CommunicationEnabled
             ? GemCommunicationState.WaitingToRetry
@@ -154,6 +169,18 @@ public sealed class GemEquipment : IAsyncDisposable
         (7, 19),   // Current EPPD Request
     ];
 
+    /// <summary>The spooling messages, answered only when a spool is configured and enabled.</summary>
+    /// <remarks>
+    /// Separate from <see cref="HandledMessages"/> for the same reason stream 7 is: spooling is a
+    /// capability E30 has equipment declare, and equipment that does not spool should answer S9F5
+    /// for S6F23 rather than RSDA 1. "I do not do that" and "no, not now" are different answers to
+    /// a host deciding whether to wait.
+    /// </remarks>
+    public static IReadOnlyList<(byte Stream, byte Function)> SpoolMessages { get; } =
+    [
+        (6, 23),   // Request Spooled Data
+    ];
+
     /// <summary>Raised after the communication state changes.</summary>
     public event EventHandler<GemCommunicationStateChangedEventArgs>? CommunicationStateChanged;
 
@@ -185,6 +212,40 @@ public sealed class GemEquipment : IAsyncDisposable
     /// quiet while the chamber was out of range.
     /// </remarks>
     public bool IsAlarmSet(ulong alarmId) => _active.ContainsKey(alarmId);
+
+    /// <summary>Gets a value indicating whether this equipment holds reports for an absent host.</summary>
+    public bool IsSpooling => _spool is not null && _options.SpoolingEnabled;
+
+    /// <summary>Gets the spooling state.</summary>
+    /// <remarks>
+    /// <see cref="GemSpoolState.Full"/> means the last attempt to hold a message was refused, or
+    /// something had to be dropped to make room. It is defined that way rather than as "the count
+    /// reached the capacity" because capacity belongs to the <see cref="IGemSpool"/>, and a custom
+    /// one need not have a number to compare against.
+    /// </remarks>
+    public GemSpoolState SpoolState => _spoolState;
+
+    /// <summary>Gets how many messages are held and not yet transmitted.</summary>
+    /// <remarks>E30's SpoolCountActual, as this object has counted it.</remarks>
+    public int SpoolCountActual => Volatile.Read(ref _spoolActual);
+
+    /// <summary>Gets how many messages have been held since spooling last became active.</summary>
+    /// <remarks>E30's SpoolCountTotal. Successful holds only; refusals are <see cref="SpoolCountDiscarded"/>.</remarks>
+    public int SpoolCountTotal => Volatile.Read(ref _spoolTotal);
+
+    /// <summary>Gets how many messages were lost because the spool was full.</summary>
+    /// <remarks>
+    /// E30 leaves this to be inferred from the difference between total and actual. Counting it
+    /// outright is cheaper than asking a host to do arithmetic to find out whether it missed
+    /// anything.
+    /// </remarks>
+    public int SpoolCountDiscarded => Volatile.Read(ref _spoolDiscarded);
+
+    /// <summary>Gets when spooling last became active, or <see langword="null"/> when it is not.</summary>
+    public DateTimeOffset? SpoolStartTime => _spoolStart;
+
+    /// <summary>Gets when the spool last filled up, or <see langword="null"/> when it has not.</summary>
+    public DateTimeOffset? SpoolFullTime => _spoolFull;
 
     /// <summary>Gets the time this equipment reports, including any offset a host has set.</summary>
     /// <remarks>
@@ -238,6 +299,10 @@ public sealed class GemEquipment : IAsyncDisposable
                         OnCommunicating("S1F13 from the host");
                         break;
 
+                    case LinkEvent.TransmitSpool:
+                        await TransmitSpoolAsync(cancellationToken).ConfigureAwait(false);
+                        break;
+
                     default:
                         break;
                 }
@@ -259,21 +324,46 @@ public sealed class GemEquipment : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the send.</param>
     /// <returns><see langword="true"/> when a report went out.</returns>
     /// <remarks>
+    /// <para>
     /// Returns <see langword="false"/> rather than throwing when the event is disabled, unknown, or
     /// the link is not communicating. Every one of those is a normal condition - a host that has
     /// disabled an event has said it does not want it - and an exception would make ordinary
     /// operation look like a fault.
+    /// </para>
+    /// <para>
+    /// <see langword="false"/> means nothing reached the host, and with spooling on it may still
+    /// have been <em>kept</em>: a report held for an absent host has not gone out, so saying it had
+    /// would be a lie. <see cref="SpoolCountActual"/> is what distinguishes kept from dropped. An
+    /// event the host disabled is never spooled, because holding it would only deliver it later.
+    /// </para>
     /// </remarks>
     public async ValueTask<bool> TriggerEventAsync(uint eventId, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (!IsCommunicating || !Model.Events.ContainsKey(eventId) || !Model.IsEventEnabled(eventId))
+        if (!Model.Events.ContainsKey(eventId) || !Model.IsEventEnabled(eventId))
+        {
+            // Unknown, or the host has said it does not want it. Never spooled either way: holding
+            // a report the host disabled would only deliver it later.
+            return false;
+        }
+
+        if (!IsCommunicating && !IsSpooling)
         {
             return false;
         }
 
+        // Built now whichever way this goes, because the values belong to the moment the event
+        // happened. A spool that read them when a host finally came back would report the chamber
+        // as it is now and date it an hour ago.
         using var message = BuildEventReport(eventId);
+
+        if (!IsCommunicating)
+        {
+            await SpoolAsync(message, cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
         await SendReportAsync(message, cancellationToken).ConfigureAwait(false);
         return true;
     }
@@ -374,6 +464,7 @@ public sealed class GemEquipment : IAsyncDisposable
             (7, 5) => await OnProgramRequestAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 17) => await OnProgramDeleteAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 19) => await OnProgramListAsync(cancellationToken).ConfigureAwait(false),
+            (6, 23) => await OnRequestSpooledDataAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             _ => null,
         };
 
@@ -1302,6 +1393,204 @@ public sealed class GemEquipment : IAsyncDisposable
         ? alarm.Text[..GemOptions.MaxAlarmTextLength]
         : alarm.Text;
 
+    // ----------------------------------------------------------------- spooling
+
+    private async ValueTask<SecsMessage?> OnRequestSpooledDataAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_spool is null)
+        {
+            return null;
+        }
+
+        var acknowledgement = GemSpooledDataAcknowledgement.Denied;
+
+        // RSDC is read tolerantly, like every other numeric field here. It matters more than usual
+        // for this one: the reference table in Barbatos.SecsGem.Catalog flags S6F23 as a
+        // representative subset and gives its body as DATAID, which is not what E30 says, so a
+        // host built from one reading or the other should still be understood.
+        if (request.Item is { } item && TryReadId(item, out var command))
+        {
+            switch (command)
+            {
+                case (ulong)GemSpooledDataRequest.Purge:
+                    await _spool.PurgeAsync(cancellationToken).ConfigureAwait(false);
+                    OnSpoolEmptied("the host purged the spool");
+                    acknowledgement = GemSpooledDataAcknowledgement.Accepted;
+                    break;
+
+                case (ulong)GemSpooledDataRequest.Transmit when SpoolCountActual > 0:
+                    // Acknowledged now, transmitted later. Sending a thousand messages inside this
+                    // handler would hold the dispatch loop - and this very transaction - open well
+                    // past T3, so the work goes to this object's own loop.
+                    _events.Writer.TryWrite(LinkEvent.TransmitSpool);
+                    acknowledgement = GemSpooledDataAcknowledgement.Accepted;
+                    break;
+
+                default:
+                    // Transmit with nothing spooled, or a command E30 does not define. RSDA 1.
+                    break;
+            }
+        }
+
+        return new SecsMessage(6, 24, replyExpected: false)
+        {
+            Name = "RequestSpooledDataAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("RSDA"),
+        };
+    }
+
+    /// <summary>Holds a message that could not be delivered. Does nothing when spooling is off.</summary>
+    private async ValueTask<bool> SpoolAsync(SecsMessage message, CancellationToken cancellationToken)
+    {
+        if (!IsSpooling)
+        {
+            return false;
+        }
+
+        var now = _timeProvider.GetUtcNow();
+
+        if (_spoolState == GemSpoolState.Inactive)
+        {
+            // A new spooling episode, so the counters start again. E30's SpoolStartTime is what a
+            // host uses to work out how much history it is being offered.
+            _spoolStart = now;
+            Volatile.Write(ref _spoolTotal, 0);
+            Volatile.Write(ref _spoolDiscarded, 0);
+        }
+
+        var before = SpoolCountActual;
+        var accepted = await _spool!
+            .TryAppendAsync(GemSpooledMessage.From(message, now), cancellationToken)
+            .ConfigureAwait(false);
+
+        // The spool's own count rather than an increment of ours. Under DiscardOldest an append
+        // succeeds while something else is dropped, so counting our own calls would drift from
+        // what is actually held - and SpoolCountActual is a number a host acts on.
+        var after = await _spool.CountAsync(cancellationToken).ConfigureAwait(false);
+        Volatile.Write(ref _spoolActual, after);
+
+        if (accepted)
+        {
+            Interlocked.Increment(ref _spoolTotal);
+        }
+
+        if (!accepted || after <= before)
+        {
+            Interlocked.Increment(ref _spoolDiscarded);
+            SetSpoolState(GemSpoolState.Full, "the spool is full");
+        }
+        else
+        {
+            SetSpoolState(GemSpoolState.Active, "a message was spooled");
+        }
+
+        return accepted;
+    }
+
+    private async ValueTask TransmitSpoolAsync(CancellationToken cancellationToken)
+    {
+        if (_spool is null)
+        {
+            return;
+        }
+
+        var budget = _options.MaxSpoolTransmit <= 0 ? int.MaxValue : _options.MaxSpoolTransmit;
+        var sent = 0;
+
+        while (sent < budget && IsCommunicating)
+        {
+            var held = await _spool.TryPeekAsync(cancellationToken).ConfigureAwait(false);
+
+            if (held is null)
+            {
+                break;
+            }
+
+            using var message = held.ToMessage();
+
+            try
+            {
+                if (message.ReplyExpected)
+                {
+                    using var acknowledgement = await _connection
+                        .SendAsync(message, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    await _connection.PostAsync(message, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (SecsException ex)
+            {
+                // Peeked, not taken, so it is still at the head and still first. This is the whole
+                // reason IGemSpool separates peeking from removing: a transmit that fails half way
+                // must leave the rest in order, and a dequeue that has to put something back puts
+                // it at the wrong end.
+                _logger.LogWarning(
+                    ex,
+                    "Spool transmit stopped after {Sent} message(s); {Held} still held.",
+                    sent,
+                    SpoolCountActual);
+
+                return;
+            }
+
+            await _spool.RemoveHeadAsync(cancellationToken).ConfigureAwait(false);
+
+            var remaining = await _spool.CountAsync(cancellationToken).ConfigureAwait(false);
+            Volatile.Write(ref _spoolActual, remaining);
+
+            // The state follows the count immediately rather than after the loop. Otherwise the
+            // two disagree for as long as the last send takes - count zero, state Active - and
+            // anything watching both, a host reading status variables included, can see a spool
+            // that is empty and active at the same time.
+            if (remaining == 0)
+            {
+                OnSpoolEmptied("the spool was transmitted");
+            }
+
+            sent++;
+        }
+
+        if (SpoolCountActual > 0)
+        {
+            SetSpoolState(GemSpoolState.Active, "the spool was partly transmitted");
+        }
+
+        _logger.LogInformation(
+            "Transmitted {Sent} spooled message(s); {Held} still held.",
+            sent,
+            SpoolCountActual);
+    }
+
+    private void OnSpoolEmptied(string reason)
+    {
+        Volatile.Write(ref _spoolActual, 0);
+        _spoolStart = null;
+        SetSpoolState(GemSpoolState.Inactive, reason);
+    }
+
+    private void SetSpoolState(GemSpoolState state, string? reason)
+    {
+        if (_spoolState == state)
+        {
+            return;
+        }
+
+        if (state == GemSpoolState.Full)
+        {
+            _spoolFull = _timeProvider.GetUtcNow();
+        }
+
+        _logger.LogInformation("Spool state {Previous} -> {Current} ({Reason}).", _spoolState, state, reason);
+        _spoolState = state;
+    }
+
     // ----------------------------------------------------------------- outbound
 
     private async ValueTask<bool> AlarmAsync(ulong alarmId, bool set, CancellationToken cancellationToken)
@@ -1325,10 +1614,14 @@ public sealed class GemEquipment : IAsyncDisposable
             _active.TryRemove(alarmId, out _);
         }
 
-        if (!IsCommunicating)
+        if (!IsCommunicating && !IsSpooling)
         {
             return false;
         }
+
+        // Captured before anything is awaited, so the answer describes what this call did rather
+        // than what the link happened to be doing by the time it finished.
+        var delivered = IsCommunicating;
 
         if (Model.IsAlarmEnabled(alarmId))
         {
@@ -1345,7 +1638,14 @@ public sealed class GemEquipment : IAsyncDisposable
                     SecsItem.A(AlarmText(alarm)).Named("ALTX")),
             };
 
-            await SendReportAsync(message, cancellationToken).ConfigureAwait(false);
+            if (delivered)
+            {
+                await SendReportAsync(message, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await SpoolAsync(message, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         // The linked collection event is reported whether or not the alarm itself is enabled: they
@@ -1358,7 +1658,7 @@ public sealed class GemEquipment : IAsyncDisposable
             await TriggerEventAsync(linked, cancellationToken).ConfigureAwait(false);
         }
 
-        return true;
+        return delivered;
     }
 
     private SecsMessage BuildEventReport(uint eventId)
@@ -1427,8 +1727,15 @@ public sealed class GemEquipment : IAsyncDisposable
         {
             // A report that could not be delivered is not a reason to tear anything down. The
             // connection has its own view of whether the link is alive, and it is better informed
-            // than this object is.
-            _logger.LogWarning(ex, "S{S}F{F} could not be delivered.", message.S, message.F);
+            // than this object is. What this does decide is whether the report is kept.
+            if (await SpoolAsync(message, cancellationToken).ConfigureAwait(false))
+            {
+                _logger.LogWarning(ex, "S{S}F{F} could not be delivered; it was spooled.", message.S, message.F);
+            }
+            else
+            {
+                _logger.LogWarning(ex, "S{S}F{F} could not be delivered.", message.S, message.F);
+            }
         }
     }
 
@@ -1602,5 +1909,6 @@ public sealed class GemEquipment : IAsyncDisposable
         Deselected,
         RetryDue,
         HostEstablished,
+        TransmitSpool,
     }
 }

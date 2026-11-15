@@ -76,6 +76,40 @@ public sealed class GemOptions
     /// </remarks>
     public bool AcceptHostClockSet { get; set; } = true;
 
+    /// <summary>Gets or sets a value indicating whether the equipment holds reports for an absent host.</summary>
+    /// <remarks>
+    /// <para>
+    /// This is the configuration override, not the switch. Spooling happens only when an
+    /// <see cref="IGemSpool"/> is configured - <c>AddGemSpooling</c> - and equipment that never
+    /// calls it does not spool and does not answer S6F23, whatever this says. Having registered a
+    /// spool, the sensible default is to use it, so this defaults to <see langword="true"/>; set it
+    /// to <see langword="false"/> in <c>Barbatos:Gem</c> to turn a spooling build off without
+    /// rebuilding it.
+    /// </para>
+    /// <para>
+    /// Spooling off means a report that cannot be delivered is logged and dropped, which is the
+    /// right answer for most equipment: a report about something that happened an hour ago is
+    /// rarely worth acting on. Spooling on means the equipment holds what it could not send and
+    /// waits for the host to ask with S6F23. It never pushes the backlog unasked - the host decides
+    /// whether it wants an hour of history or a clean start.
+    /// </para>
+    /// </remarks>
+    public bool SpoolingEnabled { get; set; } = true;
+
+    /// <summary>Gets or sets how many messages the default spool will hold.</summary>
+    public int SpoolCapacity { get; set; } = 1_000;
+
+    /// <summary>Gets or sets what the default spool does when it is full.</summary>
+    public GemSpoolOverflowPolicy SpoolOverflow { get; set; } = GemSpoolOverflowPolicy.DiscardNewest;
+
+    /// <summary>Gets or sets how many messages one S6F23 transmit will send. Zero means all of them.</summary>
+    /// <remarks>
+    /// E30's MaxSpoolTransmit. A cap matters because the alternative is a thousand transactions
+    /// back to back the moment a link recovers, which is how a host that has just come up gets
+    /// knocked over by the equipment that was waiting for it.
+    /// </remarks>
+    public int MaxSpoolTransmit { get; set; }
+
     /// <summary>Gets or sets a value indicating whether the link going down resets the host's configuration.</summary>
     /// <remarks>
     /// On by default. A host that reconnects has no reason to believe its report definitions
@@ -122,6 +156,18 @@ public sealed class GemOptionsValidator : IValidateOptions<GemOptions>
             failures.Add(
                 $"{nameof(GemOptions.EstablishCommunicationsRetryInterval)} must be positive; "
                 + "a zero delay is a denial loop at the speed of the link.");
+        }
+
+        if (options.SpoolingEnabled && options.SpoolCapacity < 1)
+        {
+            failures.Add(
+                $"{nameof(GemOptions.SpoolCapacity)} must be at least 1 when spooling is enabled; "
+                + "a spool that holds nothing is a slower way of dropping the message.");
+        }
+
+        if (options.MaxSpoolTransmit < 0)
+        {
+            failures.Add($"{nameof(GemOptions.MaxSpoolTransmit)} must not be negative. Zero means all of them.");
         }
 
         if (options.DefaultControlState is GemControlState.AttemptOnline or GemControlState.HostOffline)
