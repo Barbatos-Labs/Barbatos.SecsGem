@@ -103,6 +103,12 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
         }
 
+        // And terminal services, so the host below can put something in front of an operator.
+        foreach (var (stream, function) in GemEquipment.TerminalMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
+        }
+
         // The host's side of the same arrangement. S1F13, S1F1, S5F1, S6F11, S6F13 and stream 9 -
         // everything a machine may send a host unprompted.
         var hostRoutes = new SecsMessageRouterBuilder();
@@ -118,7 +124,8 @@ internal static class Program
             gemOptions,
             BuildModel(),
             equipmentLink,
-            formattedProcessPrograms: new GemInMemoryFormattedProcessProgramStore());
+            formattedProcessPrograms: new GemInMemoryFormattedProcessProgramStore(),
+            terminal: new GemInMemoryTerminal());
         await using var host = new GemHost(hostOptions, hostLink);
 
         pendingEquipment = equipment;
@@ -378,6 +385,37 @@ internal static class Program
         ok &= back?.Commands.Count == 2;
 
         Console.WriteLine();
+        Console.WriteLine("-- and has a word with whoever is standing at the machine --");
+        Console.WriteLine();
+
+        // Accepted means the equipment took it for display, not that anybody has read it. The
+        // other two codes are worth telling apart: WillNotDisplay is a decision the machine made,
+        // TerminalNotAvailable is a fault, and only the second is worth retrying.
+        var display = await host.DisplayTerminalMessageAsync(
+            ["Lot LOT-2026-1115 is loaded.", string.Empty, "Press START when the cassette is seated."],
+            terminalId: 0,
+            cancellationToken);
+
+        Console.WriteLine($"   S10F5 -> ACKC10={display}");
+        ok &= display == GemTerminalAcknowledgement.Accepted;
+
+        if (equipment is not null)
+        {
+            // And back the other way. This is the one inbound message with a person waiting on the
+            // other end of it, which is why the host's handler gets to answer it rather than
+            // having an acknowledgement sent on its behalf.
+            var typed = await equipment.SendTerminalRequestAsync("cassette jammed in load port 2", 0, cancellationToken);
+
+            Console.WriteLine($"   S10F1 -> ACKC10={typed}");
+            ok &= typed == GemTerminalAcknowledgement.Accepted;
+
+            while (Reports.TryDequeue(out var report))
+            {
+                Console.WriteLine($"   {report}");
+            }
+        }
+
+        Console.WriteLine();
         Console.WriteLine("-- and asks for a stream that is not there --");
         Console.WriteLine();
 
@@ -427,6 +465,8 @@ internal static class Program
         };
 
         host.AlarmReceived += (_, e) => Reports.Enqueue($"S5F1 arrived: {e.Alarm}");
+
+        host.TerminalRequestReceived += (_, e) => Reports.Enqueue($"S10F1 arrived: {e}");
 
         host.ErrorReported += (_, e) =>
         {

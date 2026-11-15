@@ -54,6 +54,11 @@ public class HsmsDeselectTests
         await deselect;
         await link.WaitForStateAsync(HsmsConnectionState.Connected);
 
+        // Connected, Selected, Connected. Waiting for the state is not waiting for the event that
+        // reports it, and reading the list straight after is a race the full suite loses every few
+        // runs - see WaitForTransitionsAsync.
+        await link.WaitForTransitionsAsync(3);
+
         // "to the peer", not "from the peer". The two are different events and an operator reading
         // a log deserves to be told which one happened.
         var transition = Assert.Single(

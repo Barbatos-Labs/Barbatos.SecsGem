@@ -154,6 +154,7 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 11 | Formatted process programs (S7F23-S7F26): a recipe as the structure E5 defines rather than a block of bytes, refused rather than reshaped when it carries something this stack cannot represent. Completes the stream 7 that E30 asks for - what is left of the stream is outside the GEM capability and is flagged representative in the catalogue. | Done |
 | 12 | A spool that survives the equipment's own restart: one file per held message, committed with an atomic rename, written through to the disk. The equipment adopts what it finds, reports `SpoolStartTime` from the oldest message rather than from the restart, and stays up when the filesystem does not. | Done |
 | 13 | `GemHost`: the host side of every primary the equipment answers, with a test that asserts "every" rather than a comment claiming it. Acknowledgement codes come back as enums, replies E5 pins down come back decoded, and the host sample now drives the conversation through it instead of hand-building bodies. | Done |
+| 14 | Terminal services (stream 10), both ends: text in front of the operator and text back from them, behind a one-method `IGemTerminal`. Three acknowledgement codes a host can act on differently, and S10F1 deliberately not spooled. | Done |
 
 ## Licence
 

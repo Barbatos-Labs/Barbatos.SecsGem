@@ -35,6 +35,12 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
   - [`AddGemFileSpooling`](#addgemfilespooling)
   - [What the equipment does with a durable spool](#what-the-equipment-does-with-a-durable-spool)
   - [`AddGemSpooling`](#addgemspooling)
+- [Terminal services](#terminal-services)
+  - [`IGemTerminal`](#igemterminal)
+  - [`GemTerminalMessage`](#gemterminalmessage)
+  - [`GemTerminalAcknowledgement`](#gemterminalacknowledgement)
+  - [`GemInMemoryTerminal`](#geminmemoryterminal)
+  - [`AddGemTerminal`](#addgemterminal)
 - [Process programs](#process-programs)
   - [`IGemProcessProgramStore`](#igemprocessprogramstore)
   - [`GemInMemoryProcessProgramStore`](#geminmemoryprocessprogramstore)
@@ -81,6 +87,8 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The five unformatted stream 7 pairs - S7F1, S7F3, S7F5, and the S7F17/S7F19 both halves share - registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn. |
 | `FormattedProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F23 and S7F25, registered only when a formatted store is configured. Independent of `ProcessProgramMessages`, and disjoint from it: a stream and function may be declared only once. |
 | `SpoolMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S6F23, registered only when a spool is configured. Equipment that does not spool answers S9F5 rather than RSDA 1 - "I do not do that" and "no, not now" are different answers to a host deciding whether to wait. |
+| `TerminalMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S10F3, S10F5 and S10F9, registered only when a terminal is configured. Not S10F1, which the equipment sends; not S10F7, which the catalogue flags as representative and which ACKC10 2 already says. |
+| `SendTerminalRequestAsync` | `ValueTask<GemTerminalAcknowledgement?> SendTerminalRequestAsync(string text, byte terminalId = 0, CancellationToken cancellationToken = default)` | S10F1: something an operator typed. `null` when there was nobody to tell - **not spooled**, because a prompt for a person at the host is worthless an hour later. Needs no `IGemTerminal`. |
 | `RunAsync` | `Task RunAsync(CancellationToken cancellationToken = default)` | Drives the state models. Run it **alongside** `HsmsConnection.RunAsync`, not instead of it. Throws `InvalidOperationException` on a second call. |
 | `HandleAsync` | `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken cancellationToken = default)` | Handles one inbound primary. Wired to every pair in `HandledMessages`. |
 | `Model` | `GemEquipmentModel { get; }` | |
@@ -562,6 +570,83 @@ to use it.
 
 ---
 
+## Terminal services
+
+E30's stream 10 capability: text in front of whoever is standing at the machine, and text back
+from them. Opt-in - without `AddGemTerminal` the stream is not in the routing table and the
+connection answers S9F3 for it, which is the honest answer for equipment with no screen rather
+than ACKC10 2 for every message.
+
+### `IGemTerminal`
+
+`public interface IGemTerminal`
+
+| Member | Signature | Answers |
+| --- | --- | --- |
+| `DisplayAsync` | `ValueTask<GemTerminalAcknowledgement> DisplayAsync(GemTerminalMessage message, CancellationToken cancellationToken)` | S10F4, S10F6 or S10F10 |
+
+One method, because the whole content of this capability is outside the library: a terminal is a
+screen, a line on an HMI, a row in an operator's work queue, or a chime.
+
+It may be called from the connection's dispatch loop, so a slow one holds up every other message
+on the link. **An implementation that waits for a human has already got the wrong answer** - accept
+the message, return, and show it in your own time.
+
+The other direction is `GemEquipment.SendTerminalRequestAsync`, not a method here: the application
+initiates it, and nothing calls into an operator.
+
+### `GemTerminalMessage`
+
+`public sealed class GemTerminalMessage`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemTerminalMessage(byte terminalId, IReadOnlyList<string> lines, bool isBroadcast = false)` | Copies `lines`. Throws `ArgumentNullException` for a null list or a null block. |
+| `TerminalId` | `byte { get; }` | TID. Meaningless for a broadcast. |
+| `Lines` | `IReadOnlyList<string> { get; }` | The blocks, in order. One entry for a single-block message - a deliberate shape, since a terminal that lays out one line and one that lays out two are the same code. |
+| `IsBroadcast` | `bool { get; }` | S10F9: for every terminal. Equipment with one cannot tell the difference any other way. |
+
+Blocks are neither trimmed nor dropped when empty. TEXT is a variable-length field, so its spaces
+are somebody's rather than padding, and a blank line between two paragraphs is the layout.
+
+### `GemTerminalAcknowledgement`
+
+`public enum GemTerminalAcknowledgement : byte` - ACKC10.
+
+| Member | Value | Means |
+| --- | --- | --- |
+| `Accepted` | 0 | Taken for display. Not "somebody read it". |
+| `WillNotDisplay` | 1 | It arrived and will not be shown. A decision. |
+| `TerminalNotAvailable` | 2 | There is no such terminal, or it cannot be reached. A fault, and the only one of the three worth retrying. |
+
+### `GemInMemoryTerminal`
+
+`public sealed class GemInMemoryTerminal : IGemTerminal`
+
+| Member | Signature | Default |
+| --- | --- | --- |
+| `Capacity` | `int { get; set; }` | `64` messages; older ones are dropped |
+| `Acknowledgement` | `GemTerminalAcknowledgement { get; set; }` | `Accepted` - settable so a test can be a terminal that is switched off |
+| `Displayed` | `IReadOnlyCollection<GemTerminalMessage> { get; }` | Oldest first |
+
+Keeps what it was asked to display and shows it to nobody. Enough for a simulator, a test, or
+equipment whose operator interface is somewhere else and only needs the messages to arrive.
+
+### `AddGemTerminal`
+
+```csharp
+public static ISecsGemBuilder AddGemTerminal(this ISecsGemBuilder builder)
+public static ISecsGemBuilder AddGemTerminal<TTerminal>(this ISecsGemBuilder builder)
+    where TTerminal : class, IGemTerminal
+public static ISecsGemBuilder AddGemTerminal(this ISecsGemBuilder builder, IGemTerminal terminal)
+```
+
+Registers the terminal and, with it, `GemEquipment.TerminalMessages`. The parameterless overload
+uses `GemInMemoryTerminal`. Call it once: a second call registers the same pairs twice, which the
+routing table refuses.
+
+---
+
 ## Process programs
 
 Everything here is opt-in, and in two halves. Without `AddGemProcessPrograms` the unformatted
@@ -759,6 +844,9 @@ table claiming it.
 | `ListProcessProgramsAsync` | S7F19 | `IReadOnlyList<string>` |
 | `SendFormattedProcessProgramAsync(program)` | S7F23 | `GemProcessProgramAcknowledgement` |
 | `RequestFormattedProcessProgramAsync(id)` | S7F25 | `GemFormattedProcessProgram?` |
+| `DisplayTerminalMessageAsync(text, terminalId)` | S10F3 | `GemTerminalAcknowledgement` |
+| `DisplayTerminalMessageAsync(lines, terminalId)` | S10F5 | `GemTerminalAcknowledgement`. A one-entry list still sends the multi-block form |
+| `BroadcastAsync(text)` | S10F9 | `GemTerminalAcknowledgement`. No TID: a broadcast is for every terminal |
 
 A reply that does not carry the acknowledgement code E5 defines for it throws `SecsException`
 rather than coming back as a refusal. Every one of these enums has zero meaning accepted, so a
@@ -820,6 +908,7 @@ that message is disposed as soon as the event returns. Read what you need, or co
 | --- | --- | --- |
 | `GemEventReportEventArgs` | `DataId`, `EventId`, `Reports` | `Acknowledgement` (ACKC6) |
 | `GemHostAlarmEventArgs` | `Alarm` | `Acknowledgement` (ACKC5) |
+| `GemTerminalRequestEventArgs` | `TerminalId`, `Text` (not trimmed - TEXT is variable-length, so its spaces are somebody's) | `Acknowledgement` (ACKC10) |
 | `GemHostErrorEventArgs` | `Function`, `OffendingHeader` (ten bytes, copied; empty for S9F13), `Description` (S9F13's MEXP and EDID, else empty) | - |
 | `GemHostCommunicationStateChangedEventArgs` | `IsCommunicating`, `Reason` | - |
 

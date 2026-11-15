@@ -473,6 +473,57 @@ state, and the loser silently undid the winner. So the establish transition is *
 equipment's loop and applied there in order. Control transitions happen in the handler, under a
 gate, because a host asking for off-line has to be answered with the state its request produced.
 
+## A word with the operator
+
+Stream 10 puts text in front of whoever is standing at the machine, and brings text back from
+them. **Opt-in**, like the rest:
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => { /* ... */ })
+    .AddGemTerminal<ChamberHmi>()                // or AddGemTerminal() for the in-memory one
+    .RunAsHostedService();
+```
+
+| Message | The host is doing | Answered with |
+| --- | --- | --- |
+| S10F3 | Show this on terminal *n* | S10F4 (ACKC10) |
+| S10F5 | Show these blocks on terminal *n* | S10F6 (ACKC10) |
+| S10F9 | Show this on all of them | S10F10 (ACKC10) |
+
+The whole content of this capability is outside the library, so `IGemTerminal` is one method:
+
+```csharp
+public ValueTask<GemTerminalAcknowledgement> DisplayAsync(GemTerminalMessage message, CancellationToken ct)
+{
+    _hmi.Show(message.Lines, message.IsBroadcast);
+    return ValueTask.FromResult(GemTerminalAcknowledgement.Accepted);
+}
+```
+
+**It runs on the dispatch loop, so it must not wait for a human.** An implementation that blocks
+until somebody presses a key has stopped every other message on the link. Accept the message,
+return, and show it in your own time.
+
+**Three acknowledgement codes, and the difference is the host's to act on.** Accepted means taken
+for display, not read by anybody. `WillNotDisplay` is a decision the machine made.
+`TerminalNotAvailable` is a fault - and it is the only one of the three worth a host retrying.
+That is also why the capability is opt-in: equipment with no screen answers S9F3 for the stream,
+which is a fourth answer again, and the one that tells a host to stop asking.
+
+The other direction is a method rather than an interface, because the application starts it -
+nothing calls into an operator:
+
+```csharp
+var ackc10 = await equipment.SendTerminalRequestAsync("cassette jammed in load port 2");
+```
+
+`null` means there was nobody to tell. **It is not spooled**, and that is deliberate: a message
+from an operator is a prompt for a person at the host, and handing it over an hour later when both
+of them have gone home is worse than saying it did not go. Reports and alarms are spooled because
+a host reads those as history.
+
 ## The other end of the conversation
 
 E30 models the *equipment*, so everything above is the machine's side. `GemHost` is the host's:
@@ -544,7 +595,8 @@ not a wall in front of it.
 | --- | --- |
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
 | The rest of stream 7 | Both halves E30 asks for are here: S7F1-S7F6 and S7F17-S7F20 unformatted, S7F23-S7F26 formatted. What is left - the directory pair S7F7/F8, verification S7F9/F10, the matrix messages S7F11 through S7F16, references S7F21/F22, and everything from S7F27 up - is outside the GEM capability, and every one of them is an entry [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) flags as representative: a starting point for reading E5 rather than a definition to implement against. Implementing one means reading the standard first, not copying a table |
-| Streams this library does not implement at either end | Stream 3 material status, stream 10 terminal services, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |
+| Trace data collection, and limits monitoring | The two E30 data-collection capabilities still missing: S2F23 starts a trace and S6F1 reports it on an interval, and S2F45 attaches limits to a variable so the equipment reports crossing one rather than the host polling for it. Both are real fab features and both want a timer on `TimeProvider` and a definition store, which is the shape this layer already has twice |
+| Streams this library does not implement at either end | Stream 3 material status, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |
 
 ## Documentation
 

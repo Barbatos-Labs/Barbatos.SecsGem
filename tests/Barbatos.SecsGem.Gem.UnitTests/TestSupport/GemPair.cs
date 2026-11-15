@@ -98,7 +98,8 @@ internal sealed class GemPair : IAsyncDisposable
         Action<GemHostOptions>? host = null,
         IGemProcessProgramStore? programs = null,
         IGemFormattedProcessProgramStore? formatted = null,
-        IGemSpool? spool = null)
+        IGemSpool? spool = null,
+        IGemTerminal? terminal = null)
     {
         var options = new SecsGemOptions
         {
@@ -154,6 +155,11 @@ internal sealed class GemPair : IAsyncDisposable
             declared.AddRange(GemEquipment.SpoolMessages);
         }
 
+        if (terminal is not null)
+        {
+            declared.AddRange(GemEquipment.TerminalMessages);
+        }
+
         foreach (var (stream, function) in declared)
         {
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) =>
@@ -181,7 +187,8 @@ internal sealed class GemPair : IAsyncDisposable
             logger: null,
             programs,
             spool,
-            formatted);
+            formatted,
+            terminal);
 
         pendingHost = new GemHost(hostOptions, hostLink, clock);
 

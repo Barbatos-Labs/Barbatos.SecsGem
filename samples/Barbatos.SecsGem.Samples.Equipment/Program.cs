@@ -174,6 +174,13 @@ internal static class Program
             // Equipment may offer either half, both, or neither.
             .AddGemFormattedProcessPrograms()
 
+            // Terminal services: the host can put text in front of whoever is standing at the
+            // machine. GemInMemoryTerminal keeps the messages and shows them to nobody, which is
+            // all a sample can do - real equipment implements IGemTerminal over its HMI. Leave the
+            // line out and stream 10 answers S9F3, which is the honest answer for a machine with
+            // no screen rather than ACKC10 2 for every message.
+            .AddGemTerminal()
+
             // Spooling to a directory, bounded by SpoolCapacity. Reports raised while no host is
             // listening are held, and handed over only when the host asks with S6F23 - it may also
             // tell the equipment to throw them away, which is a decision a host that has just come

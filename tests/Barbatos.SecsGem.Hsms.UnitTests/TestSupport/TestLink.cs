@@ -205,6 +205,28 @@ internal sealed class TestLink : IAsyncDisposable
     public Task WaitForStateAsync(HsmsConnectionState state)
         => Frames.WaitUntilAsync(() => Connection.State == state, $"the connection to reach {state}");
 
+    /// <summary>Waits until the state-change event has reported at least this many transitions.</summary>
+    /// <param name="count">How many to wait for.</param>
+    /// <returns>A task that completes once they have been reported.</returns>
+    /// <remarks>
+    /// <para>
+    /// Waiting for a state is <strong>not</strong> waiting for the event that reports it. The
+    /// connection sets the state and then raises <c>StateChanged</c>, so a test that waits on
+    /// <see cref="WaitForStateAsync"/> and then reads <see cref="Transitions"/> is reading a list
+    /// that may still be one entry behind.
+    /// </para>
+    /// <para>
+    /// It is a race a test wins almost every time on an idle machine and loses every few runs of
+    /// the full suite, where twenty-four assemblies are running at once. Any assertion that a
+    /// transition <em>is</em> in the list wants this first; an assertion that one is not can only
+    /// be made weaker by the gap, not wrong.
+    /// </para>
+    /// </remarks>
+    public Task WaitForTransitionsAsync(int count)
+        => Frames.WaitUntilAsync(
+            () => Transitions.Count >= count,
+            $"{count} transition(s) to be reported");
+
     /// <summary>Walks the fake clock forward in small steps until something happens.</summary>
     /// <param name="step">How far to move per step. Keep it well under the timer being tested.</param>
     /// <param name="condition">What is being waited for.</param>

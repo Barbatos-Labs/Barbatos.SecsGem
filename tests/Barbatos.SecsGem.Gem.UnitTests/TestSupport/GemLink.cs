@@ -90,7 +90,8 @@ internal sealed class GemLink : IAsyncDisposable
         Action<GemOptions>? configure = null,
         IGemProcessProgramStore? programs = null,
         IGemSpool? spool = null,
-        IGemFormattedProcessProgramStore? formatted = null)
+        IGemFormattedProcessProgramStore? formatted = null,
+        IGemTerminal? terminal = null)
     {
         var linkOptions = new SecsGemOptions
         {
@@ -144,6 +145,11 @@ internal sealed class GemLink : IAsyncDisposable
             declared.AddRange(GemEquipment.FormattedProcessProgramMessages);
         }
 
+        if (terminal is not null)
+        {
+            declared.AddRange(GemEquipment.TerminalMessages);
+        }
+
         foreach (var (stream, function) in declared)
         {
             routes.OnPrimary(stream, function, (transaction, token) => equipment!.HandleAsync(transaction, token));
@@ -158,7 +164,8 @@ internal sealed class GemLink : IAsyncDisposable
             logger: null,
             programs,
             spool,
-            formatted);
+            formatted,
+            terminal);
 
         return new GemLink(transport, connection, equipment, linkOptions, gemOptions, clock);
     }

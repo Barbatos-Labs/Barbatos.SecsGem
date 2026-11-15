@@ -79,7 +79,8 @@ public class GemHostTests
             Model,
             programs: new GemInMemoryProcessProgramStore(),
             formatted: new GemInMemoryFormattedProcessProgramStore(),
-            spool: new GemInMemorySpool());
+            spool: new GemInMemorySpool(),
+            terminal: new GemInMemoryTerminal());
 
         await pair.OpenAsync();
 
@@ -120,6 +121,9 @@ public class GemHostTests
             new GemFormattedProcessProgram("SHAPED", "BRBTOS-1", "0.1.0", []),
             token);
         await host.RequestFormattedProcessProgramAsync("SHAPED", token);
+        await host.DisplayTerminalMessageAsync("one block", 0, token);
+        await host.DisplayTerminalMessageAsync(["two", "blocks"], 0, token);
+        await host.BroadcastAsync("everybody", token);
 
         List<(byte Stream, byte Function)> declared =
         [
@@ -127,6 +131,7 @@ public class GemHostTests
             .. GemEquipment.ProcessProgramMessages,
             .. GemEquipment.FormattedProcessProgramMessages,
             .. GemEquipment.SpoolMessages,
+            .. GemEquipment.TerminalMessages,
         ];
 
         var asked = pair.Asked.ToHashSet();
@@ -194,11 +199,16 @@ public class GemHostTests
 
         await pair.HostLink.DeselectAsync(GemPair.Token);
 
-        await GemPair.WaitUntilAsync(() => !pair.Host.IsCommunicating, "the host to stop communicating");
+        // Waiting for the event rather than for the property: the host sets IsCommunicating and
+        // then raises the change, so a wait on the property followed by a read of the list is a
+        // race - and unlike the spool's two properties, that order is the right one here. A
+        // notification after the fact is what a notification is.
+        await GemPair.WaitUntilAsync(() => states.Count > 0, "the host to report that it stopped communicating");
 
         // A selected link is a socket and communicating is an agreement, so the agreement cannot
         // outlive the socket it was made over.
-        Assert.Equal([false], states);
+        Assert.False(states[0]);
+        Assert.False(pair.Host.IsCommunicating);
     }
 
     // ----------------------------------------------------------------- stream 1

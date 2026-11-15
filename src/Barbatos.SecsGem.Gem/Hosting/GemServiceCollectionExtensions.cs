@@ -119,7 +119,11 @@ public static class GemServiceCollectionExtensions
             // The other half of stream 7, opt-in independently of the first: a formatted process
             // program is structure E5 defines where an unformatted one is a block of bytes, so
             // equipment may offer either, both, or neither.
-            provider.GetService<IGemFormattedProcessProgramStore>()));
+            provider.GetService<IGemFormattedProcessProgramStore>(),
+
+            // And the operator's terminal. Also GetService: a machine with no screen answers S9F3
+            // for stream 10, which is a different thing from refusing each message with ACKC10 2.
+            provider.GetService<IGemTerminal>()));
 
         // Every GEM message, registered as a factory - and the equipment is resolved inside the
         // handler rather than inside the factory. That distinction is the whole game.
@@ -411,6 +415,73 @@ public static class GemServiceCollectionExtensions
 
         builder.Services.TryAddSingleton(spool);
         return DeclareSpooling(builder);
+    }
+
+    /// <summary>Adds terminal services, backed by a terminal that only remembers.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// Uses <see cref="GemInMemoryTerminal"/>, which keeps the messages and shows them to nobody.
+    /// Enough for a simulator or for equipment whose operator interface is somewhere else; real
+    /// equipment implements <see cref="IGemTerminal"/> over whatever its operators look at.
+    /// </remarks>
+    public static ISecsGemBuilder AddGemTerminal(this ISecsGemBuilder builder)
+        => builder.AddGemTerminal<GemInMemoryTerminal>();
+
+    /// <summary>Adds terminal services, backed by a terminal of your own.</summary>
+    /// <typeparam name="TTerminal">The terminal.</typeparam>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// This is what declares stream 10 - S10F3, S10F5 and S10F9. Equipment that does not call it
+    /// answers S9F3 for the stream, which is the honest answer for a machine with no terminal
+    /// rather than ACKC10 2 for every message, since that one means the terminal exists and cannot
+    /// be reached.
+    /// </para>
+    /// <para>
+    /// The other direction needs nothing registered: <c>GemEquipment.SendTerminalRequestAsync</c>
+    /// sends S10F1 whether or not there is a terminal here, because that one is the application
+    /// speaking for an operator rather than the host speaking to one.
+    /// </para>
+    /// <para>
+    /// Call it once. A second call registers the same stream and function twice, which the routing
+    /// table refuses.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemTerminal<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TTerminal>(
+        this ISecsGemBuilder builder)
+        where TTerminal : class, IGemTerminal
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton<IGemTerminal, TTerminal>();
+        return DeclareTerminal(builder);
+    }
+
+    /// <summary>Adds terminal services, backed by a terminal you have already built.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="terminal">The terminal.</param>
+    /// <returns>The builder, for chaining.</returns>
+    public static ISecsGemBuilder AddGemTerminal(this ISecsGemBuilder builder, IGemTerminal terminal)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(terminal);
+
+        builder.Services.TryAddSingleton(terminal);
+        return DeclareTerminal(builder);
+    }
+
+    private static ISecsGemBuilder DeclareTerminal(ISecsGemBuilder builder)
+    {
+        foreach (var (stream, function) in GemEquipment.TerminalMessages)
+        {
+            builder.OnPrimary(stream, function, static provider =>
+                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
+        }
+
+        return builder;
     }
 
     private static ISecsGemBuilder DeclareSpooling(ISecsGemBuilder builder)

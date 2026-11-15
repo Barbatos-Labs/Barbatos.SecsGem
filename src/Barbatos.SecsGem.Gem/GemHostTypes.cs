@@ -311,6 +311,35 @@ public sealed class GemHostAlarmEventArgs : EventArgs
     public GemAlarmAcknowledgement Acknowledgement { get; set; } = GemAlarmAcknowledgement.Accepted;
 }
 
+/// <summary>Something an operator at the machine sent the host - S10F1.</summary>
+/// <remarks>
+/// The one inbound message with a person waiting on the other end of it. A handler that cannot
+/// deal with the text now should say so through <see cref="Acknowledgement"/>: accepting it and
+/// dropping it leaves somebody at a machine believing a host read what they typed.
+/// </remarks>
+public sealed class GemTerminalRequestEventArgs : EventArgs
+{
+    internal GemTerminalRequestEventArgs(byte terminalId, string text)
+    {
+        TerminalId = terminalId;
+        Text = text;
+    }
+
+    /// <summary>Gets the terminal it came from.</summary>
+    public byte TerminalId { get; }
+
+    /// <summary>Gets the text, as the operator wrote it.</summary>
+    /// <remarks>Not trimmed: TEXT is a variable-length field, so its spaces are somebody's and not padding.</remarks>
+    public string Text { get; }
+
+    /// <summary>Gets or sets the ACKC10 to answer with.</summary>
+    public GemTerminalAcknowledgement Acknowledgement { get; set; } = GemTerminalAcknowledgement.Accepted;
+
+    /// <summary>Returns where it came from and what it said.</summary>
+    /// <returns>For example <c>terminal 0: cassette jammed in load port 2</c>.</returns>
+    public override string ToString() => $"terminal {TerminalId}: {Text}";
+}
+
 /// <summary>An error report the equipment sent - stream 9.</summary>
 /// <remarks>
 /// A stream 9 message is the other end saying it could not make sense of something, and it never

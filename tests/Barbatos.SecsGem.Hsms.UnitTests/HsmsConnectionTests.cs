@@ -81,6 +81,12 @@ public sealed class HsmsConnectionTests
         await link.SelectAsync();
 
         Assert.True(link.Connection.IsSelected);
+
+        // Both of them reported, not just both of them reached: the connection sets the state and
+        // then raises the event, so this list can be one entry behind the state the assertion
+        // above just read.
+        await link.WaitForTransitionsAsync(2);
+
         Assert.Equal(
             new[] { HsmsConnectionState.Connected, HsmsConnectionState.Selected },
             link.Transitions.Select(transition => transition.Current).ToArray());

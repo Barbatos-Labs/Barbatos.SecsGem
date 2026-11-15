@@ -287,7 +287,8 @@ internal static class Program
             // can be registered together: they share S7F17 and S7F19, and a stream and function
             // may be declared only once, so an overlap would throw while the router was built.
             .AddGemProcessPrograms()
-            .AddGemFormattedProcessPrograms();
+            .AddGemFormattedProcessPrograms()
+            .AddGemTerminal();
 
         await using var provider = services.BuildServiceProvider();
 
@@ -305,6 +306,19 @@ internal static class Program
         Assert(
             router.TryGetHandler(7, 3, out _) && router.TryGetHandler(7, 23, out _),
             "the router is missing one half of stream 7, so an opt-in capability did not declare its messages");
+
+        Assert(
+            router.TryGetHandler(10, 3, out _) && router.TryGetHandler(10, 9, out _),
+            "the router is missing terminal services, so AddGemTerminal did not declare its messages");
+
+        var terminal = (GemInMemoryTerminal)provider.GetRequiredService<IGemTerminal>();
+
+        Assert(
+            await terminal.DisplayAsync(new GemTerminalMessage(0, ["from the package"]), CancellationToken.None)
+                .ConfigureAwait(false) == GemTerminalAcknowledgement.Accepted,
+            "the in-memory terminal refused a message");
+
+        Assert(terminal.Displayed.Count == 1, $"the terminal kept {terminal.Displayed.Count} message(s)");
 
         var formatted = new GemFormattedProcessProgram(
             "RECIPE-7",

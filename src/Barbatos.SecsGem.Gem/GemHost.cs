@@ -104,6 +104,7 @@ public sealed class GemHost : IAsyncDisposable
         (5, 1),    // Alarm Report Send
         (6, 11),   // Event Report Send
         (6, 13),   // Annotated Event Report Send
+        (10, 1),   // Terminal Request
         (9, 1),    // Unrecognized Device ID
         (9, 3),    // Unrecognized Stream Type
         (9, 5),    // Unrecognized Function Type
@@ -125,6 +126,14 @@ public sealed class GemHost : IAsyncDisposable
 
     /// <summary>Raised when the equipment reports an error in stream 9.</summary>
     public event EventHandler<GemHostErrorEventArgs>? ErrorReported;
+
+    /// <summary>Raised when an operator at the machine sends the host something - S10F1.</summary>
+    /// <remarks>
+    /// There is a person waiting on the other end of this one, so a handler that cannot deal with
+    /// the message now should say so through
+    /// <see cref="GemTerminalRequestEventArgs.Acknowledgement"/> rather than accept it and drop it.
+    /// </remarks>
+    public event EventHandler<GemTerminalRequestEventArgs>? TerminalRequestReceived;
 
     /// <summary>Raised after the host's communication state changes.</summary>
     public event EventHandler<GemHostCommunicationStateChangedEventArgs>? CommunicationStateChanged;
@@ -164,6 +173,7 @@ public sealed class GemHost : IAsyncDisposable
             (5, 1) => OnAlarmReport(transaction.Message),
             (6, 11) => OnEventReport(transaction.Message, 12),
             (6, 13) => OnEventReport(transaction.Message, 14),
+            (10, 1) => OnTerminalRequest(transaction.Message),
             _ => null,
         };
 
@@ -727,6 +737,100 @@ public sealed class GemHost : IAsyncDisposable
         return (GemSpooledDataAcknowledgement)ReadCode(reply);
     }
 
+    // ----------------------------------------------------------------- stream 10
+
+    /// <summary>Shows one block of text on an operator's terminal - S10F3.</summary>
+    /// <param name="text">TEXT.</param>
+    /// <param name="terminalId">TID. Zero is the usual value for equipment with one terminal.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC10.</returns>
+    /// <remarks>
+    /// Accepted means the equipment took it for display, not that anybody has read it.
+    /// <see cref="GemTerminalAcknowledgement.WillNotDisplay"/> is a decision the machine made and
+    /// <see cref="GemTerminalAcknowledgement.TerminalNotAvailable"/> is a fault - only the second
+    /// is worth retrying.
+    /// </remarks>
+    public async ValueTask<GemTerminalAcknowledgement> DisplayTerminalMessageAsync(
+        string text,
+        byte terminalId = 0,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(10, 3, replyExpected: true)
+            {
+                Name = "TerminalDisplaySingle",
+                Item = SecsItem.L(
+                    SecsItem.B(terminalId).Named("TID"),
+                    SecsItem.A(text).Named("TEXT")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemTerminalAcknowledgement)ReadCode(reply);
+    }
+
+    /// <summary>Shows several blocks of text on an operator's terminal - S10F5.</summary>
+    /// <param name="lines">The blocks, in order.</param>
+    /// <param name="terminalId">TID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC10.</returns>
+    /// <remarks>
+    /// A one-entry list still sends S10F5. Which function carries one block is the caller's
+    /// choice, and this stack's equipment reads either - but a host talking to somebody else's
+    /// machine should send the single-block form for a single block.
+    /// </remarks>
+    public async ValueTask<GemTerminalAcknowledgement> DisplayTerminalMessageAsync(
+        IReadOnlyList<string> lines,
+        byte terminalId = 0,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+
+        var blocks = new SecsItem[lines.Count];
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            blocks[i] = SecsItem.A(lines[i]).Named("TEXT");
+        }
+
+        using var reply = await RequestAsync(
+            new SecsMessage(10, 5, replyExpected: true)
+            {
+                Name = "MultiBlockTerminalDisplay",
+                Item = SecsItem.L(SecsItem.B(terminalId).Named("TID"), SecsItem.L(blocks)),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemTerminalAcknowledgement)ReadCode(reply);
+    }
+
+    /// <summary>Shows text on every terminal the equipment has - S10F9.</summary>
+    /// <param name="text">TEXT.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC10.</returns>
+    /// <remarks>
+    /// There is no TID in a broadcast: it is for all of them, which is why this takes no terminal
+    /// and why equipment with one terminal cannot tell a broadcast from a display without looking
+    /// at <see cref="GemTerminalMessage.IsBroadcast"/>.
+    /// </remarks>
+    public async ValueTask<GemTerminalAcknowledgement> BroadcastAsync(
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(10, 9, replyExpected: true)
+            {
+                Name = "BroadcastMessage",
+                Item = SecsItem.A(text).Named("TEXT"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemTerminalAcknowledgement)ReadCode(reply);
+    }
+
     // ----------------------------------------------------------------- stream 7
 
     /// <summary>Asks whether the equipment will accept a process program - S7F1.</summary>
@@ -1117,6 +1221,31 @@ public sealed class GemHost : IAsyncDisposable
         {
             Name = replyFunction == 12 ? "EventReportAcknowledge" : "AnnotatedEventReportAcknowledge",
             Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC6"),
+        };
+    }
+
+    private SecsMessage OnTerminalRequest(SecsMessage request)
+    {
+        var terminalId = (byte)0;
+        var text = string.Empty;
+
+        if (request.Item is { IsList: true, Count: 2 } body)
+        {
+            GemItems.TryReadCode(body[0], out terminalId);
+
+            var blocks = GemItems.ReadTextBlocks(body[1]);
+            text = blocks.Count > 0 ? blocks[0] : string.Empty;
+        }
+
+        var args = new GemTerminalRequestEventArgs(terminalId, text);
+
+        _logger.LogInformation("Terminal {Terminal} sent: {Text}", terminalId, text);
+        TerminalRequestReceived?.Invoke(this, args);
+
+        return new SecsMessage(10, 2, replyExpected: false)
+        {
+            Name = "TerminalAcknowledge",
+            Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC10"),
         };
     }
 

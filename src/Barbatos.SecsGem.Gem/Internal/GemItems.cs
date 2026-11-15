@@ -155,6 +155,46 @@ internal static class GemItems
         return SecsItem.L(items);
     }
 
+    /// <summary>Reads blocks of free text, keeping every one of them.</summary>
+    /// <param name="item">A text item, or a list of them.</param>
+    /// <returns>The blocks, in order.</returns>
+    /// <remarks>
+    /// Neither trimmed nor filtered, which is what separates this from the identifier readers. A
+    /// PPID is a fixed-width field whose padding is framing, and an empty one is not an
+    /// identifier - so that reader trims and drops. A line of terminal text is what somebody typed
+    /// for an operator to read: its trailing spaces are theirs, and a blank line between two
+    /// paragraphs is the layout.
+    /// </remarks>
+    internal static List<string> ReadTextBlocks(SecsItem? item)
+    {
+        List<string> blocks = [];
+
+        if (item is null)
+        {
+            return blocks;
+        }
+
+        if (!item.IsList)
+        {
+            if (item.Format.IsText())
+            {
+                blocks.Add(item.Count == 0 ? string.Empty : item.GetString());
+            }
+
+            return blocks;
+        }
+
+        foreach (var element in item.Items)
+        {
+            if (element.Format.IsText())
+            {
+                blocks.Add(element.Count == 0 ? string.Empty : element.GetString());
+            }
+        }
+
+        return blocks;
+    }
+
     /// <summary>Reads a text item, or an empty string when the item is not text.</summary>
     /// <param name="item">The item.</param>
     /// <returns>The text, trimmed of the padding a fixed-width field carries.</returns>

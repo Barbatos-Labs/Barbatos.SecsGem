@@ -55,6 +55,7 @@ public sealed class GemEquipment : IAsyncDisposable
     private readonly IGemProcessProgramStore? _programs;
     private readonly IGemFormattedProcessProgramStore? _formatted;
     private readonly IGemSpool? _spool;
+    private readonly IGemTerminal? _terminal;
     private readonly Channel<LinkEvent> _events =
         Channel.CreateUnbounded<LinkEvent>(new UnboundedChannelOptions { SingleReader = true });
 
@@ -101,6 +102,18 @@ public sealed class GemEquipment : IAsyncDisposable
     /// <paramref name="processPrograms"/>: equipment may offer either half of stream 7, both, or
     /// neither.
     /// </param>
+    /// <param name="terminal">
+    /// Where a message from the host reaches an operator. <see langword="null"/> means this
+    /// equipment has no terminal, and stream 10 is not answered - see
+    /// <see cref="TerminalMessages"/>.
+    /// </param>
+    /// <remarks>
+    /// Four optional capabilities now, each appended rather than grouped, because adding a
+    /// parameter with a default is source-compatible and rearranging them is not. The next one
+    /// wants a record of capabilities instead: five optional stores on a constructor is where the
+    /// argument-at-a-time habit stops paying for itself, and <c>AddGemEquipment</c> is the only
+    /// caller that has to know.
+    /// </remarks>
     public GemEquipment(
         GemOptions options,
         GemEquipmentModel model,
@@ -109,7 +122,8 @@ public sealed class GemEquipment : IAsyncDisposable
         ILogger<GemEquipment>? logger = null,
         IGemProcessProgramStore? processPrograms = null,
         IGemSpool? spool = null,
-        IGemFormattedProcessProgramStore? formattedProcessPrograms = null)
+        IGemFormattedProcessProgramStore? formattedProcessPrograms = null,
+        IGemTerminal? terminal = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         Model = model ?? throw new ArgumentNullException(nameof(model));
@@ -119,6 +133,7 @@ public sealed class GemEquipment : IAsyncDisposable
         _programs = processPrograms;
         _formatted = formattedProcessPrograms;
         _spool = spool;
+        _terminal = terminal;
 
         _communication = options.CommunicationEnabled
             ? GemCommunicationState.WaitingToRetry
@@ -210,6 +225,33 @@ public sealed class GemEquipment : IAsyncDisposable
     public static IReadOnlyList<(byte Stream, byte Function)> SpoolMessages { get; } =
     [
         (6, 23),   // Request Spooled Data
+    ];
+
+    /// <summary>The terminal services messages, answered only when a terminal is configured.</summary>
+    /// <remarks>
+    /// <para>
+    /// E30's terminal services capability, opt-in for the same reason the others are: a machine
+    /// with no operator terminal should answer S9F3 for stream 10 rather than refuse each message
+    /// with ACKC10 2. "I have no terminal" and "the terminal is not available" are different
+    /// things, and only one of them is worth a host retrying.
+    /// </para>
+    /// <para>
+    /// S10F1 - the operator typing something for the host - is not here. It is a primary this
+    /// equipment <em>sends</em>, through <see cref="SendTerminalRequestAsync"/>, and this list is
+    /// what it answers.
+    /// </para>
+    /// <para>
+    /// Nor is S10F7, "terminal not accessible". It is the one entry in stream 10 that
+    /// <c>Barbatos.SecsGem.Catalog</c> flags as representative rather than defined, it has no
+    /// reply function, and ACKC10 2 on a display already says the same thing to the same host - so
+    /// there is nothing to gain by guessing at its shape.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<(byte Stream, byte Function)> TerminalMessages { get; } =
+    [
+        (10, 3),   // Terminal Display (Single)
+        (10, 5),   // Multi-block Terminal Display
+        (10, 9),   // Broadcast Message
     ];
 
     /// <summary>Raised after the communication state changes.</summary>
@@ -417,6 +459,60 @@ public sealed class GemEquipment : IAsyncDisposable
     public ValueTask<bool> ClearAlarmAsync(ulong alarmId, CancellationToken cancellationToken = default)
         => AlarmAsync(alarmId, set: false, cancellationToken);
 
+    /// <summary>Sends the host something an operator typed - S10F1.</summary>
+    /// <param name="text">TEXT, as the operator wrote it.</param>
+    /// <param name="terminalId">TID. Zero is the usual value for equipment with one terminal.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>
+    /// The host's ACKC10, or <see langword="null"/> when there was nobody to tell.
+    /// </returns>
+    /// <exception cref="SecsException">S10F2 came back without an acknowledgement code.</exception>
+    /// <remarks>
+    /// <para>
+    /// The other direction of terminal services, and the application's to start: nothing calls
+    /// into an operator, so this is a method rather than something on
+    /// <see cref="IGemTerminal"/>. It needs no terminal configured - that interface is for the
+    /// messages coming the other way.
+    /// </para>
+    /// <para>
+    /// <strong>Not spooled.</strong> A message from an operator is a prompt for a person at the
+    /// host, and handing it over an hour later when both of them have gone home is worse than
+    /// saying it did not go: <see langword="null"/> lets the caller tell the operator the host is
+    /// not listening, which is the thing they can act on. Reports and alarms are spooled because a
+    /// host reads those as history.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemTerminalAcknowledgement?> SendTerminalRequestAsync(
+        string text,
+        byte terminalId = 0,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!IsCommunicating)
+        {
+            return null;
+        }
+
+        using var message = new SecsMessage(10, 1, replyExpected: true)
+        {
+            Name = "TerminalRequest",
+            Item = SecsItem.L(
+                SecsItem.B(terminalId).Named("TID"),
+                SecsItem.A(text).Named("TEXT")),
+        };
+
+        using var reply = await _connection.SendAsync(message, cancellationToken).ConfigureAwait(false);
+
+        if (!GemItems.TryReadCode(reply.Item, out var code))
+        {
+            throw new SecsException("S10F2 came back without the ACKC10 E5 defines for it.");
+        }
+
+        return (GemTerminalAcknowledgement)code;
+    }
+
     /// <summary>Moves the equipment on-line by its own decision.</summary>
     /// <param name="remote">Whether control goes to the host rather than to the machine.</param>
     /// <returns><see langword="true"/> when the state changed.</returns>
@@ -502,6 +598,9 @@ public sealed class GemEquipment : IAsyncDisposable
             (7, 23) => await OnFormattedProgramSendAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 25) => await OnFormattedProgramRequestAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (6, 23) => await OnRequestSpooledDataAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (10, 3) => await OnTerminalDisplayAsync(transaction.Message, multiBlock: false, cancellationToken).ConfigureAwait(false),
+            (10, 5) => await OnTerminalDisplayAsync(transaction.Message, multiBlock: true, cancellationToken).ConfigureAwait(false),
+            (10, 9) => await OnBroadcastAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             _ => null,
         };
 
@@ -1380,6 +1479,70 @@ public sealed class GemEquipment : IAsyncDisposable
         return acknowledgement;
     }
 
+    // ----------------------------------------------------------------- inbound, stream 10
+
+    private async ValueTask<SecsMessage?> OnTerminalDisplayAsync(
+        SecsMessage request,
+        bool multiBlock,
+        CancellationToken cancellationToken)
+    {
+        if (_terminal is null)
+        {
+            return null;
+        }
+
+        // Not "the terminal said no": nothing was shown to anybody, because there was nothing this
+        // stack could read. ACKC10 has no code for a body it could not parse and 1 is the closest
+        // honest one - the message arrived and will not be displayed.
+        var acknowledgement = GemTerminalAcknowledgement.WillNotDisplay;
+
+        if (request.Item is { IsList: true, Count: 2 } body && GemItems.TryReadCode(body[0], out var terminalId))
+        {
+            // One reader for both functions. S10F3 carries a single block and S10F5 a list of
+            // them, and a host that used the wrong one of the two is understood either way: the
+            // text is the same text, and refusing it over the shape of its container would help
+            // nobody standing at the machine.
+            var blocks = GemItems.ReadTextBlocks(body[1]);
+
+            acknowledgement = await _terminal
+                .DisplayAsync(new GemTerminalMessage(terminalId, blocks), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new SecsMessage(10, multiBlock ? (byte)6 : (byte)4, replyExpected: false)
+        {
+            Name = multiBlock ? "MultiBlockTerminalDisplayAcknowledge" : "TerminalDisplayAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC10"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnBroadcastAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_terminal is null)
+        {
+            return null;
+        }
+
+        var acknowledgement = GemTerminalAcknowledgement.WillNotDisplay;
+        var blocks = GemItems.ReadTextBlocks(request.Item);
+
+        if (blocks.Count > 0)
+        {
+            // No TID in an S10F9 body at all: a broadcast is for every terminal, so zero here is
+            // the absence of a choice rather than terminal number zero. IsBroadcast is what an
+            // implementation with several terminals reads.
+            acknowledgement = await _terminal
+                .DisplayAsync(new GemTerminalMessage(0, blocks, isBroadcast: true), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new SecsMessage(10, 10, replyExpected: false)
+        {
+            Name = "BroadcastMessageAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC10"),
+        };
+    }
+
     /// <summary>Reads a list of text items, tolerating a bare one where a list was expected.</summary>
     private static List<string> ReadTextList(SecsItem? item)
     {
@@ -1674,8 +1837,6 @@ public sealed class GemEquipment : IAsyncDisposable
             return false;
         }
 
-        Volatile.Write(ref _spoolActual, after);
-
         if (accepted)
         {
             Interlocked.Increment(ref _spoolTotal);
@@ -1690,6 +1851,9 @@ public sealed class GemEquipment : IAsyncDisposable
         {
             SetSpoolState(GemSpoolState.Active, "a message was spooled");
         }
+
+        // And the count last - see the note on OnSpoolEmptied.
+        Volatile.Write(ref _spoolActual, after);
 
         return accepted;
     }
@@ -1823,15 +1987,16 @@ public sealed class GemEquipment : IAsyncDisposable
             return false;
         }
 
-        Volatile.Write(ref _spoolActual, remaining);
-
-        // The state follows the count immediately rather than after the loop. Otherwise the two
-        // disagree for as long as the last send takes - count zero, state Active - and anything
-        // watching both, a host reading status variables included, can see a spool that is empty
-        // and active at the same time.
+        // The state before the count, here as everywhere - see the note on OnSpoolEmptied. Writing
+        // the count first lets anything watching both see a spool that is empty and active at the
+        // same time, which is a state this equipment is never in.
         if (remaining == 0)
         {
             OnSpoolEmptied("the spool was transmitted");
+        }
+        else
+        {
+            Volatile.Write(ref _spoolActual, remaining);
         }
 
         return true;
@@ -1891,11 +2056,7 @@ public sealed class GemEquipment : IAsyncDisposable
             return;
         }
 
-        // The state and the start time before the count, so that anything watching sees a spool
-        // that is consistent at every instant: a non-zero SpoolCountActual implies Active, never
-        // the other way round for a moment. Writing the count first makes a host - or a test -
-        // that polls the count able to read it as Active-with-nothing-held's opposite, which is a
-        // state this equipment is never actually in.
+        // The state and the start time before the count - see the note on OnSpoolEmptied.
         _spoolStart = oldest.SpooledAt;
         SetSpoolState(GemSpoolState.Active, $"{held} message(s) were already held at start-up");
 
@@ -1903,11 +2064,30 @@ public sealed class GemEquipment : IAsyncDisposable
         Volatile.Write(ref _spoolActual, held);
     }
 
+    /// <summary>Records that nothing is held any more.</summary>
+    /// <param name="reason">Why, for the log.</param>
+    /// <remarks>
+    /// <para>
+    /// <strong>The count is published last here, and in every other place that writes it.</strong>
+    /// <see cref="SpoolCountActual"/> and <see cref="SpoolState"/> are two views of one fact and a
+    /// reader can catch them mid-update. Every write of the count is a <c>Volatile.Write</c> and
+    /// every read a <c>Volatile.Read</c>, so a reader that sees a new count also sees everything
+    /// written before it - the state and the start time included. That makes "a non-zero count
+    /// implies Active or Full" and "a zero count implies Inactive" hold at every instant, for
+    /// free, as long as the count goes last.
+    /// </para>
+    /// <para>
+    /// Write it first and the pair is briefly incoherent: a host polling status variables, or a
+    /// test polling the count, can read a spool that holds two messages and calls itself Inactive.
+    /// Three of the four writers had it the wrong way round, and the full suite found them one at
+    /// a time by losing the race under load.
+    /// </para>
+    /// </remarks>
     private void OnSpoolEmptied(string reason)
     {
-        Volatile.Write(ref _spoolActual, 0);
         _spoolStart = null;
         SetSpoolState(GemSpoolState.Inactive, reason);
+        Volatile.Write(ref _spoolActual, 0);
     }
 
     private void SetSpoolState(GemSpoolState state, string? reason)
