@@ -3,9 +3,12 @@
 // Copyright (C) Barbatos Labs | Pham The Hung and Barbatos.SecsGem Contributors.
 // All Rights Reserved.
 
+using System.Linq;
 using Barbatos.SecsGem.Hsms;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -78,8 +81,44 @@ public static class SecsGemServiceCollectionExtensions
         // so a tool that only converts files can have them without any of this one.
         services.AddSecsSerialization();
 
-        return new SecsGemBuilder(services);
+        // The routing table is collected now and frozen the first time the router is resolved.
+        // A second AddSecsGem call shares the first call's table rather than quietly building a
+        // second one that nothing would ever read.
+        var routerBuilder = services
+            .FirstOrDefault(descriptor => descriptor.ServiceType == typeof(SecsMessageRouterBuilder))
+            ?.ImplementationInstance as SecsMessageRouterBuilder;
+
+        if (routerBuilder is null)
+        {
+            routerBuilder = new SecsMessageRouterBuilder();
+            services.AddSingleton(routerBuilder);
+        }
+
+        services.TryAddSingleton(provider => provider.GetRequiredService<SecsMessageRouterBuilder>().Build());
+
+        // Built by hand rather than by the activator: HsmsConnection takes an optional logger, and
+        // an application that never called AddLogging should still get a connection.
+        services.TryAddSingleton(provider => new HsmsConnection(
+            provider.GetRequiredService<IOptions<SecsGemOptions>>().Value,
+            provider.GetRequiredService<ISecsTransport>(),
+            provider.GetRequiredService<ISecsMessageRouter>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<ILogger<HsmsConnection>>()));
+
+        return new SecsGemBuilder(services, routerBuilder);
     }
+}
+
+/// <summary>
+/// Runs an <see cref="HsmsConnection"/> for the lifetime of the host.
+/// </summary>
+/// <remarks>
+/// Registered by <see cref="ISecsGemBuilder.RunAsHostedService"/>. An application that hosts the
+/// link itself calls <see cref="HsmsConnection.RunAsync"/> instead; there is nothing else in here.
+/// </remarks>
+internal sealed class SecsGemHostedService(HsmsConnection connection) : BackgroundService
+{
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) => connection.RunAsync(stoppingToken);
 }
 
 /// <summary>
@@ -111,15 +150,74 @@ public interface ISecsGemBuilder
     /// <returns>This builder, for chaining.</returns>
     ISecsGemBuilder UseTransport<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TTransport>()
         where TTransport : class, ISecsTransport;
+
+    /// <summary>Registers the handler for one received primary message.</summary>
+    /// <param name="stream">S.</param>
+    /// <param name="function">F. Must be odd - only a primary is received and answered.</param>
+    /// <param name="handler">The handler.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// The routing table is also the declaration of what this entity understands, which is what
+    /// makes automatic S9F3 and S9F5 possible: a primary that reaches the end of the table is
+    /// answered with S9F5 when its stream is registered and S9F3 when it is not.
+    /// </para>
+    /// <example>
+    /// <code>
+    /// services.AddSecsGem(builder.Configuration)
+    ///     .UseTcp()
+    ///     .OnPrimary(1, 1, (transaction, token) => transaction.ReplyAsync(onLineData, token))
+    ///     .RunAsHostedService();
+    /// </code>
+    /// </example>
+    /// </remarks>
+    ISecsGemBuilder OnPrimary(byte stream, byte function, SecsPrimaryHandler handler);
+
+    /// <summary>Registers the handler for every primary no other handler claims.</summary>
+    /// <param name="handler">The handler.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <remarks>
+    /// Turns off automatic S9F3 and S9F5: an entity that claims every message cannot also claim
+    /// not to recognise one. For a proxy, a logger or a gateway.
+    /// </remarks>
+    ISecsGemBuilder OnUnhandledPrimary(SecsPrimaryHandler handler);
+
+    /// <summary>Runs the connection for the lifetime of the host.</summary>
+    /// <returns>This builder, for chaining.</returns>
+    /// <remarks>
+    /// Connects, selects and reconnects on its own from host start to host stop. An application
+    /// that wants to own the lifetime calls <see cref="HsmsConnection.RunAsync"/> itself and does
+    /// not call this.
+    /// </remarks>
+    ISecsGemBuilder RunAsHostedService();
 }
 
 /// <summary>The default <see cref="ISecsGemBuilder"/>.</summary>
 /// <param name="services">The service collection.</param>
-internal sealed class SecsGemBuilder(IServiceCollection services) : ISecsGemBuilder
+/// <param name="router">The routing table being collected.</param>
+internal sealed class SecsGemBuilder(IServiceCollection services, SecsMessageRouterBuilder router) : ISecsGemBuilder
 {
     public IServiceCollection Services { get; } = services ?? throw new ArgumentNullException(nameof(services));
 
     public ISecsGemBuilder UseTcp() => UseTransport<TcpSecsTransport>();
+
+    public ISecsGemBuilder OnPrimary(byte stream, byte function, SecsPrimaryHandler handler)
+    {
+        router.OnPrimary(stream, function, handler);
+        return this;
+    }
+
+    public ISecsGemBuilder OnUnhandledPrimary(SecsPrimaryHandler handler)
+    {
+        router.OnUnhandledPrimary(handler);
+        return this;
+    }
+
+    public ISecsGemBuilder RunAsHostedService()
+    {
+        Services.AddHostedService<SecsGemHostedService>();
+        return this;
+    }
 
     public ISecsGemBuilder UseInMemoryTransport(bool isActive = true)
     {

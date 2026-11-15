@@ -73,13 +73,28 @@ public interface ISecsTransportConnection : IAsyncDisposable
 /// </remarks>
 public sealed class InMemorySecsTransport : ISecsTransport
 {
-    private readonly Pipe _hostToEquipment = new();
-    private readonly Pipe _equipmentToHost = new();
+    private readonly Pipe _hostToEquipment;
+    private readonly Pipe _equipmentToHost;
     private readonly bool _isActive;
 
-    /// <summary>Initialises a new instance.</summary>
+    /// <summary>Initialises a new instance with a pair of pipes of its own.</summary>
     /// <param name="isActive">Which side this instance presents as.</param>
-    public InMemorySecsTransport(bool isActive = true) => _isActive = isActive;
+    /// <remarks>
+    /// Use this when the test itself plays the peer, driving <see cref="PeerPipe"/> with an
+    /// encoder and a decoder. To put two real connections on the two ends instead, use
+    /// <see cref="CreatePair"/>.
+    /// </remarks>
+    public InMemorySecsTransport(bool isActive = true)
+        : this(new Pipe(), new Pipe(), isActive)
+    {
+    }
+
+    private InMemorySecsTransport(Pipe hostToEquipment, Pipe equipmentToHost, bool isActive)
+    {
+        _hostToEquipment = hostToEquipment;
+        _equipmentToHost = equipmentToHost;
+        _isActive = isActive;
+    }
 
     /// <inheritdoc/>
     public bool IsActive => _isActive;
@@ -93,9 +108,39 @@ public sealed class InMemorySecsTransport : ISecsTransport
         : new DuplexPipe(_hostToEquipment.Reader, _equipmentToHost.Writer);
 
     /// <summary>Gets the other end, to hand to the peer entity under test.</summary>
+    /// <remarks>
+    /// For the single-transport case, where the test is the peer. On a transport from
+    /// <see cref="CreatePair"/> the other end already has a connection on it, and driving this as
+    /// well would be two readers on one pipe.
+    /// </remarks>
     public IDuplexPipe PeerPipe => _isActive
         ? new DuplexPipe(_hostToEquipment.Reader, _equipmentToHost.Writer)
         : new DuplexPipe(_equipmentToHost.Reader, _hostToEquipment.Writer);
+
+    /// <summary>Creates two transports wired to each other, for two real connections.</summary>
+    /// <returns>The active end and the passive end, over one shared pair of pipes.</returns>
+    /// <remarks>
+    /// <para>
+    /// This is what makes an HSMS conformance test possible without a port: a host and a piece of
+    /// equipment, both running their own state machine and their own timers, completing a Select,
+    /// exchanging a transaction and tearing down - deterministically, in microseconds, with a
+    /// <c>FakeTimeProvider</c> driving every timer on both sides.
+    /// </para>
+    /// <para>
+    /// Both halves are real <see cref="Pipe"/> instances, so each connection sees the same
+    /// segmented, partially-filled reads it sees on a socket. Nothing is stubbed; the only thing
+    /// missing is the network.
+    /// </para>
+    /// </remarks>
+    public static (InMemorySecsTransport Active, InMemorySecsTransport Passive) CreatePair()
+    {
+        var hostToEquipment = new Pipe();
+        var equipmentToHost = new Pipe();
+
+        return (
+            new InMemorySecsTransport(hostToEquipment, equipmentToHost, isActive: true),
+            new InMemorySecsTransport(hostToEquipment, equipmentToHost, isActive: false));
+    }
 
     /// <inheritdoc/>
     public ValueTask<ISecsTransportConnection> ConnectAsync(CancellationToken cancellationToken = default)

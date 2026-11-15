@@ -7,7 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <!-- The metapackage, because the equipment behaviour shared from here answers transactions and
+         so needs SecsTransaction from the HSMS layer, not only the item tree from the core. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem\Barbatos.SecsGem.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
   </ItemGroup>
 
