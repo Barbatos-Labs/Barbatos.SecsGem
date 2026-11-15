@@ -13,3 +13,8 @@
 
 *.png      binary
 *.snk      binary
+
+# The conformance fixtures are compared byte for byte against what the writers produce, and the
+# writers emit CRLF. Normalising them would make the comparison pass on Windows and fail on Linux,
+# which is the least useful way for a test to behave.
+assets/conformance/** -text

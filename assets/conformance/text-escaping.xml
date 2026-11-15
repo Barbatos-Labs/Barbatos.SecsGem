@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SecsMessages>
+  <SecsMessage name="TextEscaping" s="99" f="13" w="true">
+    <List>
+      <ASCII label="SmlQuotes">it's a 'quoted' value</ASCII>
+      <ASCII label="JsonEscapes">double "quotes" and a backslash \</ASCII>
+      <ASCII label="XmlEntities">angle &lt;brackets&gt; &amp; an ampersand</ASCII>
+      <ASCII label="IniDelimiters">key = value ; comment # hash [section]</ASCII>
+      <ASCII label="Whitespace">  leading and trailing  </ASCII>
+      <ASCII label="SmlCommentMarker">// not a comment</ASCII>
+    </List>
+  </SecsMessage>
+</SecsMessages>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SecsMessages>
+  <SecsMessage name="EventReportSend" s="6" f="11" w="true">
+    <List label="Body">
+      <U4 label="DATAID">1</U4>
+      <U4 label="CEID">7001</U4>
+      <List label="Reports">
+        <List label="Report">
+          <U4 label="RPTID">100</U4>
+          <List>
+            <ASCII label="VID">PRESSURE</ASCII>
+            <F8 label="VALUE">1013.25</F8>
+          </List>
+        </List>
+      </List>
+    </List>
+  </SecsMessage>
+</SecsMessages>

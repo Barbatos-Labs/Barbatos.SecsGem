@@ -1,0 +1,36 @@
+[
+  {
+    "name": "TextEscaping",
+    "s": 99,
+    "f": 13,
+    "w": true,
+    "item": {
+      "List": [
+        {
+          "ASCII": "it\u0027s a \u0027quoted\u0027 value",
+          "$label": "SmlQuotes"
+        },
+        {
+          "ASCII": "double \u0022quotes\u0022 and a backslash \\",
+          "$label": "JsonEscapes"
+        },
+        {
+          "ASCII": "angle \u003Cbrackets\u003E \u0026 an ampersand",
+          "$label": "XmlEntities"
+        },
+        {
+          "ASCII": "key = value ; comment # hash [section]",
+          "$label": "IniDelimiters"
+        },
+        {
+          "ASCII": "  leading and trailing  ",
+          "$label": "Whitespace"
+        },
+        {
+          "ASCII": "// not a comment",
+          "$label": "SmlCommentMarker"
+        }
+      ]
+    }
+  }
+]
