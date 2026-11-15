@@ -156,6 +156,7 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 13 | `GemHost`: the host side of every primary the equipment answers, with a test that asserts "every" rather than a comment claiming it. Acknowledgement codes come back as enums, replies E5 pins down come back decoded, and the host sample now drives the conversation through it instead of hand-building bodies. | Done |
 | 14 | Terminal services (stream 10), both ends: text in front of the operator and text back from them, behind a one-method `IGemTerminal`. Three acknowledgement codes a host can act on differently, and S10F1 deliberately not spooled. | Done |
 | 15 | Trace data collection (S2F23/S6F1), both ends: variables sampled on the equipment's own loop, reported in groups, every sample carrying the value at its own moment. It also corrected the catalogue - S6F1 and S6F2 carried S6F11's name and items - and added the invariant that found it. | Done |
+| 16 | Limits monitoring (S2F45-S2F48), both ends, which completes E30's data collection: a band per variable, a crossing reported as a collection event, and a deadband rather than a threshold so a wobble is silent. Three of its four message rows are representative in the catalogue, and the implementation says where to check. | Done |
 
 ## Licence
 

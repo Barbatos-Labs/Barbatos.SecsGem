@@ -289,7 +289,8 @@ internal static class Program
             .AddGemProcessPrograms()
             .AddGemFormattedProcessPrograms()
             .AddGemTerminal()
-            .AddGemTraces();
+            .AddGemTraces()
+            .AddGemLimits();
 
         await using var provider = services.BuildServiceProvider();
 
@@ -315,6 +316,27 @@ internal static class Program
         Assert(
             router.TryGetHandler(2, 23, out _),
             "the router has no handler for S2F23, so AddGemTraces did not declare it");
+
+        Assert(
+            router.TryGetHandler(2, 45, out _) && router.TryGetHandler(2, 47, out _),
+            "the router is missing limits monitoring, so AddGemLimits did not declare its messages");
+
+        // The deepest body this stack builds, through the packaged assembly: a band that cannot be
+        // a band is refused where it is written.
+        var band = new GemVariableLimit(1, 900d, 1_100d);
+
+        Assert(band.Contains(1_100d), "a bound is inclusive, so the band should contain its upper");
+        Assert(!band.Contains(1_100.5d), "the band should not contain a value above its upper");
+
+        try
+        {
+            _ = new GemVariableLimit(2, 1_100d, 900d);
+            Assert(false, "an upper below its lower was accepted as a band");
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            // Expected.
+        }
 
         var terminal = (GemInMemoryTerminal)provider.GetRequiredService<IGemTerminal>();
 

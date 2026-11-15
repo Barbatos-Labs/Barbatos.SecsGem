@@ -54,7 +54,12 @@ public sealed class GemEquipmentModel
             reports.ToFrozenDictionary(report => report.Id, report => report.VariableIds.ToArray()),
             FrozenDictionary<uint, uint[]>.Empty,
             events.Values.Where(e => e.EnabledByDefault).Select(e => e.Id).ToFrozenSet(),
-            alarms.Values.Where(a => a.EnabledByDefault).Select(a => a.Id).ToFrozenSet());
+            alarms.Values.Where(a => a.EnabledByDefault).Select(a => a.Id).ToFrozenSet(),
+
+            // No limits until a host asks for some. They live here rather than on the variable
+            // because they are the host's, like a report definition - and so Reset clears them on
+            // a re-establish without this type having to remember to.
+            FrozenDictionary<uint, GemVariableLimit[]>.Empty);
 
         _state = _initial;
     }
@@ -328,6 +333,102 @@ public sealed class GemEquipmentModel
         }
     }
 
+    /// <summary>Applies an S2F45 limit definition.</summary>
+    /// <param name="definitions">
+    /// The limits to put in force. A variable with no limits has its limits removed; an empty list
+    /// removes every limit on every variable.
+    /// </param>
+    /// <returns>Whether the whole definition was taken, and what happened to each variable.</returns>
+    /// <remarks>
+    /// <para>
+    /// All or nothing per variable, and reported per limit. A variable the equipment does not have
+    /// is LVACK 1 with LIMITACK 3 against each of its limits; a band whose upper is below its lower
+    /// is LIMITACK 4 - and in both cases the variables around it are still applied, because a host
+    /// that sent twenty bands needs to know which one it got wrong.
+    /// </para>
+    /// <para>
+    /// VLAACK is false when any variable was rejected. E5's two codes for it are "match confirmed"
+    /// and "mismatch detected", which is the question a host asks first and the reason the detail
+    /// is per variable underneath.
+    /// </para>
+    /// </remarks>
+    public (bool Accepted, IReadOnlyList<GemVariableLimitResult> Results) DefineVariableLimits(
+        IReadOnlyList<GemVariableLimitDefinition> definitions)
+    {
+        ArgumentNullException.ThrowIfNull(definitions);
+
+        lock (_gate)
+        {
+            var state = Current;
+
+            if (definitions.Count == 0)
+            {
+                Publish(state with { Limits = FrozenDictionary<uint, GemVariableLimit[]>.Empty });
+                return (true, []);
+            }
+
+            var limits = state.Limits.ToDictionary(pair => pair.Key, pair => pair.Value);
+            List<GemVariableLimitResult> results = [];
+            var accepted = true;
+
+            foreach (var definition in definitions)
+            {
+                var known = Variables.TryGetValue(definition.VariableId, out var variable)
+                    && variable.Kind == GemVariableKind.Status;
+
+                List<(uint Id, GemVariableLimitAcknowledgement Acknowledgement)> answers = [];
+                var variableAccepted = known;
+
+                foreach (var limit in definition.Limits)
+                {
+                    var answer = !known
+                        ? GemVariableLimitAcknowledgement.NoSuchVariable
+                        : limit.Upper < limit.Lower
+                            ? GemVariableLimitAcknowledgement.ValueError
+                            : GemVariableLimitAcknowledgement.Accepted;
+
+                    if (answer != GemVariableLimitAcknowledgement.Accepted)
+                    {
+                        variableAccepted = false;
+                    }
+
+                    answers.Add((limit.Id, answer));
+                }
+
+                if (variableAccepted)
+                {
+                    if (definition.Limits.Count == 0)
+                    {
+                        limits.Remove(definition.VariableId);
+                    }
+                    else
+                    {
+                        limits[definition.VariableId] = [.. definition.Limits];
+                    }
+                }
+                else
+                {
+                    accepted = false;
+                }
+
+                results.Add(new GemVariableLimitResult(definition.VariableId, variableAccepted, answers));
+            }
+
+            Publish(state with { Limits = limits.ToFrozenDictionary() });
+
+            return (accepted, results);
+        }
+    }
+
+    /// <summary>Gets the variables that have limits in force.</summary>
+    public IReadOnlyCollection<uint> DefinedLimits => Current.Limits.Keys;
+
+    /// <summary>Gets the limits in force on a variable.</summary>
+    /// <param name="variableId">The VID.</param>
+    /// <returns>The bands, or an empty list when the host has defined none.</returns>
+    public IReadOnlyList<GemVariableLimit> LimitsFor(uint variableId)
+        => Current.Limits.TryGetValue(variableId, out var limits) ? limits : [];
+
     private LinkState Current => Volatile.Read(ref _state);
 
     private void Publish(LinkState state) => Volatile.Write(ref _state, state);
@@ -337,7 +438,8 @@ public sealed class GemEquipmentModel
         FrozenDictionary<uint, uint[]> Reports,
         FrozenDictionary<uint, uint[]> EventLinks,
         FrozenSet<uint> EnabledEvents,
-        FrozenSet<ulong> EnabledAlarms);
+        FrozenSet<ulong> EnabledAlarms,
+        FrozenDictionary<uint, GemVariableLimit[]> Limits);
 }
 
 /// <summary>Builds a <see cref="GemEquipmentModel"/>.</summary>
@@ -360,8 +462,19 @@ public sealed class GemEquipmentModelBuilder
     /// <param name="name">The name.</param>
     /// <param name="read">Reads the current value. The caller disposes what it returns.</param>
     /// <param name="units">The units, in E5 notation.</param>
+    /// <param name="limitEventId">
+    /// The collection event raised when this variable crosses one of the limits a host set with
+    /// S2F45. <see langword="null"/> means a crossing is tracked and not reported - see
+    /// <see cref="GemVariable.LimitEventId"/> for why the event is the machine's to name and the
+    /// band is the host's.
+    /// </param>
     /// <returns>This builder, for chaining.</returns>
-    public GemEquipmentModelBuilder AddStatusVariable(uint id, string name, Func<SecsItem> read, string units = "")
+    public GemEquipmentModelBuilder AddStatusVariable(
+        uint id,
+        string name,
+        Func<SecsItem> read,
+        string units = "",
+        uint? limitEventId = null)
         => AddVariable(new GemVariable
         {
             Id = id,
@@ -369,6 +482,7 @@ public sealed class GemEquipmentModelBuilder
             Read = read,
             Units = units,
             Kind = GemVariableKind.Status,
+            LimitEventId = limitEventId,
         });
 
     /// <summary>Adds a data variable, which is meaningful only inside the report of its event.</summary>

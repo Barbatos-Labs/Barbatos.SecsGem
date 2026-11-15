@@ -146,23 +146,31 @@ public class GemTraceTests
 
         var groups = Collect(pair.Host);
 
+        // Groups of one, so every sample is a message of its own and waiting for it is a condition
+        // rather than a sleep. The first version of this test advanced the clock and slept five
+        // milliseconds, which is long enough on an idle machine and not on a loaded one - it
+        // failed about one full-suite run in twenty by reading the next value into the last
+        // sample.
         Assert.Equal(
             GemTraceAcknowledgement.Accepted,
-            await pair.Host.StartTraceAsync(Trace(totalSamples: 3, groupSize: 3), GemPair.Token));
+            await pair.Host.StartTraceAsync(Trace(totalSamples: 3, groupSize: 1), GemPair.Token));
+
+        var arrived = 0;
 
         foreach (var pressure in new[] { 100d, 200d, 300d })
         {
             _pressure = pressure;
             pair.Clock.Advance(TimeSpan.FromSeconds(1));
 
-            // One at a time, because the whole point of a trace is that each sample is the value
-            // at its own moment rather than three reads of whatever the variable holds now.
-            await Task.Delay(5, GemPair.Token);
+            arrived++;
+            await GemPair.WaitUntilAsync(() => groups.Count == arrived, $"sample {arrived} to arrive");
         }
 
-        await GemPair.WaitUntilAsync(() => groups.Count == 1, "the group to arrive");
-
-        Assert.Equal([100d, 200d, 300d], groups[0].Values);
+        // Each sample is the value at its own moment, rather than three reads of whatever the
+        // variable holds when the group goes out.
+        Assert.Equal([100d], groups[0].Values);
+        Assert.Equal([200d], groups[1].Values);
+        Assert.Equal([300d], groups[2].Values);
     }
 
     [Fact]

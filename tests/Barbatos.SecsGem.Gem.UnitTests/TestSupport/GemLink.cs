@@ -92,7 +92,8 @@ internal sealed class GemLink : IAsyncDisposable
         IGemSpool? spool = null,
         IGemFormattedProcessProgramStore? formatted = null,
         IGemTerminal? terminal = null,
-        bool traces = false)
+        bool traces = false,
+        bool limits = false)
     {
         var linkOptions = new SecsGemOptions
         {
@@ -154,6 +155,11 @@ internal sealed class GemLink : IAsyncDisposable
         if (traces)
         {
             declared.AddRange(GemEquipment.TraceMessages);
+        }
+
+        if (limits)
+        {
+            declared.AddRange(GemEquipment.LimitMessages);
         }
 
         foreach (var (stream, function) in declared)

@@ -255,6 +255,63 @@ A re-initialised TRID needs no new slot, which is how a host changes a running t
 a trace does not survive a re-established link: it is host configuration, like a report definition,
 and a host that has forgotten about one has no TRID left to cancel it with.
 
+## A band, and a message when the value leaves it
+
+The other way of not polling. The host says which band it cares about; the equipment reports a
+collection event when a variable leaves it or comes back:
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => model
+        .AddStatusVariable(2, "Pressure", () => SecsItem.F8(chamber.Pressure), "mbar", limitEventId: 2_500)
+        .AddEvent(2_500, "PressureLimitCrossed"))
+    .AddGemLimits()                              // S2F45 and S2F47
+    .RunAsHostedService();
+```
+
+```csharp
+// From the host: tell me when the pressure leaves 900-1100.
+await host.DefineVariableLimitsAsync([new(2, [new GemVariableLimit(1, 900, 1100)])]);
+```
+
+**The band is the host's and the event is the machine's.** S2F45 carries no CEID, so E30 leaves the
+collection event to the equipment - which is why `limitEventId` is on the variable and the bounds
+arrive over the wire.
+
+**`CheckLimitsAsync` is called by the application, when a value changes.** Nothing in this layer
+knows when a chamber's pressure moves - a variable is a delegate it reads on demand - so the
+alternative was a timer on every monitored variable with a period nobody asked for. A machine that
+already raises events when it does things has the right moment to hand:
+
+```csharp
+chamber.Drift();
+await equipment.CheckLimitsAsync(PressureVariable);
+```
+
+**A crossing is a change of side, not a value outside.** The first check records which side the
+value is on and reports nothing, because there is nothing to have crossed from. After that, only
+leaving and returning are reported - a value that wobbles inside the band is silent, and so is one
+that wanders further out. That is what E5 means by calling the bounds UPPERDB and LOWERDB: the band
+*is* the deadband, and without it a value sitting on a threshold reports every wobble.
+
+Both bounds are inclusive, which is the choice that makes a band of `[x, x]` mean "exactly x"
+rather than nothing at all.
+
+**Per variable, all or nothing; per band, a reason.** A variable with one unusable band keeps none
+of them - a half-configured variable is the worse failure for a monitoring feature, since the host
+would believe it is watching a band that is not there. S2F46 still answers per band, so a host that
+sent twenty learns which one it got wrong: `4` for the band that was not a band, `1` for the others,
+and `3` against every band on a variable the machine does not have.
+
+**What is uncertain here, said once.** Of this capability's four messages, the catalogue flags
+S2F45, S2F46 and S2F48 as representative entries rather than definitions - only the S2F47 request
+is firm. The body shapes follow SEMI E5 and the catalogue's item lists corroborate them item for
+item and in order, including the per-variable `LVACK` that sits beside the per-limit `LIMITACK`.
+What the tests prove is that both ends of this library agree; what only a copy of E5 can tell you is
+whether they agree with somebody else's host. The shapes are in one file, `GemLimitCodec`, so there
+is one place to check.
+
 ## Holding reports for a host that is not there
 
 A machine does not stop while the host is away. Spooling is E30's answer: hold what could not be
@@ -664,7 +721,7 @@ not a wall in front of it.
 | --- | --- |
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
 | The rest of stream 7 | Both halves E30 asks for are here: S7F1-S7F6 and S7F17-S7F20 unformatted, S7F23-S7F26 formatted. What is left - the directory pair S7F7/F8, verification S7F9/F10, the matrix messages S7F11 through S7F16, references S7F21/F22, and everything from S7F27 up - is outside the GEM capability, and every one of them is an entry [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) flags as representative: a starting point for reading E5 rather than a definition to implement against. Implementing one means reading the standard first, not copying a table |
-| Limits monitoring | The last E30 data-collection capability: S2F45 attaches limits to a variable so the equipment reports crossing one rather than the host polling for it. It wants a definition store and an evaluation on every variable read, which is a different shape from a trace's timer |
+| A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
 | A trace that outlives a reconnect | Deliberate, and the only part of tracing with no test of its own. Every trace is cancelled where the host's report definitions are reset, on a re-establish - and an in-memory transport pair cannot re-select after a deselect, because the select is driven by the connection's own state machine and nothing public asks it to. The test covers the other side: that a second S1F13 on a live conversation resets nothing |
 | Streams this library does not implement at either end | Stream 3 material status, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |
 

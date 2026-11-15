@@ -67,6 +67,11 @@ public sealed class GemEquipment : IAsyncDisposable
     private readonly ConcurrentDictionary<uint, TraceRun> _traces = new();
     private readonly ConcurrentQueue<uint> _traceDue = new();
 
+    // Which side of each band each variable was on, last time anybody looked. A crossing is a
+    // change in this, which is why it is remembered rather than recomputed: the value alone cannot
+    // say whether it has just arrived.
+    private readonly ConcurrentDictionary<(uint Variable, uint Limit), bool> _zones = new();
+
     // Which alarms are in alarm right now, as opposed to which are allowed to report. S5F6 has to
     // answer the first question and S5F3 configures the second, so they cannot be the same set.
     private readonly ConcurrentDictionary<ulong, byte> _active = new();
@@ -284,6 +289,27 @@ public sealed class GemEquipment : IAsyncDisposable
         (2, 23),   // Trace Initialize Send
     ];
 
+    /// <summary>The limits monitoring messages, answered only when limits are enabled.</summary>
+    /// <remarks>
+    /// <para>
+    /// E30's other way of not polling: the host says which band it cares about, and the equipment
+    /// reports a collection event when a variable leaves it or comes back. Opt-in like the rest,
+    /// and needing nothing from the application beyond the event the model names - see
+    /// <see cref="GemVariable.LimitEventId"/>.
+    /// </para>
+    /// <para>
+    /// Three of the four messages in this capability are representative entries in this
+    /// repository's catalogue rather than definitions, which is the one thing worth knowing before
+    /// integrating against a particular host. <see cref="GemVariableLimit"/> carries the whole of
+    /// that caveat, and the bodies live in one place for the same reason.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<(byte Stream, byte Function)> LimitMessages { get; } =
+    [
+        (2, 45),   // Define Variable Limit Attributes
+        (2, 47),   // Variable Limit Attribute Request
+    ];
+
     /// <summary>Raised after the communication state changes.</summary>
     public event EventHandler<GemCommunicationStateChangedEventArgs>? CommunicationStateChanged;
 
@@ -493,6 +519,79 @@ public sealed class GemEquipment : IAsyncDisposable
     public ValueTask<bool> ClearAlarmAsync(ulong alarmId, CancellationToken cancellationToken = default)
         => AlarmAsync(alarmId, set: false, cancellationToken);
 
+    /// <summary>Checks a variable against the limits the host asked for, and reports a crossing.</summary>
+    /// <param name="variableId">The SVID.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns><see langword="true"/> when a crossing was found and a report went out.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Called by the application, after a value changes.</strong> Nothing in this layer
+    /// knows when a chamber's pressure moves - a variable is a delegate it reads on demand - so
+    /// the alternative was a timer on every monitored variable with a period nobody asked for.
+    /// A machine that already raises events when it does things has the right moment to hand.
+    /// </para>
+    /// <para>
+    /// A crossing is a <em>change</em> of side: the first check on a band records which side the
+    /// value is on and reports nothing, because there is nothing to have crossed from. A value
+    /// that wobbles inside the band is silent, which is what makes the band a deadband.
+    /// </para>
+    /// <para>
+    /// <see langword="false"/> covers everything that is not a reported crossing: no limits
+    /// defined, nothing crossed, a value that is not a number, no
+    /// <see cref="GemVariable.LimitEventId"/> documented for the variable, or nobody to tell. The
+    /// crossing is still recorded in every one of those cases, so the next one is measured from
+    /// here.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<bool> CheckLimitsAsync(uint variableId, CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var limits = Model.LimitsFor(variableId);
+
+        if (limits.Count == 0 || !Model.Variables.TryGetValue(variableId, out var variable))
+        {
+            return false;
+        }
+
+        double value;
+
+        using (var item = variable.Read())
+        {
+            value = GemLimitCodec.ReadNumber(item);
+        }
+
+        if (double.IsNaN(value))
+        {
+            // A band cannot contain a string. A host that put a limit on a text variable gets no
+            // events rather than a wrong one.
+            return false;
+        }
+
+        var crossed = false;
+
+        foreach (var limit in limits)
+        {
+            var inside = limit.Contains(value);
+            var key = (variableId, limit.Id);
+            var known = _zones.TryGetValue(key, out var was);
+
+            _zones[key] = inside;
+
+            if (known && was != inside)
+            {
+                crossed = true;
+            }
+        }
+
+        if (!crossed || variable.LimitEventId is not { } eventId)
+        {
+            return false;
+        }
+
+        return await TriggerEventAsync(eventId, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Sends the host something an operator typed - S10F1.</summary>
     /// <param name="text">TEXT, as the operator wrote it.</param>
     /// <param name="terminalId">TID. Zero is the usual value for equipment with one terminal.</param>
@@ -608,6 +707,8 @@ public sealed class GemEquipment : IAsyncDisposable
             (2, 17) => OnTimeRequest(),
             (2, 29) => OnConstantNamelist(transaction.Message),
             (2, 23) => OnTraceInitialize(transaction.Message),
+            (2, 45) => OnDefineLimits(transaction.Message),
+            (2, 47) => OnLimitRequest(transaction.Message),
             (2, 31) => OnTimeSet(transaction.Message),
             (2, 33) => OnDefineReport(transaction.Message),
             (2, 35) => OnLinkEventReport(transaction.Message),
@@ -769,6 +870,11 @@ public sealed class GemEquipment : IAsyncDisposable
             // trace the host has forgotten about would keep sampling and keep reporting, and the
             // host would have no TRID to cancel it with.
             CancelAllTraces("the host re-established communications");
+
+            // Model.Reset has already dropped the limit definitions; this drops the zones that
+            // went with them, so the first look after a reconnect establishes a zone rather than
+            // reporting a crossing out of a band nobody is watching any more.
+            _zones.Clear();
         }
 
         SetCommunication(GemCommunicationState.Communicating, reason);
@@ -1524,6 +1630,125 @@ public sealed class GemEquipment : IAsyncDisposable
         return acknowledgement;
     }
 
+    // ----------------------------------------------------------------- inbound, limits
+
+    private SecsMessage OnDefineLimits(SecsMessage request)
+    {
+        if (!GemLimitCodec.TryReadDefinitions(request.Item, out var entries))
+        {
+            // VLAACK 1 with no detail, because there was no readable variable to report detail
+            // against. E5's two codes for it are match and mismatch, and this is a mismatch.
+            return new SecsMessage(2, 46, replyExpected: false)
+            {
+                Name = "VariableLimitAttributeAcknowledge",
+                Item = GemLimitCodec.WriteResults(accepted: false, []),
+            };
+        }
+
+        if (entries.Count == 0)
+        {
+            // An empty variable list removes every limit on every variable, the way an empty
+            // S2F33 removes every report definition.
+            Model.DefineVariableLimits([]);
+            _zones.Clear();
+
+            return new SecsMessage(2, 46, replyExpected: false)
+            {
+                Name = "VariableLimitAttributeAcknowledge",
+                Item = GemLimitCodec.WriteResults(accepted: true, []),
+            };
+        }
+
+        List<GemVariableLimitResult> results = [];
+        var accepted = true;
+
+        foreach (var entry in entries)
+        {
+            // All or nothing per variable. A half-configured variable is the worse failure for a
+            // monitoring feature - the host would believe it is watching a band that is not there
+            // - so a variable with one unusable band keeps none of them, and every band in it
+            // carries a reason: 4 for the one that was not a band, 1 for the rest, because the
+            // definition they belong to is the thing in error.
+            if (entry.Limits.Exists(limit => limit.Band is null))
+            {
+                var answers = new List<(uint, GemVariableLimitAcknowledgement)>(entry.Limits.Count);
+
+                foreach (var (id, band) in entry.Limits)
+                {
+                    answers.Add((id, band is null
+                        ? GemVariableLimitAcknowledgement.ValueError
+                        : GemVariableLimitAcknowledgement.DefinitionError));
+                }
+
+                results.Add(new GemVariableLimitResult(entry.VariableId, accepted: false, answers));
+                accepted = false;
+
+                continue;
+            }
+
+            var bands = new GemVariableLimit[entry.Limits.Count];
+
+            for (var i = 0; i < bands.Length; i++)
+            {
+                bands[i] = entry.Limits[i].Band!;
+            }
+
+            // One variable at a time, because each is independent and the merge back into request
+            // order is then nothing at all.
+            var (ok, one) = Model.DefineVariableLimits(
+                [new GemVariableLimitDefinition(entry.VariableId, bands)]);
+
+            accepted &= ok;
+            results.AddRange(one);
+
+            // The zones go with the definition that made them. Whether the value used to be inside
+            // the old band says nothing about the new one, and reporting a crossing for the
+            // difference would be reporting the host's own edit back at it.
+            ForgetLimitZones(entry.VariableId);
+        }
+
+        return new SecsMessage(2, 46, replyExpected: false)
+        {
+            Name = "VariableLimitAttributeAcknowledge",
+            Item = GemLimitCodec.WriteResults(accepted, results),
+        };
+    }
+
+    private SecsMessage OnLimitRequest(SecsMessage request)
+    {
+        var requested = ReadIdList(request.Item);
+        var entries = new List<SecsItem>();
+
+        // An empty list asks about every variable that has limits, which is the only answer that
+        // is short enough to be useful on a machine with hundreds of variables.
+        var variables = requested.Count == 0
+            ? Model.DefinedLimits.Order().ToArray()
+            : requested.Where(id => id <= uint.MaxValue).Select(id => (uint)id).ToArray();
+
+        foreach (var variableId in variables)
+        {
+            Model.Variables.TryGetValue(variableId, out var variable);
+
+            entries.Add(GemLimitCodec.WriteAttributes(
+                variableId,
+                variable?.Units ?? string.Empty,
+
+                // E5 has the equipment report the variable's own documented range here. This layer
+                // does not carry one for a status variable, so it reports a zero-length item -
+                // which is what E5 uses for "no documented bound" and what the equipment constant
+                // namelist already does for ECMIN and ECMAX.
+                minimum: null,
+                maximum: null,
+                Model.LimitsFor(variableId)));
+        }
+
+        return new SecsMessage(2, 48, replyExpected: false)
+        {
+            Name = "VariableLimitAttributesSend",
+            Item = SecsItem.L(entries),
+        };
+    }
+
     // ----------------------------------------------------------------- inbound, trace data
 
     private SecsMessage OnTraceInitialize(SecsMessage request)
@@ -1701,6 +1926,17 @@ public sealed class GemEquipment : IAsyncDisposable
         // Accepted either way. Cancelling a trace that is not running is not a failure - the host
         // wanted it stopped, and it is stopped.
         return GemTraceAcknowledgement.Accepted;
+    }
+
+    private void ForgetLimitZones(uint variableId)
+    {
+        foreach (var key in _zones.Keys)
+        {
+            if (key.Variable == variableId)
+            {
+                _zones.TryRemove(key, out _);
+            }
+        }
     }
 
     private void CancelAllTraces(string reason)

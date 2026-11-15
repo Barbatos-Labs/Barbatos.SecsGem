@@ -402,6 +402,77 @@ public sealed class GemHost : IAsyncDisposable
         return (GemEquipmentConstantAcknowledgement)ReadCode(reply);
     }
 
+    /// <summary>Sets the limit bands on some variables - S2F45.</summary>
+    /// <param name="definitions">
+    /// The bands. A variable with no limits has its limits removed; an empty list removes every
+    /// limit on every variable.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>VLAACK, and what happened to each variable and each band.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="definitions"/> is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">S2F46 was not the shape E5 defines.</exception>
+    /// <remarks>
+    /// <para>
+    /// Accepted means the bands are in force, not that anything has crossed one. The crossings
+    /// arrive afterwards as the collection event the equipment documents for the variable, which
+    /// is why S2F45 carries no CEID: the band is the host's and the event is the machine's.
+    /// </para>
+    /// <para>
+    /// The detail is per variable and per band, because a host that sent twenty needs to know
+    /// which one it got wrong rather than that something was.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemVariableLimitReply> DefineVariableLimitsAsync(
+        IReadOnlyList<GemVariableLimitDefinition> definitions,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definitions);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 45, replyExpected: true)
+            {
+                Name = "DefineVariableLimitAttributes",
+                Item = GemLimitCodec.WriteDefinitions(NextDataId(), definitions),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return GemLimitCodec.TryReadResults(reply.Item)
+            ?? throw new SecsException("S2F46 was not the shape E5 defines for it.");
+    }
+
+    /// <summary>Removes every limit on every variable - S2F45 with an empty list.</summary>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>VLAACK, and nothing else: there is no variable left to report on.</returns>
+    public ValueTask<GemVariableLimitReply> DeleteAllVariableLimitsAsync(CancellationToken cancellationToken = default)
+        => DefineVariableLimitsAsync([], cancellationToken);
+
+    /// <summary>Asks what limits are in force - S2F47.</summary>
+    /// <param name="variableIds">The variables. An empty list asks about every one that has limits.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>One entry per variable the equipment reported.</returns>
+    /// <remarks>
+    /// The entries carry the variable's own documented range as well as the bands in force, which
+    /// is what tells a host whether the band it is about to ask for is one the value could ever be
+    /// outside. Equipment that documents no range reports a zero-length item for it, and
+    /// <see cref="GemVariableLimitAttributes.Minimum"/> is <see langword="null"/> for that.
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<GemVariableLimitAttributes>> ReadVariableLimitsAsync(
+        IReadOnlyList<ulong> variableIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(variableIds);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 47, replyExpected: true)
+            {
+                Name = "VariableLimitAttributeRequest",
+                Item = GemItems.IdList(variableIds),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return GemLimitCodec.ReadAttributes(reply.Item);
+    }
+
     /// <summary>Starts a trace - S2F23.</summary>
     /// <param name="trace">What to sample, how often, and how many samples travel together.</param>
     /// <param name="cancellationToken">Cancels the work.</param>

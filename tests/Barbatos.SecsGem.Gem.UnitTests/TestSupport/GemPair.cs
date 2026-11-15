@@ -100,7 +100,8 @@ internal sealed class GemPair : IAsyncDisposable
         IGemFormattedProcessProgramStore? formatted = null,
         IGemSpool? spool = null,
         IGemTerminal? terminal = null,
-        bool traces = false)
+        bool traces = false,
+        bool limits = false)
     {
         var options = new SecsGemOptions
         {
@@ -164,6 +165,11 @@ internal sealed class GemPair : IAsyncDisposable
         if (traces)
         {
             declared.AddRange(GemEquipment.TraceMessages);
+        }
+
+        if (limits)
+        {
+            declared.AddRange(GemEquipment.LimitMessages);
         }
 
         foreach (var (stream, function) in declared)

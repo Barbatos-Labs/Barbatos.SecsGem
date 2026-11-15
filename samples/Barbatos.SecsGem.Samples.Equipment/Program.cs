@@ -45,6 +45,7 @@ internal static class Program
     internal const uint AlarmClearedEvent = 2_001;
     internal const uint DefaultReport = 5_000;
     internal const ulong PressureAlarm = 9_000;
+    internal const uint PressureLimitEvent = 2_500;
 
     private static async Task Main(string[] args)
     {
@@ -79,7 +80,7 @@ internal static class Program
 
                     model
                         .AddStatusVariable(ControlStateVariable, "ControlState", () => SecsItem.U1((byte)chamber.ControlState))
-                        .AddStatusVariable(PressureVariable, "Pressure", () => SecsItem.F8(chamber.Pressure), "mbar")
+                        .AddStatusVariable(PressureVariable, "Pressure", () => SecsItem.F8(chamber.Pressure), "mbar", PressureLimitEvent)
                         .AddDataVariable(LotIdVariable, "LotId", () => SecsItem.A(chamber.LotId))
 
                         .AddConstant(new GemEquipmentConstant
@@ -108,6 +109,11 @@ internal static class Program
                         .AddEvent(ProcessEndEvent, "ProcessEnd")
                         .AddEvent(AlarmSetEvent, "PressureAlarmSet")
                         .AddEvent(AlarmClearedEvent, "PressureAlarmCleared")
+
+                        // What a crossing of a host-set pressure band is called. E30 leaves the
+                        // event to the equipment because S2F45 carries no CEID: the band is the
+                        // host's and the name is the machine's.
+                        .AddEvent(PressureLimitEvent, "PressureLimitCrossed")
 
                         // A default report, which a host is free to replace entirely with S2F33.
                         .AddReport(DefaultReport, ControlStateVariable, PressureVariable, LotIdVariable)
@@ -185,6 +191,12 @@ internal static class Program
             // samples on its own clock. Nothing to register with it - a trace samples the status
             // variables declared above - so this line is the whole capability.
             .AddGemTraces()
+
+            // Limits monitoring: a host sets the band it cares about for the pressure, and the
+            // runner below asks the equipment to check it after every drift. Without the check,
+            // nothing in this layer would ever notice - a status variable is a delegate it reads
+            // on demand, not something it watches.
+            .AddGemLimits()
 
             // Spooling to a directory, bounded by SpoolCapacity. Reports raised while no host is
             // listening are held, and handed over only when the host asks with S6F23 - it may also
@@ -289,6 +301,10 @@ internal sealed class ChamberRunner(
 
             chamber.Drift();
             chamber.ControlState = (byte)equipment.ControlState;
+
+            // The moment a value changed, which is the moment to check it against whatever band
+            // the host asked about. Reports nothing until a host has set one.
+            await equipment.CheckLimitsAsync(Program.PressureVariable, stoppingToken).ConfigureAwait(false);
 
             if (chamber.IsOutOfRange != alarmRaised)
             {

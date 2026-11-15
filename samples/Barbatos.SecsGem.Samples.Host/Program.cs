@@ -43,10 +43,14 @@ internal static class Program
     private const uint PressureVariable = 2;
     private const uint LotIdVariable = 10;
     private const uint ProcessEndEvent = 1_001;
+    private const uint PressureLimitEvent = 2_500;
     private const uint HostReport = 6_000;
 
     private static readonly ConcurrentQueue<string> ErrorReports = new();
     private static readonly ConcurrentQueue<string> Reports = new();
+
+    /// <summary>The loopback chamber's pressure, which the conversation moves to cross a band.</summary>
+    private static double _pressure = 1_013.25d;
 
     private static async Task<int> Main(string[] args)
         => args.Contains("--tcp") ? await RunOverTcpAsync() : await RunInOneProcessAsync();
@@ -109,8 +113,8 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
         }
 
-        // And traces, which is the one capability that needs nothing registered with it.
-        foreach (var (stream, function) in GemEquipment.TraceMessages)
+        // And traces and limits, the two capabilities that need nothing registered with them.
+        foreach (var (stream, function) in GemEquipment.TraceMessages.Concat(GemEquipment.LimitMessages))
         {
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
         }
@@ -181,14 +185,20 @@ internal static class Program
 
     /// <summary>What the loopback equipment publishes.</summary>
     private static GemEquipmentModel BuildModel()
-    {
-        var pressure = 1_013.25d;
-
-        return new GemEquipmentModelBuilder()
+        => new GemEquipmentModelBuilder()
             .AddStatusVariable(ControlStateVariable, "ControlState", () => SecsItem.U1(5))
-            .AddStatusVariable(PressureVariable, "Pressure", () => SecsItem.F8(pressure), "mbar")
+
+            // The limit event is the machine's to name, because S2F45 carries no CEID: a host sets
+            // the band it cares about and the equipment says what it calls leaving it.
+            .AddStatusVariable(
+                PressureVariable,
+                "Pressure",
+                () => SecsItem.F8(Volatile.Read(ref _pressure)),
+                "mbar",
+                PressureLimitEvent)
             .AddDataVariable(LotIdVariable, "LotId", () => SecsItem.A("LOT-2026-1115"))
             .AddEvent(ProcessEndEvent, "ProcessEnd")
+            .AddEvent(PressureLimitEvent, "PressureLimitCrossed")
             .AddRemoteCommand("START", (context, _) =>
             {
                 var lot = context.GetText("LOTID");
@@ -198,7 +208,6 @@ internal static class Program
                     : GemHostCommandAcknowledgement.CompletionLater);
             })
             .Build();
-    }
 
     // ------------------------------------------------------------------ over a socket
 
@@ -389,6 +398,67 @@ internal static class Program
         var back = await host.RequestFormattedProcessProgramAsync("RECIPE-7", cancellationToken);
         Console.WriteLine($"   S7F25 -> {back?.ToString() ?? "no such program"}");
         ok &= back?.Commands.Count == 2;
+
+        if (equipment is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and asks to be told when the pressure leaves a band --");
+            Console.WriteLine();
+
+            // The band is the host's; the event is the machine's, because S2F45 carries no CEID.
+            var limits = await host.DefineVariableLimitsAsync(
+                [new GemVariableLimitDefinition(PressureVariable, [new GemVariableLimit(1, 900d, 1_100d)])],
+                cancellationToken);
+
+            Console.WriteLine($"   S2F45 -> {limits}");
+            ok &= limits.Accepted;
+
+            var attributes = await host.ReadVariableLimitsAsync([], cancellationToken);
+            Console.WriteLine($"   S2F47 -> {string.Join("; ", attributes.Select(a => $"{a}, {a.Limits[0]}"))}");
+            ok &= attributes.Count == 1;
+
+            var crossings = 0;
+
+            void OnLimit(object? sender, GemEventReportEventArgs e)
+            {
+                if (e.EventId == PressureLimitEvent)
+                {
+                    Interlocked.Increment(ref crossings);
+                    Console.WriteLine($"   S6F11 -> CEID {e.EventId}: the pressure left the band");
+                }
+            }
+
+            host.EventReportReceived += OnLimit;
+
+            try
+            {
+                ok &= await host.LinkEventsAsync([(PressureLimitEvent, [HostReport])], cancellationToken)
+                    == GemLinkReportAcknowledgement.Accepted;
+
+                ok &= await host.EnableEventsAsync(true, [PressureLimitEvent], cancellationToken)
+                    == GemEnableEventAcknowledgement.Accepted;
+
+                // The first check records which side the value is on - there is nothing to have
+                // crossed from - and the second is the crossing.
+                await equipment.CheckLimitsAsync(PressureVariable, cancellationToken);
+
+                Volatile.Write(ref _pressure, 1_200d);
+                await equipment.CheckLimitsAsync(PressureVariable, cancellationToken);
+
+                await WaitUntilAsync(() => Volatile.Read(ref crossings) == 1, "the crossing to reach the host");
+
+                // And wandering further out is not another crossing, which is what makes the band
+                // a deadband rather than a threshold.
+                Volatile.Write(ref _pressure, 5_000d);
+                await equipment.CheckLimitsAsync(PressureVariable, cancellationToken);
+
+                ok &= Volatile.Read(ref crossings) == 1;
+            }
+            finally
+            {
+                host.EventReportReceived -= OnLimit;
+            }
+        }
 
         if (equipment is not null)
         {

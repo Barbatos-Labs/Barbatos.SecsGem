@@ -445,6 +445,36 @@ public static class GemServiceCollectionExtensions
         return builder;
     }
 
+    /// <summary>Adds limits monitoring: S2F45 and S2F47.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// The host sets the bands it cares about and the equipment reports a collection event when a
+    /// variable leaves one or comes back - which is one message per crossing rather than one per
+    /// second for ever. Needs nothing registered with it, like traces; what it does need is a
+    /// <see cref="GemVariable.LimitEventId"/> on the variables worth watching, and
+    /// <c>GemEquipment.CheckLimitsAsync</c> called when a value changes.
+    /// </para>
+    /// <para>
+    /// Three of this capability's four messages are representative entries in this repository's
+    /// catalogue rather than definitions. <see cref="GemVariableLimit"/> carries that caveat in
+    /// full; it is worth reading before integrating against a particular host.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemLimits(this ISecsGemBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        foreach (var (stream, function) in GemEquipment.LimitMessages)
+        {
+            builder.OnPrimary(stream, function, static provider =>
+                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
+        }
+
+        return builder;
+    }
+
     /// <summary>Adds terminal services, backed by a terminal that only remembers.</summary>
     /// <param name="builder">The builder.</param>
     /// <returns>The builder, for chaining.</returns>

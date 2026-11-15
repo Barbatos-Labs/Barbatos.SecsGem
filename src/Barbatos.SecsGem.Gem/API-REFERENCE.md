@@ -35,6 +35,12 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
   - [`AddGemFileSpooling`](#addgemfilespooling)
   - [What the equipment does with a durable spool](#what-the-equipment-does-with-a-durable-spool)
   - [`AddGemSpooling`](#addgemspooling)
+- [Limits monitoring](#limits-monitoring)
+  - [`GemVariableLimit`](#gemvariablelimit)
+  - [`GemVariableLimitDefinition`](#gemvariablelimitdefinition)
+  - [`GemVariableLimitAcknowledgement`](#gemvariablelimitacknowledgement)
+  - [`GemVariableLimitAttributes`](#gemvariablelimitattributes)
+  - [`AddGemLimits`](#addgemlimits)
 - [Trace data collection](#trace-data-collection)
   - [`GemTraceRequest`](#gemtracerequest)
   - [`GemTraceAcknowledgement`](#gemtraceacknowledgement)
@@ -92,6 +98,7 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `FormattedProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F23 and S7F25, registered only when a formatted store is configured. Independent of `ProcessProgramMessages`, and disjoint from it: a stream and function may be declared only once. |
 | `SpoolMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S6F23, registered only when a spool is configured. Equipment that does not spool answers S9F5 rather than RSDA 1 - "I do not do that" and "no, not now" are different answers to a host deciding whether to wait. |
 | `TerminalMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S10F3, S10F5 and S10F9, registered only when a terminal is configured. Not S10F1, which the equipment sends; not S10F7, which the catalogue flags as representative and which ACKC10 2 already says. |
+| `CheckLimitsAsync` | `ValueTask<bool> CheckLimitsAsync(uint variableId, CancellationToken cancellationToken = default)` | E30 limits monitoring: checks a variable against the bands a host set, and reports a crossing. Called by the application when a value changes - see [Limits monitoring](#limits-monitoring). |
 | `SendTerminalRequestAsync` | `ValueTask<GemTerminalAcknowledgement?> SendTerminalRequestAsync(string text, byte terminalId = 0, CancellationToken cancellationToken = default)` | S10F1: something an operator typed. `null` when there was nobody to tell - **not spooled**, because a prompt for a person at the host is worthless an hour later. Needs no `IGemTerminal`. |
 | `RunAsync` | `Task RunAsync(CancellationToken cancellationToken = default)` | Drives the state models. Run it **alongside** `HsmsConnection.RunAsync`, not instead of it. Throws `InvalidOperationException` on a second call. |
 | `HandleAsync` | `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken cancellationToken = default)` | Handles one inbound primary. Wired to every pair in `HandledMessages`. |
@@ -574,6 +581,92 @@ to use it.
 
 ---
 
+## Limits monitoring
+
+E30's other way of not polling: the host sets the bands, the equipment reports a collection event
+when a variable leaves one or comes back. Opt-in through `AddGemLimits`.
+
+**Three of this capability's four messages - S2F45, S2F46 and S2F48 - are representative entries in
+this repository's catalogue rather than definitions; only the S2F47 request is firm.** The shapes
+below follow SEMI E5 and the catalogue's item lists corroborate them item for item and in order,
+including the per-variable LVACK beside the per-limit LIMITACK. The tests prove both ends of this
+library agree; only a copy of E5 can say whether they agree with another host. They live in one
+place, `GemLimitCodec`.
+
+### `GemVariableLimit`
+
+`public sealed class GemVariableLimit`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemVariableLimit(uint id, double lower, double upper)` | Throws `ArgumentOutOfRangeException` for an upper below its lower, or a bound that is NaN. |
+| `Id` | `uint { get; }` | LIMITID. |
+| `Lower` / `Upper` | `double { get; }` | LOWERDB and UPPERDB. |
+| `Contains` | `bool Contains(double value)` | **Inclusive at both ends**, which makes a band of `[x, x]` mean "exactly x". |
+
+The band is the deadband. A value inside it is in the zone and stays there until it is outside, so a
+wobble inside the band is silent - which is the whole reason E5 names the bounds after a deadband
+rather than a threshold.
+
+### `GemVariableLimitDefinition`
+
+`public sealed class GemVariableLimitDefinition` - `VariableId` and `Limits`, copied. A definition
+with no limits removes every limit on that variable.
+
+### `GemVariableLimitAcknowledgement`
+
+`public enum GemVariableLimitAcknowledgement : byte` - LIMITACK.
+
+| Member | Value |
+| --- | --- |
+| `Accepted` | 0 |
+| `DefinitionError` | 1 |
+| `CannotPerformNow` | 2 |
+| `NoSuchVariable` | 3 |
+| `ValueError` | 4 |
+
+### `GemVariableLimitReply` / `GemVariableLimitResult`
+
+`Accepted` is VLAACK - whether the whole definition was taken. `Variables` carries one
+`GemVariableLimitResult` each: its own `Accepted` (LVACK) and a `Limits` list of
+`(uint Id, GemVariableLimitAcknowledgement Acknowledgement)` in the order they were sent.
+
+Per variable it is all or nothing: one unusable band and none of that variable's bands are in
+force, because a half-configured variable would have the host believe it is watching a band that is
+not there. The per-band answers still say which one - `4` for the band that was not a band, `1` for
+the others, `3` against every band on a variable the machine does not have.
+
+### `GemVariableLimitAttributes`
+
+`public sealed class GemVariableLimitAttributes` - one S2F48 entry: `VariableId`, `Units`,
+`Minimum` and `Maximum` as `double?`, and `Limits`.
+
+`Minimum` and `Maximum` are the **variable's** documented range rather than a band, and are `null`
+when the equipment documents none. This library's own equipment carries no range for a status
+variable and reports a zero-length item for them, which is what E5 uses for "no documented bound".
+
+### On `GemEquipment`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `LimitMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S2F45 and S2F47. |
+| `CheckLimitsAsync` | `ValueTask<bool> CheckLimitsAsync(uint variableId, CancellationToken cancellationToken = default)` | Called **by the application** when a value changes; nothing here knows when one does. `true` only when a crossing was found and a report went out - the crossing is recorded either way, so the next one is measured from here. |
+
+Redefining a band forgets which side the value was on: that is the host's own edit, and reporting a
+crossing for the difference would be reporting it back at them.
+
+### `AddGemLimits`
+
+```csharp
+public static ISecsGemBuilder AddGemLimits(this ISecsGemBuilder builder)
+```
+
+Declares `GemEquipment.LimitMessages`. Needs nothing registered with it; what it does need is a
+`GemVariable.LimitEventId` on the variables worth watching, since S2F45 carries no CEID and E30
+leaves the event to the equipment.
+
+---
+
 ## Trace data collection
 
 E30's trace capability: the host names variables, a period and a count, and the equipment samples
@@ -916,6 +1009,9 @@ table claiming it.
 | `ListProcessProgramsAsync` | S7F19 | `IReadOnlyList<string>` |
 | `SendFormattedProcessProgramAsync(program)` | S7F23 | `GemProcessProgramAcknowledgement` |
 | `RequestFormattedProcessProgramAsync(id)` | S7F25 | `GemFormattedProcessProgram?` |
+| `DefineVariableLimitsAsync(definitions)` | S2F45 | `GemVariableLimitReply`: VLAACK, and the answer per variable and per band. Throws `SecsException` when S2F46 was not the shape E5 defines |
+| `DeleteAllVariableLimitsAsync` | S2F45, empty | `GemVariableLimitReply` |
+| `ReadVariableLimitsAsync(variableIds)` | S2F47 | `IReadOnlyList<GemVariableLimitAttributes>`. Empty list asks about every variable that has limits |
 | `StartTraceAsync(trace)` | S2F23 | `GemTraceAcknowledgement`. Throws `ArgumentOutOfRangeException` for a period the `hhmmsscc` field cannot carry, rather than spending a round trip on arithmetic the host could have done |
 | `StopTraceAsync(traceId)` | S2F23 asking for no samples | `GemTraceAcknowledgement`. Accepted for a trace that was not running |
 | `DisplayTerminalMessageAsync(text, terminalId)` | S10F3 | `GemTerminalAcknowledgement` |

@@ -37,6 +37,21 @@ public sealed class GemVariable
     /// <summary>Gets the delegate that reads the current value.</summary>
     /// <remarks>Must return a new item each call. The caller disposes it.</remarks>
     public required Func<SecsItem> Read { get; init; }
+
+    /// <summary>Gets the collection event raised when this variable crosses one of its limits.</summary>
+    /// <remarks>
+    /// <para>
+    /// E30 makes the limit bands host-configurable through S2F45 and leaves the collection event
+    /// to the equipment, because S2F45 carries no CEID: the host says which band it cares about,
+    /// and the machine documents what it calls the crossing. So the band comes from the host and
+    /// this comes from the model.
+    /// </para>
+    /// <para>
+    /// <see langword="null"/> means a crossing on this variable is tracked and not reported, which
+    /// is what equipment that has not documented an event for it should do.
+    /// </para>
+    /// </remarks>
+    public uint? LimitEventId { get; init; }
 }
 
 /// <summary>
