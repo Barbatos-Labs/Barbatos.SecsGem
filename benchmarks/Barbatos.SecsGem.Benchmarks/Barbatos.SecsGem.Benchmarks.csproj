@@ -11,6 +11,10 @@
 
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
+    <!-- The format benchmarks build their registry through AddSecsSerialization() and friends,
+         the same way an application does, so they need the container itself and not just its
+         abstractions. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
 
   <ItemGroup>
@@ -18,7 +22,16 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Sml\Barbatos.SecsGem.Serialization.Sml.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Json\Barbatos.SecsGem.Serialization.Json.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Xml\Barbatos.SecsGem.Serialization.Xml.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Serialization.Ini\Barbatos.SecsGem.Serialization.Ini.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
+
+    <!-- The generator, referenced as an analyzer. MapperBenchmarks compares the contracts it emits
+         against the ones reflection builds, and its setup refuses to run if the generated side is
+         empty: two arms of reflection would report a dead heat and prove nothing. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.SourceGenerators\Barbatos.SecsGem.SourceGenerators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

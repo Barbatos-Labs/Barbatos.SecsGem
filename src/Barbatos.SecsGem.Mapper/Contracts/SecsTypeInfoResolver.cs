@@ -3,6 +3,8 @@
 // Copyright (C) Barbatos Labs | Pham The Hung and Barbatos.SecsGem Contributors.
 // All Rights Reserved.
 
+using System.Collections.Concurrent;
+
 namespace Barbatos.SecsGem.Mapping;
 
 /// <summary>
@@ -59,32 +61,43 @@ public static class SecsTypeInfoResolver
 /// </summary>
 /// <remarks>
 /// <para>
-/// Phase 5 fills this in. The generator will emit, for every type it sees, a registration that
+/// <c>Barbatos.SecsGem.SourceGenerators</c> emits, for every type it sees, a registration that
 /// calls <see cref="Register"/> from a module initialiser - so a generated contract is simply
 /// present, with no attribute to add and no partial class to write.
 /// </para>
 /// <para>
-/// The type exists now, and sits first in <see cref="SecsTypeInfoResolver.Default"/>, so adding
-/// the generator later is additive: no existing call site changes, and a type that gains a
-/// generated contract silently stops using reflection.
+/// This resolver sits first in <see cref="SecsTypeInfoResolver.Default"/>, which is what makes the
+/// generator additive: referencing it changes no call site, and a type that gains a generated
+/// contract silently stops using reflection. Without the package every type falls through to
+/// reflection and nothing here is ever asked twice.
 /// </para>
 /// </remarks>
 public sealed class GeneratedSecsTypeInfoResolver : ISecsTypeInfoResolver
 {
-    private readonly Dictionary<Type, Func<SecsSerializerOptions, SecsTypeInfo>> _factories = [];
+    private readonly ConcurrentDictionary<Type, Func<SecsSerializerOptions, SecsTypeInfo>> _factories = new();
+    private readonly ConcurrentDictionary<(Type Type, SecsSerializerOptions Options), SecsTypeInfo?> _cache = new();
 
     /// <summary>Registers a generated contract.</summary>
     /// <param name="type">The type the contract describes.</param>
     /// <param name="factory">Builds the contract for a given set of options.</param>
-    /// <remarks>Called by generated code. Safe to call more than once for the same type; the last wins.</remarks>
+    /// <remarks>
+    /// Called by generated code from a module initialiser. Safe to call more than once for the
+    /// same type: the last registration wins, and anything already built from an earlier one is
+    /// discarded, so a stale contract cannot outlive the registration that replaced it.
+    /// </remarks>
     public void Register(Type type, Func<SecsSerializerOptions, SecsTypeInfo> factory)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(factory);
 
-        lock (_factories)
+        _factories[type] = factory;
+
+        foreach (var key in _cache.Keys)
         {
-            _factories[type] = factory;
+            if (key.Type == type)
+            {
+                _cache.TryRemove(key, out _);
+            }
         }
     }
 
@@ -95,26 +108,34 @@ public sealed class GeneratedSecsTypeInfoResolver : ISecsTypeInfoResolver
     {
         ArgumentNullException.ThrowIfNull(type);
 
-        lock (_factories)
-        {
-            return _factories.ContainsKey(type);
-        }
+        return _factories.ContainsKey(type);
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// A built contract is cached per type and per options instance, exactly as
+    /// <see cref="ReflectionSecsTypeInfoResolver"/> caches its own. That symmetry is the whole
+    /// point: without it the generated factory would rebuild the contract - its property array,
+    /// its delegates, its labels - for every mapped value, and the generator would cost more than
+    /// the reflection it was brought in to replace.
+    /// </para>
+    /// <para>
+    /// It did, until the benchmarks measured it. <c>MapperBenchmarks</c> compared a resolver that
+    /// cached against one that did not and reported the generated side slower and allocating
+    /// half again as much, which is the only reason this cache exists.
+    /// </para>
+    /// </remarks>
     public SecsTypeInfo? GetTypeInfo(Type type, SecsSerializerOptions options)
     {
         ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(options);
 
-        Func<SecsSerializerOptions, SecsTypeInfo>? factory;
-        lock (_factories)
+        if (!_factories.TryGetValue(type, out var factory))
         {
-            if (!_factories.TryGetValue(type, out factory))
-            {
-                return null;
-            }
+            return null;
         }
 
-        return factory(options);
+        return _cache.GetOrAdd((type, options), static (key, build) => build(key.Options), factory);
     }
 }
