@@ -302,6 +302,47 @@ public sealed class HsmsConnection : IAsyncDisposable
         await ControlTransactionAsync(session, MessageType.LinkTestRequest, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Sends a Deselect.req and, once the peer agrees, leaves the Selected state.</summary>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>A task that completes when the peer has answered and the transition has been asked for.</returns>
+    /// <exception cref="SecsException">There is no link, the connection is not Selected, or the peer refused.</exception>
+    /// <exception cref="SecsTimeoutException">T6 expired with no response.</exception>
+    /// <remarks>
+    /// <para>
+    /// HSMS-SS interop rarely needs this - a host that wants the link down sends Separate.req or
+    /// simply closes the socket. The GEM control-state model is what gives it a reason to exist:
+    /// going off-line deliberately is not the same event as a cable being pulled, and a peer that
+    /// is told so can keep its own books straight.
+    /// </para>
+    /// <para>
+    /// The transition is <em>posted</em> to the actor rather than applied here. This method runs on
+    /// the caller's thread and <see cref="_state"/> has exactly one writer, so a deselect that
+    /// assigned it directly would be precisely the re-entrancy this design exists to prevent. The
+    /// task therefore completes when the peer has answered; the state follows a moment later, and
+    /// <see cref="StateChanged"/> is still raised in order with everything else.
+    /// </para>
+    /// </remarks>
+    public async ValueTask DeselectAsync(CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var session = RequireSession();
+
+        if (_state != HsmsConnectionState.Selected)
+        {
+            throw new SecsException($"A deselect needs the Selected state; this connection is {_state}.");
+        }
+
+        var response = await ControlTransactionAsync(session, MessageType.DeselectRequest, cancellationToken).ConfigureAwait(false);
+
+        if (response.DeselectStatus != DeselectStatus.Success)
+        {
+            throw new SecsException($"The peer refused the deselect with {response.DeselectStatus}.");
+        }
+
+        session.Events.TryWrite(new SessionEvent(SessionEventKind.LocalDeselected));
+    }
+
     /// <summary>Stops the connection and closes any live link.</summary>
     /// <returns>A task that completes once everything has been released.</returns>
     public async ValueTask DisposeAsync()
@@ -333,7 +374,7 @@ public sealed class HsmsConnection : IAsyncDisposable
             new BoundedChannelOptions(_options.PrimaryMessageQueueCapacity) { SingleReader = true, SingleWriter = true });
 
         using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var session = new Session(connection, decoder, sessionCts);
+        var session = new Session(connection, decoder, sessionCts, events.Writer);
         _session = session;
 
         using var t7 = new EventTimer(_timeProvider, () => events.Writer.TryWrite(new SessionEvent(SessionEventKind.T7Expired)));
@@ -474,6 +515,20 @@ public sealed class HsmsConnection : IAsyncDisposable
                     if (_state == HsmsConnectionState.Selected)
                     {
                         _ = LinkTestInBackgroundAsync(session, events.Writer, cancellationToken);
+                    }
+
+                    break;
+
+                case SessionEventKind.LocalDeselected:
+                    if (_state == HsmsConnectionState.Selected)
+                    {
+                        linkTest.Stop();
+
+                        // Back in NOT SELECTED, so T7 runs again - the same reasoning as a
+                        // Deselect.req arriving from the peer, and armed before the state is
+                        // published for the same reason.
+                        t7.StartOnce(_options.T7);
+                        SetState(HsmsConnectionState.Connected, "Deselect.req to the peer");
                     }
 
                     break;
@@ -1015,6 +1070,7 @@ public sealed class HsmsConnection : IAsyncDisposable
         Closed,
         T7Expired,
         LinkTestDue,
+        LocalDeselected,
     }
 
     private readonly record struct SessionEvent(
@@ -1028,13 +1084,17 @@ public sealed class HsmsConnection : IAsyncDisposable
     private sealed class Session(
         ISecsTransportConnection connection,
         HsmsPipeDecoder decoder,
-        CancellationTokenSource cts) : IDisposable
+        CancellationTokenSource cts,
+        ChannelWriter<SessionEvent> events) : IDisposable
     {
         public ISecsTransportConnection Connection { get; } = connection;
 
         public HsmsPipeDecoder Decoder { get; } = decoder;
 
         public CancellationTokenSource Cts { get; } = cts;
+
+        /// <summary>The actor's inbox, so a caller-thread operation can ask for a transition.</summary>
+        public ChannelWriter<SessionEvent> Events { get; } = events;
 
         public SemaphoreSlim SendLock { get; } = new(1, 1);
 

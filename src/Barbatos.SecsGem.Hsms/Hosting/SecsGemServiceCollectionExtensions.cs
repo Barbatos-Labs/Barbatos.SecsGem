@@ -94,7 +94,9 @@ public static class SecsGemServiceCollectionExtensions
             services.AddSingleton(routerBuilder);
         }
 
-        services.TryAddSingleton(provider => provider.GetRequiredService<SecsMessageRouterBuilder>().Build());
+        // Build(provider), not Build(): a handler may be registered as a factory, and the whole
+        // point of deferring it is that the provider exists by the time the router is resolved.
+        services.TryAddSingleton(provider => provider.GetRequiredService<SecsMessageRouterBuilder>().Build(provider));
 
         // Built by hand rather than by the activator: HsmsConnection takes an optional logger, and
         // an application that never called AddLogging should still get a connection.
@@ -173,6 +175,20 @@ public interface ISecsGemBuilder
     /// </remarks>
     ISecsGemBuilder OnPrimary(byte stream, byte function, SecsPrimaryHandler handler);
 
+    /// <summary>Registers a handler built from the container when the router is resolved.</summary>
+    /// <param name="stream">S.</param>
+    /// <param name="function">F. Must be odd.</param>
+    /// <param name="factory">Builds the handler from the service provider.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <remarks>
+    /// The overload to reach for when a handler needs a service, since a closure written during
+    /// configuration cannot have one. Resolve inside the returned handler rather than inside the
+    /// factory for anything that depends on the connection - the factory runs while the router is
+    /// still being built. See <see cref="SecsMessageRouterBuilder.OnPrimary(byte, byte, Func{IServiceProvider, SecsPrimaryHandler})"/>
+    /// for why. This is how <c>AddGemEquipment</c> registers the whole GEM message set.
+    /// </remarks>
+    ISecsGemBuilder OnPrimary(byte stream, byte function, Func<IServiceProvider, SecsPrimaryHandler> factory);
+
     /// <summary>Registers the handler for every primary no other handler claims.</summary>
     /// <param name="handler">The handler.</param>
     /// <returns>This builder, for chaining.</returns>
@@ -181,6 +197,12 @@ public interface ISecsGemBuilder
     /// not to recognise one. For a proxy, a logger or a gateway.
     /// </remarks>
     ISecsGemBuilder OnUnhandledPrimary(SecsPrimaryHandler handler);
+
+    /// <summary>Registers a catch-all built from the container when the router is resolved.</summary>
+    /// <param name="factory">Builds the handler from the service provider.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <remarks>Registering one turns off automatic S9F3 and S9F5.</remarks>
+    ISecsGemBuilder OnUnhandledPrimary(Func<IServiceProvider, SecsPrimaryHandler> factory);
 
     /// <summary>Runs the connection for the lifetime of the host.</summary>
     /// <returns>This builder, for chaining.</returns>
@@ -207,9 +229,21 @@ internal sealed class SecsGemBuilder(IServiceCollection services, SecsMessageRou
         return this;
     }
 
+    public ISecsGemBuilder OnPrimary(byte stream, byte function, Func<IServiceProvider, SecsPrimaryHandler> factory)
+    {
+        router.OnPrimary(stream, function, factory);
+        return this;
+    }
+
     public ISecsGemBuilder OnUnhandledPrimary(SecsPrimaryHandler handler)
     {
         router.OnUnhandledPrimary(handler);
+        return this;
+    }
+
+    public ISecsGemBuilder OnUnhandledPrimary(Func<IServiceProvider, SecsPrimaryHandler> factory)
+    {
+        router.OnUnhandledPrimary(factory);
         return this;
     }
 

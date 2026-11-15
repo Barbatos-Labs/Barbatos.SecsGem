@@ -51,6 +51,7 @@ keeps one link up; call `RunAsync` once.
 | `SendAsync` | `ValueTask<SecsMessage> SendAsync(SecsMessage primary, CancellationToken cancellationToken = default)` | W must be set. Waits under T3. The caller owns the returned secondary. |
 | `PostAsync` | `ValueTask PostAsync(SecsMessage message, CancellationToken cancellationToken = default)` | W must be clear. No transaction is opened. |
 | `LinkTestAsync` | `ValueTask LinkTestAsync(CancellationToken cancellationToken = default)` | Sends a Linktest and waits for the response under T6. |
+| `DeselectAsync` | `ValueTask DeselectAsync(CancellationToken cancellationToken = default)` | Sends a Deselect.req under T6 and, when the peer agrees, leaves Selected. Needs the Selected state. Throws `SecsException` when the peer refuses, naming the `DeselectStatus`. The transition is posted to the actor, so the task completes when the peer answers and the state follows a moment later. |
 | `State` | `HsmsConnectionState { get; }` | |
 | `IsSelected` | `bool { get; }` | Whether data messages can flow right now. |
 | `DeviceId` | `ushort { get; }` | |
@@ -174,11 +175,33 @@ that changes under a running link makes S9F5 unreproducible.
 | Member | Signature | Notes |
 | --- | --- | --- |
 | `OnPrimary` | `SecsMessageRouterBuilder OnPrimary(byte stream, byte function, SecsPrimaryHandler handler)` | `stream` at most 127, `function` odd. Throws `ArgumentException` on a duplicate. |
+| `OnPrimary` | `SecsMessageRouterBuilder OnPrimary(byte stream, byte function, Func<IServiceProvider, SecsPrimaryHandler> factory)` | A handler built from the container when the router is resolved. The same rules, and duplicates are checked across both routes. |
 | `OnUnhandledPrimary` | `SecsMessageRouterBuilder OnUnhandledPrimary(SecsPrimaryHandler handler)` | One only. |
-| `CatchAll` | `SecsPrimaryHandler? { get; }` | |
-| `Build` | `ISecsMessageRouter Build()` | |
+| `OnUnhandledPrimary` | `SecsMessageRouterBuilder OnUnhandledPrimary(Func<IServiceProvider, SecsPrimaryHandler> factory)` | The same, from the container. |
+| `CatchAll` | `SecsPrimaryHandler? { get; }` | `null` for a catch-all registered as a factory, which does not exist until a provider builds it. |
+| `HasCatchAll` | `bool { get; }` | Whether one is registered, by either route. |
+| `Build` | `ISecsMessageRouter Build()` | Throws `InvalidOperationException` when a factory was registered and there is no provider to build it. |
+| `Build` | `ISecsMessageRouter Build(IServiceProvider? provider)` | Builds any deferred handler. A factory returning `null` is an error rather than a quietly missing handler. |
 
 Not thread-safe, because configuration is not concurrent.
+
+**Resolve inside the handler, not inside the factory**, for anything that depends on the
+connection:
+
+```csharp
+// Right: resolved when a message arrives, long after the graph is complete.
+OnPrimary(1, 13, provider => (transaction, token) =>
+    provider.GetRequiredService<MyService>().HandleAsync(transaction, token));
+
+// Wrong, when MyService depends on HsmsConnection: this runs while the router is being built, so
+// it re-enters the half-built router and recurses until the stack runs out.
+OnPrimary(1, 13, provider => provider.GetRequiredService<MyService>().HandleAsync);
+```
+
+The factory runs when the router is resolved, and the connection is resolved *after* the router it
+was given. A factory is opaque to the container, which is exactly why it breaks the cycle when used
+correctly and loops when it is not - nothing can detect the difference for you. This is how
+`AddGemEquipment` registers the whole GEM message set.
 
 ---
 
@@ -430,7 +453,9 @@ codec options derived from `SecsGemOptions`, the routing table, `HsmsConnection`
 | `UseInMemoryTransport` | `ISecsGemBuilder UseInMemoryTransport(bool isActive = true)` | |
 | `UseTransport<TTransport>` | `ISecsGemBuilder UseTransport<TTransport>() where TTransport : class, ISecsTransport` | Replaces rather than tries to add, so the last call wins. |
 | `OnPrimary` | `ISecsGemBuilder OnPrimary(byte stream, byte function, SecsPrimaryHandler handler)` | Also the declaration that makes automatic S9F3 and S9F5 possible. |
+| `OnPrimary` | `ISecsGemBuilder OnPrimary(byte stream, byte function, Func<IServiceProvider, SecsPrimaryHandler> factory)` | For a handler that needs a service. Resolve inside the handler, not inside the factory - see [`SecsMessageRouterBuilder`](#secsmessagerouterbuilder). |
 | `OnUnhandledPrimary` | `ISecsGemBuilder OnUnhandledPrimary(SecsPrimaryHandler handler)` | Turns off automatic S9F3 and S9F5. |
+| `OnUnhandledPrimary` | `ISecsGemBuilder OnUnhandledPrimary(Func<IServiceProvider, SecsPrimaryHandler> factory)` | The same, from the container. |
 | `RunAsHostedService` | `ISecsGemBuilder RunAsHostedService()` | Runs the connection from host start to host stop. Omit it to call `HsmsConnection.RunAsync` yourself. |
 
 Format spokes extend `IServiceCollection` rather than this builder - `AddSecsSml()`, `AddSecsJson()`

@@ -313,15 +313,47 @@ unit. `AddSecsGem` binds the section and then applies the code delegate, so code
 `SecsGemOptionsValidator` runs with `ValidateOnStart`, so a T8 longer than T3 fails the host at
 startup instead of producing a puzzling disconnection a week later.
 
-## Not here yet
+## The GEM layer on top
 
-| Phase | Scope |
-| --- | --- |
-| 7 | The GEM (E30) layer on top - `Barbatos.SecsGem.Gem`: control state, equipment constants, status variables, event and alarm reporting. |
+[`Barbatos.SecsGem.Gem`](../Barbatos.SecsGem.Gem/README.md) adds what E30 adds: the difference
+between a link that carries bytes and two entities that have agreed to talk, and the difference
+between a host that may watch and a host that may command.
 
-`DeselectAsync` is also absent: this package answers Deselect.req correctly but does not initiate
-one. HSMS-SS interop rarely needs it - a host that wants the link down sends Separate.req or simply
-closes - and it will arrive with the GEM layer, which has a reason to.
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment((model, provider) => { /* variables, events, alarms, commands */ })
+    .RunAsHostedService();
+```
+
+It brought two things back into this package.
+
+**`DeselectAsync`.** This package always answered Deselect.req correctly and could not initiate
+one, because HSMS-SS interop rarely needs it - a host that wants the link down sends Separate.req
+or simply closes. The GEM control-state model is the reason to have it: going off-line deliberately
+is not the same event as a cable being pulled.
+
+```csharp
+await connection.DeselectAsync(cancellationToken);   // back to NOT SELECTED, with T7 running again
+```
+
+The transition is posted to the actor rather than applied on the calling thread. `_state` has
+exactly one writer, and a deselect that assigned it directly would be the re-entrancy this design
+exists to prevent - so the task completes when the peer has answered, and the state follows a
+moment later with `StateChanged` still raised in order.
+
+**A handler that can have dependencies.** `OnPrimary` now takes a factory as well as a delegate:
+
+```csharp
+.OnPrimary(1, 13, provider => (transaction, token) =>
+    provider.GetRequiredService<MyService>().HandleAsync(transaction, token))
+```
+
+A closure written during configuration cannot reach a service, because the container does not exist
+yet. The factory overload is how the GEM layer registers its whole message set, and it is the one
+any real equipment wants - a handler with no dependencies is a demonstration, not an application.
+Resolve **inside the returned handler** for anything that depends on the connection; the factory
+itself runs while the router is still being built.
 
 ## Documentation
 

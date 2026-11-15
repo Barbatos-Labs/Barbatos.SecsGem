@@ -127,9 +127,18 @@ public sealed class SecsMessageRouter : ISecsMessageRouter
 public sealed class SecsMessageRouterBuilder
 {
     private readonly Dictionary<(byte Stream, byte Function), SecsPrimaryHandler> _handlers = [];
+    private readonly Dictionary<(byte Stream, byte Function), Func<IServiceProvider, SecsPrimaryHandler>> _deferred = [];
+    private Func<IServiceProvider, SecsPrimaryHandler>? _deferredCatchAll;
 
-    /// <summary>Gets the catch-all handler, when one has been registered.</summary>
+    /// <summary>Gets the catch-all handler, when one has been registered directly.</summary>
+    /// <remarks>
+    /// A catch-all registered as a factory does not appear here, because it does not exist until a
+    /// provider resolves it. Use <see cref="HasCatchAll"/> to ask the question either way.
+    /// </remarks>
     public SecsPrimaryHandler? CatchAll { get; private set; }
+
+    /// <summary>Gets a value indicating whether a catch-all has been registered, by either route.</summary>
+    public bool HasCatchAll => CatchAll is not null || _deferredCatchAll is not null;
 
     /// <summary>Registers the handler for one stream and function.</summary>
     /// <param name="stream">S. Must be 127 or less - the field is seven bits wide.</param>
@@ -141,6 +150,59 @@ public sealed class SecsMessageRouterBuilder
     public SecsMessageRouterBuilder OnPrimary(byte stream, byte function, SecsPrimaryHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
+        Validate(stream, function);
+        Claim(stream, function);
+
+        _handlers.Add((stream, function), handler);
+        return this;
+    }
+
+    /// <summary>Registers a handler that is built from the container when the router is resolved.</summary>
+    /// <param name="stream">S. Must be 127 or less.</param>
+    /// <param name="function">F. Must be odd.</param>
+    /// <param name="factory">Builds the handler from the service provider.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="stream"/> is above 127, or <paramref name="function"/> is even or zero.</exception>
+    /// <exception cref="ArgumentException">A handler is already registered for this stream and function.</exception>
+    /// <remarks>
+    /// <para>
+    /// A handler that needs a service cannot be a closure written during configuration, because the
+    /// container does not exist yet. This overload hands it the provider instead, and it is the one
+    /// any real equipment wants - a handler with no dependencies is a demonstration, not an
+    /// application.
+    /// </para>
+    /// <para>
+    /// <strong>Resolve inside the handler, not inside the factory</strong>, for anything that
+    /// depends on the connection:
+    /// </para>
+    /// <code>
+    /// // Right: resolved when a message arrives, long after the graph is complete.
+    /// OnPrimary(1, 13, provider => (transaction, token) =>
+    ///     provider.GetRequiredService&lt;MyService&gt;().HandleAsync(transaction, token));
+    ///
+    /// // Wrong, when MyService depends on HsmsConnection: this runs while the router is being
+    /// // built, so it re-enters the half-built router and recurses until the stack runs out.
+    /// OnPrimary(1, 13, provider => provider.GetRequiredService&lt;MyService&gt;().HandleAsync);
+    /// </code>
+    /// <para>
+    /// The factory runs when the router is resolved, and the connection is resolved <em>after</em>
+    /// the router it was given. Nothing here can detect the difference for you: a factory is opaque
+    /// to the container, which is exactly why it breaks the cycle when used correctly and loops
+    /// when it is not.
+    /// </para>
+    /// </remarks>
+    public SecsMessageRouterBuilder OnPrimary(byte stream, byte function, Func<IServiceProvider, SecsPrimaryHandler> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        Validate(stream, function);
+        Claim(stream, function);
+
+        _deferred.Add((stream, function), factory);
+        return this;
+    }
+
+    private static void Validate(byte stream, byte function)
+    {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(stream, (byte)127);
 
         if (function == 0 || function % 2 == 0)
@@ -150,13 +212,14 @@ public sealed class SecsMessageRouterBuilder
                 function,
                 "A received message to handle is a primary, and a primary has an odd function.");
         }
+    }
 
-        if (!_handlers.TryAdd((stream, function), handler))
+    private void Claim(byte stream, byte function)
+    {
+        if (_handlers.ContainsKey((stream, function)) || _deferred.ContainsKey((stream, function)))
         {
             throw new ArgumentException($"S{stream}F{function} already has a handler.", nameof(function));
         }
-
-        return this;
     }
 
     /// <summary>Registers the handler for every primary no other handler claims.</summary>
@@ -168,7 +231,7 @@ public sealed class SecsMessageRouterBuilder
     {
         ArgumentNullException.ThrowIfNull(handler);
 
-        if (CatchAll is not null)
+        if (HasCatchAll)
         {
             throw new ArgumentException("A catch-all handler is already registered.", nameof(handler));
         }
@@ -177,7 +240,61 @@ public sealed class SecsMessageRouterBuilder
         return this;
     }
 
+    /// <summary>Registers a catch-all that is built from the container when the router is resolved.</summary>
+    /// <param name="factory">Builds the handler from the service provider.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <exception cref="ArgumentException">A catch-all is already registered.</exception>
+    /// <remarks>Registering one turns off automatic S9F3 and S9F5 - see <see cref="ISecsMessageRouter.CatchAll"/>.</remarks>
+    public SecsMessageRouterBuilder OnUnhandledPrimary(Func<IServiceProvider, SecsPrimaryHandler> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        if (HasCatchAll)
+        {
+            throw new ArgumentException("A catch-all handler is already registered.", nameof(factory));
+        }
+
+        _deferredCatchAll = factory;
+        return this;
+    }
+
     /// <summary>Freezes what has been registered into a router.</summary>
     /// <returns>The router.</returns>
-    public ISecsMessageRouter Build() => new SecsMessageRouter(_handlers, CatchAll);
+    /// <exception cref="InvalidOperationException">A handler was registered as a factory, which needs a provider to build.</exception>
+    public ISecsMessageRouter Build() => Build(null);
+
+    /// <summary>Freezes what has been registered into a router, building any deferred handler.</summary>
+    /// <param name="provider">The provider to build deferred handlers from, or <see langword="null"/> when there are none.</param>
+    /// <returns>The router.</returns>
+    /// <exception cref="InvalidOperationException"><paramref name="provider"/> is <see langword="null"/> and a handler was registered as a factory.</exception>
+    public ISecsMessageRouter Build(IServiceProvider? provider)
+    {
+        if (provider is null && (_deferred.Count > 0 || _deferredCatchAll is not null))
+        {
+            throw new InvalidOperationException(
+                "This routing table has handlers registered as factories, which can only be built from a "
+                + "service provider. Call Build(provider), or register the handlers directly.");
+        }
+
+        if (_deferred.Count == 0 && _deferredCatchAll is null)
+        {
+            return new SecsMessageRouter(_handlers, CatchAll);
+        }
+
+        var resolved = new Dictionary<(byte Stream, byte Function), SecsPrimaryHandler>(_handlers);
+
+        foreach (var (key, factory) in _deferred)
+        {
+            resolved[key] = factory(provider!)
+                ?? throw new InvalidOperationException($"The factory for S{key.Stream}F{key.Function} returned null.");
+        }
+
+        var catchAll = CatchAll
+            ?? (_deferredCatchAll is null
+                ? null
+                : _deferredCatchAll(provider!)
+                  ?? throw new InvalidOperationException("The catch-all factory returned null."));
+
+        return new SecsMessageRouter(resolved, catchAll);
+    }
 }
