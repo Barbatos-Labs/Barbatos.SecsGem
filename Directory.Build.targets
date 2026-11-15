@@ -16,8 +16,16 @@
   </PropertyGroup>
 
   <!-- Symbols travel as .snupkg; PDBs are never embedded in the main .nupkg as well, or
-       NuGet.org rejects the snupkg for duplicating them. -->
-  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
+       NuGet.org rejects the snupkg for duplicating them.
+
+       Gated on there being build output to have symbols for. Two packages here ship none: the
+       metapackage, which is dependencies and nothing else, and the Roslyn component, whose
+       assembly travels as content under analyzers/ rather than in lib/. A symbol package for
+       either would be empty - and for the analyzer, which has no package dependencies either
+       (both Microsoft.CodeAnalysis references are PrivateAssets="all"), NuGet refuses to create
+       one at all and fails the pack with NU5017. The analyzer's own .nupkg is correct either way;
+       it was only the symbol package that could not exist. -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true' and '$(IncludeBuildOutput)' != 'false'">
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <DeterministicSourcePaths Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</DeterministicSourcePaths>

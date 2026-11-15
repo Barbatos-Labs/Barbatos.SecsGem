@@ -3,7 +3,7 @@
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
-artifacts/
+[Aa]rtifacts*/
 *.binlog
 *.user
 *.suo

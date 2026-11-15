@@ -12,8 +12,20 @@ into - for **.NET 8, 9 and 10**. No sockets, no hosting, no `Microsoft.Extension
 dotnet add package Barbatos.SecsGem.Core
 ```
 
-Its only third-party dependency is `CommunityToolkit.HighPerformance`. That is deliberate: this
-package is what everything else in the stack is built on, so anything it drags in, a fab drags in.
+Three dependencies, and the list is short on purpose: this package is what everything else in the
+stack is built on, so anything it drags in, a fab drags in.
+
+| Dependency | Why |
+| --- | --- |
+| `CommunityToolkit.HighPerformance` | `MemoryOwner<T>` and `ArrayPoolBufferWriter<T>`, which is how the codec avoids the Large Object Heap |
+| `System.IO.Pipelines` | `ISecsFormatReader` and `ISecsFormatWriter` are defined over `PipeReader` and `PipeWriter` |
+| `Microsoft.Extensions.DependencyInjection.Abstractions` | One file: `AddSecsSerialization`, which registers the registry, the transcoder and the binary spoke |
+
+That third one is worth flagging rather than leaving for somebody to find in a dependency graph.
+The repository's own working agreement says Core must not reference `Microsoft.Extensions.*`, and
+today it does - for a single extension method. A file converter that wants the item model and the
+binary codec and no container still gets the package. It is small, dependency-free and already in
+every .NET application, so the cost is low; it is still not what the rule says.
 
 ## Two types carry the whole model
 
