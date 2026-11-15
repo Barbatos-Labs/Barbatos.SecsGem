@@ -160,15 +160,18 @@ Seven ship, for the types SECS-II has no format for:
 
 | Type | Wire form |
 | --- | --- |
-| `DateTime` | GEM's 16-character `yyyyMMddHHmmssff`, or 12, 14, ISO 8601 or ticks via `DateTimeFormat` |
+| `DateTime` | GEM's 16-character `yyyyMMddHHmmssff` by default; `DateTimeFormat` also offers `Timestamp12`, `Iso8601` and `Ticks` |
 | `DateTimeOffset` | the same, with the offset |
 | `decimal` | ASCII, so nothing is rounded |
 | `TimeSpan` | ASCII |
 | `Guid` | 16 binary bytes |
 | `DateOnly`, `TimeOnly` | ASCII |
 
-Reading is lenient and writing is not: a `DateTime` comes back from any of the recognised shapes and
-goes out in exactly one. Equipment is inconsistent about which it sends and strict about what it
+Reading is lenient and writing is not: a `DateTime` comes back from the 16-, 12- **or**
+14-character form, or anything `DateTime.TryParse` recognises round-trip, and goes out in exactly
+the one `DateTimeFormat` names. The 14-character `yyyyMMddHHmmss` is accepted on the way in and
+cannot be selected on the way out, because it turns up in the wild often enough to read and is not
+a shape worth producing. Equipment is inconsistent about which it sends and strict about what it
 accepts.
 
 Your own:

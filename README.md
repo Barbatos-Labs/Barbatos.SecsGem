@@ -122,6 +122,14 @@ Format conversion and object mapping, end to end:
 dotnet run --project samples/Barbatos.SecsGem.Samples.Transcode
 ```
 
+The benchmarks, which are where the allocation claims above are kept honest - read the allocation
+column before the timings, and see [benchmarks/README.md](benchmarks/README.md) for the invariants
+that are supposed to hold on any machine:
+
+```
+dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filter "*"
+```
+
 ## Roadmap
 
 | Phase | Scope | Status |
@@ -132,8 +140,8 @@ dotnet run --project samples/Barbatos.SecsGem.Samples.Transcode
 | 3 | Connection state machine, transaction manager, T3/T5/T6/T7, automatic S9Fx, loopback integration tests. | Done |
 | 4 | The 25-pair format round-trip matrix, committed conformance fixtures, per-spoke reader tests. | Done |
 | 5 | Source generator, analyzer BSG001, generated-against-reflection parity tests. | Done |
-| 6 | Benchmarks, per-package documentation. | Next |
-| 7 | GEM layer. | |
+| 6 | BenchmarkDotNet suite, and a README plus an API reference for every shipping package. The benchmarks found a missing contract cache that made the source generator slower than the reflection it replaces. | Done |
+| 7 | GEM layer. | Next |
 
 ## Licence
 
