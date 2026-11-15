@@ -66,8 +66,18 @@ keeps one link up; call `RunAsync` once.
 | Exception | When |
 | --- | --- |
 | `ArgumentException` | `primary` has W clear. Use `PostAsync`. |
-| `SecsException` | The connection is not `Selected`, or the link closed before the reply arrived. |
+| `SecsException` | The connection is not `Selected`, the link closed before the reply arrived, **or the link closed while the frame was on its way out**. |
 | `SecsTimeoutException` (`Timer == SecsTimer.T3`) | No reply within T3. S9F9 goes to the peer first when `SendS9F9OnReplyTimeout` is set. |
+| `ObjectDisposedException` (naming `HsmsConnection`) | The connection has been disposed. Use-after-dispose, and the only one of these an application should never have to handle. |
+
+**A send racing the link closing is a `SecsException`, never plumbing.** A send runs on the
+caller's thread and the link's lifetime belongs to the connection's actor, so there is a window:
+the caller takes the live link, it ends, and the caller then writes its frame. Everything in that
+window - a completed `PipeWriter`, a transport that has gone - comes out as `SecsException`, which
+is the one every caller in this library already handles. An `ObjectDisposedException` naming
+anything *inside* the connection would be plumbing escaping into an application, and
+[a stress test](../../tests/Barbatos.SecsGem.Hsms.UnitTests/HsmsDisposalRaceTests.cs) opens the
+window repeatedly to say so.
 
 **What it does on its own**
 

@@ -183,6 +183,13 @@ public class GemCommunicationTests
 
         await GemLink.WaitUntilAsync(() => !link.Equipment.IsCommunicating, "the conversation to end");
 
+        // The control state is set a line later on the same loop, so waiting for the conversation
+        // to end is not waiting for this - poll the thing being asserted. No host can see that gap,
+        // because the link it would have to ask over is the one that just went.
+        await GemLink.WaitUntilAsync(
+            () => link.Equipment.ControlState == GemControlState.EquipmentOffline,
+            "the equipment to go off-line");
+
         // EquipmentOffline, not HostOffline. The host did not ask for this, and conflating the two
         // throws away the only information an operator has about why commands are being refused.
         Assert.Equal(GemControlState.EquipmentOffline, link.Equipment.ControlState);

@@ -208,7 +208,10 @@ public sealed class HsmsConnection : IAsyncDisposable
     /// <returns>The secondary. The caller owns it and should dispose it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="primary"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="primary"/> has W clear - use <see cref="PostAsync"/>.</exception>
-    /// <exception cref="SecsException">The connection is not selected.</exception>
+    /// <exception cref="SecsException">
+    /// The connection is not selected, or the link closed - before the reply arrived, or while the
+    /// frame was still on its way out.
+    /// </exception>
     /// <exception cref="SecsTimeoutException">T3 expired with no reply.</exception>
     /// <remarks>
     /// On a T3 expiry this sends S9F9 to the peer when
@@ -419,7 +422,6 @@ public sealed class HsmsConnection : IAsyncDisposable
 
             await WhenAllQuietly(pump, dispatch).ConfigureAwait(false);
             DrainAndDispose(events.Reader, primaries.Reader);
-            session.Dispose();
         }
     }
 
@@ -907,6 +909,14 @@ public sealed class HsmsConnection : IAsyncDisposable
         await session.SendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // The link may have ended while this caller was queued behind another writer. Checked
+            // here rather than left to the pipe to notice, because by then the frame has already
+            // been handed to something that is being torn down.
+            if (!ReferenceEquals(Volatile.Read(ref _session), session))
+            {
+                throw new SecsException($"The link closed before {header} could be sent.");
+            }
+
             var result = await _encoder
                 .WriteAsync(session.Connection.Pipe.Output, header, data, cancellationToken)
                 .ConfigureAwait(false);
@@ -915,6 +925,21 @@ public sealed class HsmsConnection : IAsyncDisposable
             {
                 throw new SecsException($"The link closed before {header} could be sent.");
             }
+        }
+        catch (Exception exception)
+            when (exception is not SecsException
+                and not OperationCanceledException
+                && HasLinkEnded(session))
+        {
+            // The writer was completed, or the transport underneath it disposed, between the check
+            // above and the write. A pipe in that state throws whatever it likes - a disposed
+            // object, an invalid operation, an argument out of range from inside Advance - and
+            // none of those is a thing an application should have to catch. The link going away is
+            // a SecsException, which is the one every caller in this library already handles.
+            //
+            // Filtered on the link having ended rather than on the exception's type, so that a
+            // genuine fault on a live link still propagates as itself.
+            throw new SecsException($"The link closed before {header} could be sent.", exception);
         }
         finally
         {
@@ -985,6 +1010,17 @@ public sealed class HsmsConnection : IAsyncDisposable
     }
 
     // ----------------------------------------------------------------- plumbing
+
+    /// <summary>Whether this session has stopped being the live one, by either observable measure.</summary>
+    /// <param name="session">The session a caller took before it started sending.</param>
+    /// <returns><see langword="true"/> when the link it belonged to is going away or gone.</returns>
+    /// <remarks>
+    /// Two signals because they fire in either order. The actor clears the field when it finishes,
+    /// and a dispose or a drop cancels the session first - so a caller mid-send can see the
+    /// cancellation before the swap, or the swap before anything else.
+    /// </remarks>
+    private bool HasLinkEnded(Session session)
+        => !ReferenceEquals(Volatile.Read(ref _session), session) || session.Cts.IsCancellationRequested;
 
     private Session RequireSession()
     {
@@ -1081,11 +1117,28 @@ public sealed class HsmsConnection : IAsyncDisposable
     private readonly record struct Dispatch(SecsTransaction Transaction, SecsPrimaryHandler Handler);
 
     /// <summary>One live link and the things scoped to it.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Deliberately not <see cref="IDisposable"/>.</strong> A send runs on the caller's
+    /// thread and this object's lifetime belongs to the actor, so a caller can still be holding a
+    /// session the actor has finished with - that window is the whole of
+    /// <c>SendFrameAsync</c>. Disposing <see cref="SendLock"/> at the end of the link therefore
+    /// threw <c>ObjectDisposedException</c> out of a caller's <c>PostAsync</c>, which is this
+    /// library's plumbing escaping into an application.
+    /// </para>
+    /// <para>
+    /// A <see cref="SemaphoreSlim"/> whose <c>AvailableWaitHandle</c> is never read holds no
+    /// unmanaged resource; its <c>Dispose</c> exists for that handle. So there is nothing here to
+    /// release, and the alternative - having the actor wait for every in-flight send before it
+    /// lets go - would be the actor blocking on caller threads to tidy up something that does not
+    /// need tidying.
+    /// </para>
+    /// </remarks>
     private sealed class Session(
         ISecsTransportConnection connection,
         HsmsPipeDecoder decoder,
         CancellationTokenSource cts,
-        ChannelWriter<SessionEvent> events) : IDisposable
+        ChannelWriter<SessionEvent> events)
     {
         public ISecsTransportConnection Connection { get; } = connection;
 
@@ -1097,8 +1150,6 @@ public sealed class HsmsConnection : IAsyncDisposable
         public ChannelWriter<SessionEvent> Events { get; } = events;
 
         public SemaphoreSlim SendLock { get; } = new(1, 1);
-
-        public void Dispose() => SendLock.Dispose();
     }
 
     /// <summary>A timer whose only job is to post an event to the actor.</summary>
