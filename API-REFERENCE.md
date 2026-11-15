@@ -9,7 +9,10 @@ One page per package, generated per release:
 - [`Barbatos.SecsGem.Serialization.Xml`](src/Barbatos.SecsGem.Serialization.Xml/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Serialization.Ini`](src/Barbatos.SecsGem.Serialization.Ini/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Mapper`](src/Barbatos.SecsGem.Mapper/API-REFERENCE.md)
+- [`Barbatos.SecsGem.SourceGenerators`](src/Barbatos.SecsGem.SourceGenerators/API-REFERENCE.md)
+- [`Barbatos.SecsGem.Catalog`](src/Barbatos.SecsGem.Catalog/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Gem`](src/Barbatos.SecsGem.Gem/API-REFERENCE.md)
+- [`Barbatos.SecsGem`](src/Barbatos.SecsGem/API-REFERENCE.md) (metapackage - no API of its own)
 
 ## Namespaces
 
@@ -19,5 +22,7 @@ One page per package, generated per release:
 | `Barbatos.SecsGem.Serialization` | Core | `ISecsFormatReader`, `ISecsFormatWriter`, `SecsTranscoder` |
 | `Barbatos.SecsGem.Hsms` | Hsms | connection, decoder, transactions, timers, routing |
 | `Barbatos.SecsGem.Mapping` | Mapper | `SecsSerializer`, attributes, converters |
-| `Barbatos.SecsGem.Gem` | Gem | GEM state models and services |
-| `Microsoft.Extensions.DependencyInjection` | Hsms, Mapper, spokes | `AddSecsGem`, `AddSecsSml`, ... |
+| `Barbatos.SecsGem.Catalog` | Catalog | `SecsCatalog`, stream/function and data item reference data |
+| `Barbatos.SecsGem.Gem` | Gem | GEM state models, object model and equipment service |
+| `Barbatos.SecsGem.Serialization.Sml` / `.Json` / `.Xml` / `.Ini` | the four spokes | format readers and writers |
+| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddSecsSml`, ... |

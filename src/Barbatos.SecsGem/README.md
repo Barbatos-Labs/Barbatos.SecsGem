@@ -64,6 +64,7 @@ the first stalled message.
 | Package | Add it when |
 | --- | --- |
 | `Barbatos.SecsGem.Serialization.Json` / `.Xml` / `.Ini` | Something that is not a SECS tool has to read your messages. |
+| `Barbatos.SecsGem.Catalog` | You want `S6F11` in a log line to read `S6F11 W Event Report Send`, or need the standard name, direction and body items for any of 524 stream/function pairs. |
 | `Barbatos.SecsGem.Mapper` | You would rather map C# objects than build item trees by hand. |
 | `Barbatos.SecsGem.SourceGenerators` | You want the mapper's property order read from the syntax tree, and trim-safe. |
 | `Barbatos.SecsGem.Gem` | You are writing equipment rather than a host, and want E30's state models, host-configured reporting, alarms and remote commands instead of answering S1F13 by hand. |

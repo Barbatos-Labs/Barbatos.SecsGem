@@ -17,6 +17,8 @@
     <!-- The loopback mode runs a real GemEquipment, so the host sample needs the GEM layer even
          though a host is not the side E30 models. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Gem\Barbatos.SecsGem.Gem.csproj" />
+    <!-- So an S9F3 can say which message the equipment refused, by name. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
     <ProjectReference Include="..\..\samples\Barbatos.SecsGem.Samples.Shared\Barbatos.SecsGem.Samples.Shared.csproj" />
   </ItemGroup>

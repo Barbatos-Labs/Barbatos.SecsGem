@@ -52,6 +52,7 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `ControlState` | `GemControlState { get; }` | |
 | `IsCommunicating` | `bool { get; }` | Whether application messages may flow. **Not** the same as `HsmsConnection.IsSelected`. |
 | `IsOnlineRemote` | `bool { get; }` | Whether the host may send remote commands. |
+| `IsAlarmSet` | `bool IsAlarmSet(ulong alarmId)` | Whether an alarm is in alarm **right now**. Not the same question as `GemEquipmentModel.IsAlarmEnabled`, which is whether the host wants to hear about it. S5F6 reports this one in ALCD's top bit, and it is tracked even while nothing can be reported - the machine is in alarm whether or not there is a host to tell. |
 | `Now` | `DateTime { get; }` | The time this equipment reports, including any offset a host set with S2F31. Never the operating system clock. |
 | `TriggerEventAsync` | `ValueTask<bool> TriggerEventAsync(uint eventId, CancellationToken cancellationToken = default)` | Reports a collection event. `false` when the event is unknown, disabled, or there is nobody to tell. |
 | `SetAlarmAsync` | `ValueTask<bool> SetAlarmAsync(ulong alarmId, CancellationToken cancellationToken = default)` | S5F1 with ALCD bit 7 set, then the linked set event. |
@@ -68,18 +69,40 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | --- | --- | --- |
 | S1F1 | Are You There | S1F2 - identity, or a zero-length list while off-line |
 | S1F3 | Selected Equipment Status Request | S1F4 |
+| S1F11 | Status Variable Namelist Request | S1F12 - SVID, SVNAME, UNITS |
 | S1F13 | Establish Communications Request | S1F14 (COMMACK) |
 | S1F15 | Request Off-Line | S1F16 (OFLACK) |
 | S1F17 | Request On-Line | S1F18 (ONLACK) |
 | S2F13 | Equipment Constant Request | S2F14 |
 | S2F15 | New Equipment Constant Send | S2F16 (EAC) |
 | S2F17 | Date and Time Request | S2F18 |
+| S2F29 | Equipment Constant Namelist Request | S2F30 - ECID, ECNAME, ECMIN, ECMAX, ECDEF, UNITS |
 | S2F31 | Date and Time Set Request | S2F32 (TIACK) |
 | S2F33 | Define Report | S2F34 (DRACK) |
 | S2F35 | Link Event Report | S2F36 (LRACK) |
 | S2F37 | Enable/Disable Event Report | S2F38 (ERACK) |
 | S2F41 | Host Command Send | S2F42 (HCACK) |
 | S5F3 | Enable/Disable Alarm Send | S5F4 (ACKC5) |
+| S5F5 | List Alarms Request | S5F6 - ALCD, ALID, ALTX |
+| S5F7 | List Enabled Alarm Request | S5F8 - the enabled subset, same shape as S5F6 |
+| S6F15 | Event Report Request | S6F16 - the event's reports, **even when the event is disabled** |
+| S6F19 | Individual Report Request | S6F20 - one report's values |
+
+Three details in the discovery messages are decisions rather than transcription:
+
+- **An unknown identifier still gets an entry.** S1F12 and S2F30 answer with the identifier the
+  host asked about and empty names, rather than dropping it, so the reply stays aligned with the
+  request.
+- **An undocumented bound is a zero-length item, not a zero.** `ECMIN`, `ECMAX` and `ECDEF` come
+  from optional delegates on `GemEquipmentConstant`; where there is none, S2F30 says so. "No
+  documented bound" and "the bound is zero" are different answers, and a host acting on the second
+  would refuse values the machine accepts.
+- **S6F15 answers a disabled event.** S2F37 governs what the equipment sends on its own; a host
+  asking directly has already said it wants this one now.
+
+S5F8 uses the same three-element shape as S5F6 - the enabled subset of the same listing - so a host
+that can parse one needs no second parser. The reference table lists only ALID there, which would
+have made the two replies gratuitously different.
 
 Registering the list is not a convenience. The routing table is also the declaration of what an
 entity understands, which is what lets the connection answer S9F5 for an unknown function in a
@@ -232,10 +255,15 @@ zero-length item for a data variable; a report may name either.
 | `Units` | `string { get; init; }` | |
 | `Read` | `required Func<SecsItem> { get; init; }` | The caller disposes what it returns. |
 | `Write` | `Func<SecsItem, bool>? { get; init; }` | `null` is read-only. Return `false` to reject as out of range. The item passed in belongs to the incoming message: read it, do not keep it, do not dispose it. |
+| `Minimum` | `Func<SecsItem>? { get; init; }` | For S2F30 only. `null` reports a zero-length item. |
+| `Maximum` | `Func<SecsItem>? { get; init; }` | As above. |
+| `Default` | `Func<SecsItem>? { get; init; }` | The factory default, for S2F30. |
 | `IsWritable` | `bool { get; }` | |
 
-Range checking belongs inside `Write`: only the equipment knows whether a value is reachable, and a
-model holding a minimum and a maximum would be describing a machine it cannot see.
+Range *checking* belongs inside `Write`, and the three bounds exist for the namelist reply and
+nothing else. They are not an alternative authority: a setpoint may be limited by what the chamber
+is doing right now, which no static minimum can express, so `Write` always has the last word on
+whether a value is accepted.
 
 ### `GemCollectionEvent`
 

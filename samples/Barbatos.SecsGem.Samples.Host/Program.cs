@@ -5,6 +5,7 @@
 
 using System.Collections.Concurrent;
 using Barbatos.SecsGem;
+using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Samples.Shared;
@@ -420,11 +421,21 @@ internal static class Program
     {
         var body = transaction.Message.Item;
         var mhead = body is null ? default : body.GetSpan<byte>();
-        var offending = mhead.Length == MessageHeader.Length
-            ? MessageHeader.Parse(mhead).ToString()
-            : "an unknown message";
 
-        ErrorReports.Enqueue($"S{transaction.S}F{transaction.F} came back: {offending} is not implemented");
+        // Barbatos.SecsGem.Catalog earning its place. Without it this line reads
+        // "S9F3 came back: S7F1 [0x7B2D347A] is not implemented", which is correct and makes you
+        // go and look both of them up.
+        var offending = "an unknown message";
+
+        if (mhead.Length == MessageHeader.Length)
+        {
+            var header = MessageHeader.Parse(mhead);
+            offending = SecsCatalog.Describe(header.Stream, header.Function);
+        }
+
+        ErrorReports.Enqueue(
+            $"{SecsCatalog.Describe(transaction.S, transaction.F)} came back: {offending} is not implemented");
+
         return ValueTask.CompletedTask;
     }
 

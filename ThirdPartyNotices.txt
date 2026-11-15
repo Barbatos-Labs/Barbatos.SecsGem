@@ -9,6 +9,29 @@ System.IO.Pipelines                MIT   https://github.com/dotnet/runtime
 Microsoft.Extensions.*             MIT   https://github.com/dotnet/runtime
 Microsoft.CodeAnalysis.*           MIT   https://github.com/dotnet/roslyn
 
+Reference data
+--------------
+Barbatos.SecsGem.Catalog embeds one data file, src/Barbatos.SecsGem.Catalog/
+Data/secs2-catalog.txt, describing the SECS-II message set: 524 stream/function
+pairs with their standard names, direction, reply function and body data item
+names, and 375 data items with their formats and standard code values.
+
+It was compiled from the publicly available SECS-II Message Reference Tool at
+https://secs.gathertech.com.tw (Gather System). What was taken is interface
+fact - stream and function numbers, the standard message and data item names
+E5 itself defines, direction, and which items a body names. The site's own
+descriptive and usage prose was deliberately NOT taken; every word of
+explanation in this repository is its own.
+
+Two deliberate departures from that source are recorded in the data and covered
+by tests: the S6F11 and S6F12 pair is corrected (the source has it reversed),
+and the source's own marker for entries it describes as a representative subset
+is carried through as SecsMessageInfo.IsRepresentative rather than dropped.
+
+SEMI E5, E30 and E37 are standards published by SEMI (https://www.semi.org) and
+are not redistributed here in any form. Neither this file nor the catalogue is
+a substitute for the standards; implementing against them means buying them.
+
 Design acknowledgement
 ----------------------
 The zero-allocation approach to the SECS-II item model and the pipelined decoder

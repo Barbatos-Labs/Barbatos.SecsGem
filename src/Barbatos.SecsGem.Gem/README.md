@@ -132,6 +132,58 @@ controls. A host that reconnects has not re-sent its definitions and E30 never p
 survived - keeping them would be inventing a guarantee, and it shows up as a host receiving a
 report it never asked for.
 
+## And it can be asked what it has
+
+The reports above assume the host already knows the identifiers. These are how it finds them out
+on a machine nobody wrote it for:
+
+| Message | The host is asking | Answered with |
+| --- | --- | --- |
+| S1F11 | What status variables are there? | S1F12 - SVID, SVNAME, UNITS |
+| S2F29 | What constants, and what may I set them to? | S2F30 - ECID, ECNAME, ECMIN, ECMAX, ECDEF, UNITS |
+| S5F5 | What alarms are there, and which are in alarm now? | S5F6 - ALCD, ALID, ALTX |
+| S5F7 | Which alarms are enabled? | S5F8 - the same shape, enabled only |
+| S6F15 | Give me this event's reports now | S6F16 |
+| S6F19 | Give me this one report now | S6F20 |
+
+Three of those carry a decision worth knowing about:
+
+```csharp
+.AddConstant(new GemEquipmentConstant
+{
+    Id = 100, Name = "PressureSetpoint", Units = "mbar",
+    Read = () => SecsItem.F8(chamber.Setpoint),
+    Write = item => chamber.TrySetpoint(item.FirstValueOrDefault<double>()),
+
+    // For S2F30 only. Write still has the last word on what is accepted.
+    Minimum = () => SecsItem.F8(100d),
+    Maximum = () => SecsItem.F8(2_000d),
+    Default = () => SecsItem.F8(1_013.25d),
+})
+```
+
+**A bound nobody documented is a zero-length item, not a zero.** Leave `Minimum` off and S2F30 says
+so. The two are different answers, and a host acting on the second would refuse values the machine
+would have taken. The bounds are for the namelist and nothing else - a setpoint may be limited by
+what the chamber is doing right now, which no static minimum can express, so `Write` remains the
+authority.
+
+**Enabled and in-alarm are different questions.** S5F3 configures the first; S5F6 reports the
+second, in ALCD's top bit:
+
+```csharp
+await equipment.SetAlarmAsync(9_000);
+equipment.IsAlarmSet(9_000);                  // true - the chamber is out of range
+equipment.Model.IsAlarmEnabled(9_000);        // whether the host wants to hear about it
+```
+
+The in-alarm state is tracked even when nothing can be reported, because the machine is in alarm
+whether or not there is a host to tell. Collapsing the two would have listed every alarm as quiet
+while the chamber was out of range.
+
+**S6F15 answers a disabled event.** S2F37 governs what the equipment sends on its own; a host
+asking directly has already said it wants this one now.
+
 ## Identifiers are numbers, not U4s
 
 ```csharp
@@ -197,11 +249,8 @@ gate, because a host asking for off-line has to be answered with the state its r
 
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
-| Spooling (E30 §spooling) | A whole subsystem: durable storage, overflow policy, S6F23 purge, and a conversation about what happens when the disk fills |
-| S1F11/S1F12, S2F29/S2F30 namelists | Needs a documented answer for every variable's format and limits, which the model does not carry today |
-| S5F5/S5F6 alarm list, S5F7/S5F8 enabled-alarm list | Straightforward, and not yet written |
-| S6F15/S6F19 host-requested reports | The host asking for a report rather than waiting for its event |
-| S7 process program management | Its own stream and its own object model |
+| Spooling (E30 §spooling) | A whole subsystem: durable storage, an overflow policy, S6F23 purge, and a conversation about what happens when the disk fills |
+| S7 process program management | Its own stream and its own object model - a program store with load, send, request, delete and a current-program list |
 | A host-side GEM helper | E30 models the *equipment*. A host sends messages and reads replies, which the HSMS layer already does - see the host sample |
 
 ## Documentation

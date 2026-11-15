@@ -160,13 +160,24 @@ public sealed class SecsDataItemInfo
 
     /// <summary>Gets the E5 format, when <see cref="FormatToken"/> names one.</summary>
     /// <remarks>
-    /// <see langword="null"/> where the reference gives something that is not a single format -
-    /// a choice of several, or a note. The token is kept either way, so nothing is lost by this
-    /// being null.
+    /// <para>
+    /// Nullable as a contract rather than because the current data needs it: every one of the 375
+    /// items carries a real E5 token, so this is never <see langword="null"/> today. It stays
+    /// nullable because a refreshed reference could give something that is not a single format -
+    /// a choice of several, or a note - and <see cref="FormatToken"/> would still carry it.
+    /// </para>
+    /// <para>
+    /// A test asserts both halves: that nothing is untyped, and that the typing agrees with
+    /// <c>SecsFormatExtensions.TryParse</c> item for item.
+    /// </para>
     /// </remarks>
     public SecsFormat? Format { get; }
 
-    /// <summary>Gets the length as the reference writes it: a count, <c>n</c>, or <c>variable</c>.</summary>
+    /// <summary>Gets the length as the reference writes it: a count, <c>n</c>, or an empty string.</summary>
+    /// <remarks>
+    /// Empty for 58 of the 375 items - <c>SVID</c> and <c>CEID</c> among them - where the
+    /// reference documents no length at all. Empty means "not stated", not "zero".
+    /// </remarks>
     public string Length { get; }
 
     /// <summary>Gets the standard values this item may carry, or an empty list when it is not coded.</summary>

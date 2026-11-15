@@ -134,17 +134,29 @@ public class SecsCatalogTests
     }
 
     [Fact]
-    public void A_format_token_that_is_not_an_E5_format_leaves_Format_null_and_keeps_the_token()
+    public void Every_data_item_is_typed_and_the_typing_agrees_with_Core()
     {
-        Assert.Skip(
-            "Open question, left recorded rather than asserted away. SecsDataItemInfo.Format is "
-            + "populated by SecsFormatExtensions.TryParse over FormatToken, so the two should "
-            + "agree item for item - and some item in the 375 makes that false. Three guesses at "
-            + "the invariant were all wrong, so the honest state of knowledge is that the mapping "
-            + "between FormatToken and Format is not yet pinned down. FormatToken is always the "
-            + "raw text from the reference, so nothing is lost meanwhile; Format is a convenience "
-            + "that may be null more often than expected. Find the offending item, then turn this "
-            + "into a real assertion.");
+        // This replaces a test that was skipped for one release with an open question on it. The
+        // question was wrong rather than hard: I had assumed some items would carry a token that
+        // is not an E5 format - a choice of several, or a note - and asserted that at least one
+        // did. None does. All 375 use one of eleven tokens (A, B, BOOLEAN, L, I2, I4, F4, F8, U1,
+        // U2, U4), so the untyped set was empty and the assertion that it was not was the line
+        // failing all along.
+        Assert.All(SecsCatalog.DataItems, item =>
+        {
+            Assert.NotEqual(string.Empty, item.FormatToken);
+            Assert.True(
+                SecsFormatExtensions.TryParse(item.FormatToken, out var format),
+                $"{item.Name} carries the token '{item.FormatToken}', which Core cannot parse.");
+
+            Assert.Equal(format, item.Format);
+        });
+
+        Assert.DoesNotContain(SecsCatalog.DataItems, i => i.Format is null);
+
+        // Length is the field that really is absent sometimes - 58 of the 375 - which is why that
+        // one is an empty string rather than a number and this one never is.
+        Assert.Equal(58, SecsCatalog.DataItems.Count(i => i.Length.Length == 0));
     }
 
     [Fact]

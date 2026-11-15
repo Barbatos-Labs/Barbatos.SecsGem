@@ -30,6 +30,7 @@ Two things set it apart from what came before:
 | `Barbatos.SecsGem.Serialization.Json` | `.json` reader/writer on `Utf8JsonReader`. |
 | `Barbatos.SecsGem.Serialization.Xml` | `.xml` reader/writer. |
 | `Barbatos.SecsGem.Serialization.Ini` | `.ini` reader/writer, path-addressed keys. |
+| `Barbatos.SecsGem.Catalog` | Reference data: 524 stream/function pairs, 375 data items with formats and code values. Optional. |
 | `Barbatos.SecsGem.Mapper` | `SecsSerializer`: C# objects <-> `SecsItem`, convention over configuration. |
 | `Barbatos.SecsGem.SourceGenerators` | Roslyn generator and analyzer BSG001 behind the mapper's exact property order. Optional. |
 | `Barbatos.SecsGem.Gem` | GEM (E30) equipment layer: communication and control state models, host-configured reporting, alarms, remote commands. |
@@ -142,6 +143,7 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 5 | Source generator, analyzer BSG001, generated-against-reflection parity tests. | Done |
 | 6 | BenchmarkDotNet suite, and a README plus an API reference for every shipping package. The benchmarks found a missing contract cache that made the source generator slower than the reflection it replaces. | Done |
 | 7 | GEM (E30) equipment layer: both state models as actors, the standard message set, host-configured report definitions, alarms, remote commands gated on the control state. Brought `DeselectAsync` and container-resolved message handlers back into the HSMS package. | Done |
+| 8 | The deferred E30 messages - namelists, alarm listings, host-requested reports - and `Barbatos.SecsGem.Catalog`, the 524-message reference table. | Done |
 
 ## Licence
 
