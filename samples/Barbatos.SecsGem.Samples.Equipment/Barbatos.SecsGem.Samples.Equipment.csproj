@@ -17,6 +17,9 @@
     <!-- The GEM layer is the whole of this sample now. Nothing from Samples.Shared is needed any
          more: the handlers that file used to supply are what AddGemEquipment replaces. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Gem\Barbatos.SecsGem.Gem.csproj" />
+    <!-- Not quite the whole of it: wafer mapping is E5 stream 12 rather than E30, so it is its own
+         package and depends on Hsms rather than on the GEM layer above. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.WaferMap\Barbatos.SecsGem.WaferMap.csproj" />
   </ItemGroup>
 
 </Project>

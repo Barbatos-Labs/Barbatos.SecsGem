@@ -34,6 +34,7 @@ Two things set it apart from what came before:
 | `Barbatos.SecsGem.Mapper` | `SecsSerializer`: C# objects <-> `SecsItem`, convention over configuration. |
 | `Barbatos.SecsGem.SourceGenerators` | Roslyn generator and analyzer BSG001 behind the mapper's exact property order. Optional. |
 | `Barbatos.SecsGem.Gem` | GEM (E30), both ends: the equipment's state models, host-configured reporting, alarms, remote commands, process programs, spooling - and `GemHost`, which drives all of it from the other side. |
+| `Barbatos.SecsGem.WaferMap` | Wafer mapping (E5 stream 12), both ends: map setup, the three map data formats, the transmit handshake, maps in either direction. Depends on Hsms, not on Gem. Optional. |
 
 ## Quick start
 
@@ -157,6 +158,7 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 14 | Terminal services (stream 10), both ends: text in front of the operator and text back from them, behind a one-method `IGemTerminal`. Three acknowledgement codes a host can act on differently, and S10F1 deliberately not spooled. | Done |
 | 15 | Trace data collection (S2F23/S6F1), both ends: variables sampled on the equipment's own loop, reported in groups, every sample carrying the value at its own moment. It also corrected the catalogue - S6F1 and S6F2 carried S6F11's name and items - and added the invariant that found it. | Done |
 | 16 | Limits monitoring (S2F45-S2F48), both ends, which completes E30's data collection: a band per variable, a crossing reported as a collection event, and a deadband rather than a threshold so a wobble is silent. Three of its four message rows are representative in the catalogue, and the implementation says where to check. | Done |
+| 17 | Wafer mapping, stream 12, as its own package: all nineteen functions at both ends, the three map data formats, and the directions inverted - here the *equipment* sends every odd function and the host answers. E5 rather than E30, so it depends on Hsms and not on Gem, and a prober that maps wafers without implementing GEM can use it alone. The one thing a flat item list cannot pin down is nesting, so the four repeating bodies are written one way and read three. | Done |
 
 ## Licence
 

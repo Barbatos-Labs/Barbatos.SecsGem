@@ -6,6 +6,7 @@
 using Barbatos.SecsGem;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
+using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -46,6 +47,28 @@ internal static class Program
     internal const uint DefaultReport = 5_000;
     internal const ulong PressureAlarm = 9_000;
     internal const uint PressureLimitEvent = 2_500;
+
+    /// <summary>The map of a wafer this machine has just finished with.</summary>
+    /// <param name="lotId">The lot, which stands in for a wafer identifier here.</param>
+    /// <returns>A three-by-four map as map data type 1.</returns>
+    /// <remarks>
+    /// Row data is the compact format: a row carries its number, the column its first bin belongs
+    /// to and the step between bins, so the bins themselves need no coordinates. The middle row is
+    /// probed right to left, which is what an increment of -1 says - and the easiest field in
+    /// stream 12 to lose by writing it unsigned.
+    /// </remarks>
+    internal static WaferMapRowData MapOf(string lotId)
+        => new()
+        {
+            MaterialId = string.IsNullOrEmpty(lotId) ? "W01" : lotId,
+            IdType = WaferMapIdType.WaferId,
+            Rows =
+            [
+                new WaferMapRow { Row = 0, StartColumn = 0, Increment = 1, Bins = new byte[] { 1, 1, 2, 1 } },
+                new WaferMapRow { Row = 1, StartColumn = 3, Increment = -1, Bins = new byte[] { 1, 4, 1, 1 } },
+                new WaferMapRow { Row = 2, StartColumn = 0, Increment = 1, Bins = new byte[] { 1, 1, 1, 1 } },
+            ],
+        };
 
     private static async Task Main(string[] args)
     {
@@ -211,6 +234,13 @@ internal static class Program
             // it adopted, and SpoolStartTime is when the oldest alarm happened rather than when
             // this process did.
             .AddGemFileSpooling(Path.Combine(AppContext.BaseDirectory, "spool"))
+
+            // Wafer mapping, which is a different standard in the same socket: E5 stream 12 rather
+            // than E30, so it sits beside the GEM layer rather than inside it. It declares one
+            // message - S12F19, the error report a host may send about a map - because every other
+            // message in the stream is one this end sends. The runner below sends a map when a lot
+            // finishes.
+            .AddWaferMapEquipment()
             .RunAsHostedService();
 
         builder.Services.AddHostedService<ChamberRunner>();
@@ -281,6 +311,7 @@ internal sealed class Chamber
 /// </remarks>
 internal sealed class ChamberRunner(
     GemEquipment equipment,
+    WaferMapEquipment mapping,
     Chamber chamber,
     ILogger<ChamberRunner> logger) : BackgroundService
 {
@@ -329,6 +360,29 @@ internal sealed class ChamberRunner(
             if (await equipment.TriggerEventAsync(Program.ProcessEndEvent, stoppingToken).ConfigureAwait(false))
             {
                 logger.LogInformation("Reported ProcessEnd for {LotId}.", chamber.LotId);
+            }
+
+            // And the map of what was just probed. Stream 12 runs the other way round from GEM:
+            // this end sends and the host answers, so unlike a report there is nothing to spool
+            // and nobody to hold it for. With no host there is nothing to send it to, which is
+            // what IsCommunicating is being asked here.
+            if (equipment.IsCommunicating)
+            {
+                try
+                {
+                    var taken = await mapping
+                        .SendRowDataAsync(Program.MapOf(chamber.LotId), stoppingToken)
+                        .ConfigureAwait(false);
+
+                    logger.LogInformation("Sent the wafer map for {LotId} (MDACK: {Taken}).", chamber.LotId, taken);
+                }
+                catch (SecsException exception)
+                {
+                    // A host that has not registered stream 12 answers S9F3 and never a secondary,
+                    // so this end waits out T3 and gets a SecsTimeoutException. Worth logging and
+                    // not worth stopping over: the wafers keep coming either way.
+                    logger.LogWarning("The host did not take the wafer map: {Reason}", exception.Message);
+                }
             }
 
             chamber.Stop();

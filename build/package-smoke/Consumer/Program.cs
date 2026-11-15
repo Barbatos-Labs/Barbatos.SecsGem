@@ -11,6 +11,7 @@ using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Mapping;
 using Barbatos.SecsGem.Serialization;
+using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace PackageSmokeTest;
@@ -75,6 +76,7 @@ internal static class Program
         await Run("catalog: the embedded table came out of the package", CatalogAsync).ConfigureAwait(false);
         await Run("gem + hsms: the container resolves the equipment", GemResolvesAsync).ConfigureAwait(false);
         await Run("gem: the host side resolves on a builder of its own", GemHostResolvesAsync).ConfigureAwait(false);
+        await Run("wafermap: stream 12 resolves at both ends without the gem package", WaferMapResolvesAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -398,5 +400,95 @@ internal static class Program
                 router.TryGetHandler(stream, function, out _),
                 $"the router has no handler for S{stream}F{function}, so AddGemHost did not declare it");
         }
+    }
+
+    /// <summary>
+    /// The wafer map package, which is the one that depends on Hsms without depending on Gem.
+    /// </summary>
+    /// <remarks>
+    /// That independence is a packaging claim, not a code one: a consumer that references this
+    /// package and never references Gem has to be able to map wafers, and a stray dependency in
+    /// the <c>.nuspec</c> would be invisible to every test in the repository. Both ends go in one
+    /// container here because stream 12 gives them no pair in common - except S12F19, which is why
+    /// the host end gets a builder of its own.
+    /// </remarks>
+    private static async Task WaferMapResolvesAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddWaferMapEquipment();
+
+        await using var provider = services.BuildServiceProvider();
+
+        _ = provider.GetRequiredService<WaferMapEquipment>();
+
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            router.TryGetHandler(12, 19, out _),
+            "the router has no handler for S12F19, so AddWaferMapEquipment did not declare it");
+
+        Assert(
+            !router.TryGetHandler(12, 1, out _),
+            "the equipment claimed S12F1, which is a message it is the one that sends");
+
+        var hostServices = new ServiceCollection();
+
+        hostServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddWaferMapHost();
+
+        await using var hostProvider = hostServices.BuildServiceProvider();
+
+        _ = hostProvider.GetRequiredService<WaferMapHost>();
+
+        var hostRouter = hostProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(WaferMapHost.HandledMessages.Count == 10, $"the host declares {WaferMapHost.HandledMessages.Count} message(s), not ten");
+
+        foreach (var (stream, function) in WaferMapHost.HandledMessages)
+        {
+            Assert(
+                hostRouter.TryGetHandler(stream, function, out _),
+                $"the router has no handler for S{stream}F{function}, so AddWaferMapHost did not declare it");
+        }
+
+        // And the store out of the packaged assembly actually holds a map, filter and all.
+        var maps = hostProvider.GetRequiredService<IWaferMapStore>();
+
+        Assert(
+            await maps.SaveSetupAsync(
+                new WaferMapSetup { MaterialId = "W01", NullBinCode = '.', RowCount = 1, ColumnCount = 3 },
+                CancellationToken.None).ConfigureAwait(false) == WaferMapSetupAcknowledgement.Accepted,
+            "the in-memory store refused a setup it should have taken");
+
+        Assert(
+            await maps.SavePointDataAsync(
+                new WaferMapPointData
+                {
+                    MaterialId = "W01",
+                    Points =
+                    [
+                        new WaferMapPoint
+                        {
+                            Position = new WaferMapPosition(0, 0),
+                            Bins = new byte[] { 1, (byte)'.', 2 },
+                        },
+                    ],
+                },
+                CancellationToken.None).ConfigureAwait(false) == WaferMapDataAcknowledgement.Accepted,
+            "the in-memory store refused a map it should have taken");
+
+        var filtered = await maps.LoadPointDataAsync(
+            new WaferMapDataRequest { MaterialId = "W01", BinSelection = WaferMapBinSelection.NonNullOnly },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(filtered is not null, "the store lost the map it had just accepted");
+        Assert(filtered!.Points.Count == 2, $"the null bin was not filtered out: {filtered.Points.Count} point(s) came back");
+        Assert(filtered.Points[1].Position.X == 2, $"the split run lost its coordinate: X came back as {filtered.Points[1].Position.X}");
     }
 }

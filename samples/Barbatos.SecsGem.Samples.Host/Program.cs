@@ -8,6 +8,7 @@ using Barbatos.SecsGem;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
+using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -48,6 +49,14 @@ internal static class Program
 
     private static readonly ConcurrentQueue<string> ErrorReports = new();
     private static readonly ConcurrentQueue<string> Reports = new();
+
+    /// <summary>The lot the remote command below starts, and so the wafer the map comes back for.</summary>
+    /// <remarks>
+    /// Named rather than written twice: in stream 12 the material identifier is how the map is
+    /// addressed, and a host that asked for one lot and looked up another would find nothing and
+    /// blame the equipment.
+    /// </remarks>
+    private const string StartedLot = "LOT-2026-1115";
 
     /// <summary>The loopback chamber's pressure, which the conversation moves to cross a band.</summary>
     private static double _pressure = 1_013.25d;
@@ -119,6 +128,17 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
         }
 
+        // Wafer mapping, which runs the other way round: in stream 12 the equipment sends and the
+        // host answers, so what the equipment declares is one message - the error report the host
+        // may send it about a map.
+        WaferMapEquipment? pendingMapper = null;
+        WaferMapHost? pendingMapHost = null;
+
+        foreach (var (stream, function) in WaferMapEquipment.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingMapper!.HandleAsync(transaction, token));
+        }
+
         // The host's side of the same arrangement. S1F13, S1F1, S5F1, S6F11, S6F13 and stream 9 -
         // everything a machine may send a host unprompted.
         var hostRoutes = new SecsMessageRouterBuilder();
@@ -126,6 +146,13 @@ internal static class Program
         foreach (var (stream, function) in GemHost.HandledMessages)
         {
             hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingHost!.HandleAsync(transaction, token));
+        }
+
+        // And all ten primaries of stream 12, which is where the asymmetry shows: the host end of
+        // wafer mapping answers nearly the whole stream, because the equipment is the one sending.
+        foreach (var (stream, function) in WaferMapHost.HandledMessages)
+        {
+            hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingMapHost!.HandleAsync(transaction, token));
         }
 
         await using var equipmentLink = new HsmsConnection(options, passive, equipmentRoutes.Build());
@@ -138,8 +165,15 @@ internal static class Program
             terminal: new GemInMemoryTerminal());
         await using var host = new GemHost(hostOptions, hostLink);
 
+        // Neither end of stream 12 is disposable: no state, no timer, nothing to release.
+        var mapper = new WaferMapEquipment(equipmentLink);
+        var maps = new WaferMapInMemoryStore();
+        var mapHost = new WaferMapHost(maps, hostLink);
+
         pendingEquipment = equipment;
         pendingHost = host;
+        pendingMapper = mapper;
+        pendingMapHost = mapHost;
 
         Subscribe(host);
 
@@ -164,7 +198,7 @@ internal static class Program
             // conversation, and nothing may be reported before it.
             await WaitUntilAsync(() => equipment.IsCommunicating, "the equipment to establish communications");
 
-            var ok = await ConversationAsync(host, hostLink, equipment, cts.Token);
+            var ok = await ConversationAsync(host, hostLink, equipment, mapper, mapHost, cts.Token);
 
             Console.WriteLine();
             Console.WriteLine("-- decode paths --");
@@ -238,7 +272,12 @@ internal static class Program
             // One call in place of the five OnPrimary lines this used to need, and it declares
             // stream 9 as well - which the hand-written version did not, so an S9F7 from the
             // machine used to be answered with an S9F5 about the S9F7.
-            .AddGemHost(configure: host => host.ModelName = "BRBTOS-HOST");
+            .AddGemHost(configure: host => host.ModelName = "BRBTOS-HOST")
+
+            // So a prober on the other end of the socket gets an answer in stream 12. This mode
+            // cannot drive that exchange - the equipment is the active party there, and it is in
+            // another process - but it can answer it.
+            .AddWaferMapHost();
 
         await using var provider = services.BuildServiceProvider();
         var link = provider.GetRequiredService<HsmsConnection>();
@@ -253,7 +292,24 @@ internal static class Program
         {
             await WaitUntilAsync(() => link.IsSelected, "the equipment to select");
 
-            var ok = await ConversationAsync(host, link, equipment: null, cts.Token);
+            var ok = await ConversationAsync(host, link, equipment: null, mapper: null, mapHost: null, cts.Token);
+
+            // And then wait for the prober to send a map, which is the half of stream 12 this mode
+            // can take part in. The equipment sample sends one when a lot finishes, and the lot the
+            // remote command above started takes a tick or two to run - so without this wait the
+            // host would hang up a quarter of a second after asking for the work.
+            var maps = (WaferMapInMemoryStore)provider.GetRequiredService<IWaferMapStore>();
+
+            Console.WriteLine();
+            Console.WriteLine("-- and waits for the prober to map the wafer it was given --");
+            Console.WriteLine();
+
+            await WaitUntilAsync(() => maps.Count > 0, "a wafer map to arrive from the equipment");
+
+            var arrived = await maps.LoadRowDataAsync(new WaferMapDataRequest { MaterialId = StartedLot }, cts.Token);
+
+            Console.WriteLine($"   S12F7 <- {arrived?.Rows.Count ?? 0} row(s) for {StartedLot}");
+            ok &= arrived is not null && arrived.Rows.Count > 0;
 
             Console.WriteLine();
             Console.WriteLine($"   host: {link.FastPathFrames} fast, {link.SlowPathFrames} slow");
@@ -283,6 +339,8 @@ internal static class Program
         GemHost host,
         HsmsConnection link,
         GemEquipment? equipment,
+        WaferMapEquipment? mapper,
+        WaferMapHost? mapHost,
         CancellationToken cancellationToken)
     {
         var ok = true;
@@ -347,7 +405,7 @@ internal static class Program
 
         var hcack = await host.SendCommandAsync(
             "START",
-            [("LOTID", "LOT-2026-1115"), ("PPID", "RECIPE-7")],
+            [("LOTID", StartedLot), ("PPID", "RECIPE-7")],
             cancellationToken);
 
         Console.WriteLine($"   S2F41 -> HCACK={hcack}");
@@ -531,6 +589,102 @@ internal static class Program
             {
                 Console.WriteLine($"   {report}");
             }
+        }
+
+        if (mapper is not null && mapHost is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and the prober maps a wafer, which runs the other way round --");
+            Console.WriteLine();
+
+            // Every message in this block is sent by the equipment. Stream 12 is E5 rather than
+            // E30 and inverts the directions: a prober knows which die it probed, so it is the
+            // active party and the host answers.
+            var setup = await mapper.SendSetupAsync(
+                new WaferMapSetup
+                {
+                    MaterialId = "W01",
+                    IdType = WaferMapIdType.WaferIdAndOrientation,
+                    FirstLocation = 2,
+                    FlatRotation = 270,
+                    OriginLocation = 3,
+                    ReferencePoints = [new WaferMapPosition(-15_000, 0), new WaferMapPosition(15_000, 60_000)],
+                    DieUnits = "um",
+                    DieSizeX = 5_400,
+                    DieSizeY = 7_200,
+                    RowCount = 3,
+                    ColumnCount = 4,
+                    NullBinCode = '.',
+                    ProductId = "BRBTOS-A7",
+                },
+                cancellationToken);
+
+            Console.WriteLine($"   S12F1  -> SDACK={setup}");
+            ok &= setup == WaferMapSetupAcknowledgement.Accepted;
+
+            // The cheap place to be refused: the inquire carries the location count, so a host
+            // that is not ready says so before a quarter of a million bins arrive rather than
+            // after.
+            var grant = await mapper.InquireTransmitAsync(
+                new WaferMapTransmitInquiry
+                {
+                    MaterialId = "W01",
+                    MapFormat = "1",
+                    MapLocationCount = 12,
+                },
+                cancellationToken);
+
+            Console.WriteLine($"   S12F5  -> GRNT1={grant}");
+            ok &= grant == WaferMapTransmitGrant.Granted;
+
+            // Three rows, and the middle one probed right to left - which is an increment of -1
+            // and why row data needs no coordinate per bin.
+            var sent = await mapper.SendRowDataAsync(
+                new WaferMapRowData
+                {
+                    MaterialId = "W01",
+                    IdType = WaferMapIdType.WaferIdAndOrientation,
+                    Rows =
+                    [
+                        new WaferMapRow { Row = 0, StartColumn = 0, Increment = 1, Bins = new byte[] { 1, 1, 2, 1 } },
+                        new WaferMapRow { Row = 1, StartColumn = 3, Increment = -1, Bins = new byte[] { 1, 4, 1, 1 } },
+                        new WaferMapRow { Row = 2, StartColumn = 0, Increment = 1, Bins = new byte[] { 1, 1, (byte)'.', (byte)'.' } },
+                    ],
+                },
+                cancellationToken);
+
+            Console.WriteLine($"   S12F7  -> MDACK={sent}");
+            ok &= sent == WaferMapDataAcknowledgement.Accepted;
+
+            // And read back what the host now holds, which is the same map through the other half
+            // of the codec.
+            var mapBack = await mapper.RequestRowDataAsync(
+                new WaferMapDataRequest { MaterialId = "W01" },
+                cancellationToken);
+
+            Console.WriteLine($"   S12F13 -> {mapBack?.Rows.Count ?? 0} row(s) came back");
+            ok &= mapBack is not null && mapBack.Rows.Count == 3;
+
+            if (mapBack is not null)
+            {
+                foreach (var row in mapBack.Rows)
+                {
+                    var bins = string.Join(string.Empty, row.Bins.ToArray().Select(bin => bin == (byte)'.' ? '.' : (char)('0' + bin)));
+                    Console.WriteLine($"      row {row.Row,2} from column {row.StartColumn} step {row.Increment,2}: {bins}");
+                }
+            }
+
+            // The host confirms the transfer, which is what MAPER 0 is for: S12F19 expects no
+            // reply, so for a map sent with none of the acknowledged functions it is the only
+            // confirmation either end gets.
+            WaferMapError? reported = null;
+            mapper.ErrorReported += (_, args) => reported = args.Error;
+
+            await mapHost.ReportErrorAsync(WaferMapError.ReceivedCorrectly, 0, cancellationToken);
+            await WaitUntilAsync(() => reported is not null, "the map error report to arrive");
+
+            Console.WriteLine($"   S12F19 <- MAPER={reported}");
+            ok &= reported == WaferMapError.ReceivedCorrectly;
         }
 
         Console.WriteLine();

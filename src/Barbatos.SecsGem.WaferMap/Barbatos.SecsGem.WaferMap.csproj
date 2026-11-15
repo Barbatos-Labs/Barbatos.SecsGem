@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.WaferMap</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.WaferMap</RootNamespace>
+    <PackageTags>secs;e5;stream12;wafermap;prober;binning;die;probe</PackageTags>
+    <Description>Wafer mapping (SECS-II stream 12) for .NET, both ends: map setup data, the three map data formats - by row, by array and by coordinate - the transmit inquire and grant handshake, map requests in either direction and the map error report, with every code table as an enum rather than a byte. Equipment sends and asks; a host answers out of an IWaferMapStore. Depends on Barbatos.SecsGem.Hsms, not on GEM: a prober that maps wafers without implementing SEMI E30 can use this on its own.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referenced directly: the DI extension and the logging both ends take are used here, and a
+         transitive reference through Hsms is not a promise this project should rely on. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+</Project>
