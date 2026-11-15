@@ -4,9 +4,22 @@
     <PackageId>Barbatos.SecsGem.Gem</PackageId>
     <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
     <RootNamespace>Barbatos.SecsGem.Gem</RootNamespace>
-    <PackageTags>gem;e30;e5;ceid;svid;ecid;alid;collectionevent;alarm</PackageTags>
-    <Description>GEM (SEMI E30) layer for Barbatos.SecsGem: communication and control state models, S1F13/S1F14 establish-communications, collection events, status and equipment constants, alarms and remote commands. Placeholder - see the roadmap in README.md.</Description>
+    <PackageTags>gem;e30;e5;ceid;svid;ecid;alid;collectionevent;alarm;controlstate</PackageTags>
+    <Description>GEM (SEMI E30) equipment layer for .NET: the communication and control state models as actors that cannot re-enter a transition, S1F13/S1F14 establish-communications with a retry delay on TimeProvider, host-configured report definitions and event links (S2F33/S2F35/S2F37), status variables and equipment constants, alarms, remote commands gated on the control state, and identifiers read in whatever numeric format the host chose.</Description>
+    <!-- Lets the SDK's configuration-binding generator intercept Bind(), which is what keeps
+         AddGemEquipment(configuration) trim-safe and Native AOT friendly: without it, binding
+         falls back to reflection over GemOptions and the AOT analyzer rightly objects. -->
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referenced explicitly rather than leaning on the transitive reference through
+         Barbatos.SecsGem.Hsms: this project uses all four directly. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />

@@ -9,6 +9,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Every GEM timer - the establish-communications retry above all - is driven through
+         TimeProvider, so a test advances a clock instead of sleeping on one. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <!-- The hosting tests resolve the whole graph, which is the only way to prove that a router
+         whose handlers depend on the connection it belongs to actually resolves. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit.v3.mtp-off" />
     <PackageReference Include="xunit.runner.visualstudio" />
