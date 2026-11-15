@@ -87,7 +87,8 @@ internal sealed class GemLink : IAsyncDisposable
     /// <returns>The link.</returns>
     public static GemLink Start(
         Action<GemEquipmentModelBuilder>? model = null,
-        Action<GemOptions>? configure = null)
+        Action<GemOptions>? configure = null,
+        IGemProcessProgramStore? programs = null)
     {
         var linkOptions = new SecsGemOptions
         {
@@ -122,13 +123,17 @@ internal sealed class GemLink : IAsyncDisposable
         GemEquipment? equipment = null;
         var routes = new SecsMessageRouterBuilder();
 
-        foreach (var (stream, function) in GemEquipment.HandledMessages)
+        var declared = programs is null
+            ? GemEquipment.HandledMessages
+            : [.. GemEquipment.HandledMessages, .. GemEquipment.ProcessProgramMessages];
+
+        foreach (var (stream, function) in declared)
         {
             routes.OnPrimary(stream, function, (transaction, token) => equipment!.HandleAsync(transaction, token));
         }
 
         var connection = new HsmsConnection(linkOptions, transport, routes.Build(), clock);
-        equipment = new GemEquipment(gemOptions, builder.Build(), connection, clock);
+        equipment = new GemEquipment(gemOptions, builder.Build(), connection, clock, logger: null, programs);
 
         return new GemLink(transport, connection, equipment, linkOptions, gemOptions, clock);
     }

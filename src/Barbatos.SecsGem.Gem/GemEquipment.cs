@@ -52,6 +52,7 @@ public sealed class GemEquipment : IAsyncDisposable
     private readonly HsmsConnection _connection;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
+    private readonly IGemProcessProgramStore? _programs;
     private readonly Channel<LinkEvent> _events =
         Channel.CreateUnbounded<LinkEvent>(new UnboundedChannelOptions { SingleReader = true });
 
@@ -75,18 +76,24 @@ public sealed class GemEquipment : IAsyncDisposable
     /// <param name="connection">The link. This object does not run it; it only uses it.</param>
     /// <param name="timeProvider">The clock. <see langword="null"/> means <see cref="TimeProvider.System"/>.</param>
     /// <param name="logger">Diagnostics. <see langword="null"/> discards them.</param>
+    /// <param name="processPrograms">
+    /// Where process programs are kept. <see langword="null"/> means this equipment does not manage
+    /// them, and stream 7 is not answered at all - see <see cref="ProcessProgramMessages"/>.
+    /// </param>
     public GemEquipment(
         GemOptions options,
         GemEquipmentModel model,
         HsmsConnection connection,
         TimeProvider? timeProvider = null,
-        ILogger<GemEquipment>? logger = null)
+        ILogger<GemEquipment>? logger = null,
+        IGemProcessProgramStore? processPrograms = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         Model = model ?? throw new ArgumentNullException(nameof(model));
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger<GemEquipment>.Instance;
+        _programs = processPrograms;
 
         _communication = options.CommunicationEnabled
             ? GemCommunicationState.WaitingToRetry
@@ -122,6 +129,29 @@ public sealed class GemEquipment : IAsyncDisposable
         (5, 7),    // List Enabled Alarm Request
         (6, 15),   // Event Report Request
         (6, 19),   // Individual Report Request
+    ];
+
+    /// <summary>The process program messages, answered only when a store is configured.</summary>
+    /// <remarks>
+    /// <para>
+    /// Separate from <see cref="HandledMessages"/> on purpose. Equipment that does not manage
+    /// process programs should not declare stream 7 at all: the routing table is the declaration of
+    /// what an entity understands, so leaving these out means the connection answers S9F3 - "I do
+    /// not do stream 7" - which is both true and useful. Declaring them and then refusing every one
+    /// would be neither.
+    /// </para>
+    /// <para>
+    /// <c>AddGemProcessPrograms</c> registers these alongside the store, so the two cannot get out
+    /// of step.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<(byte Stream, byte Function)> ProcessProgramMessages { get; } =
+    [
+        (7, 1),    // Process Program Load Inquire
+        (7, 3),    // Process Program Send
+        (7, 5),    // Process Program Request
+        (7, 17),   // Delete Process Program Send
+        (7, 19),   // Current EPPD Request
     ];
 
     /// <summary>Raised after the communication state changes.</summary>
@@ -334,11 +364,18 @@ public sealed class GemEquipment : IAsyncDisposable
             _ => null,
         };
 
-        if (reply is null && transaction.S == 2 && transaction.F == 41)
+        // The handlers that have to await, because they run application code: a remote command, and
+        // anything that touches the process program store.
+        reply ??= (transaction.S, transaction.F) switch
         {
-            // The one handler that has to await: a remote command runs application code.
-            reply = await OnHostCommandAsync(transaction.Message, cancellationToken).ConfigureAwait(false);
-        }
+            (2, 41) => await OnHostCommandAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 1) => await OnProgramInquireAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 3) => await OnProgramSendAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 5) => await OnProgramRequestAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 17) => await OnProgramDeleteAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 19) => await OnProgramListAsync(cancellationToken).ConfigureAwait(false),
+            _ => null,
+        };
 
         if (reply is null)
         {
@@ -928,6 +965,177 @@ public sealed class GemEquipment : IAsyncDisposable
             Name = "EnableDisableAlarmAcknowledge",
             Item = SecsItem.B((byte)ackc5).Named("ACKC5"),
         };
+    }
+
+    // ----------------------------------------------------------------- inbound, stream 7
+
+    private async ValueTask<SecsMessage?> OnProgramInquireAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_programs is null)
+        {
+            return null;
+        }
+
+        var grant = GemProcessProgramGrant.InvalidId;
+
+        if (request.Item is { IsList: true, Count: 2 } body
+            && body[0].Format.IsText()
+            && TryReadId(body[1], out var length))
+        {
+            grant = await _programs
+                .InquireAsync(body[0].GetString().TrimEnd(), (int)Math.Min(length, int.MaxValue), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new SecsMessage(7, 2, replyExpected: false)
+        {
+            Name = "ProcessProgramLoadGrant",
+            Item = SecsItem.B((byte)grant).Named("PPGNT"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnProgramSendAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_programs is null)
+        {
+            return null;
+        }
+
+        // ACKC7 has no "the body made no sense" code, and LengthError is the closest honest answer
+        // for one this stack could not read at all.
+        var acknowledgement = GemProcessProgramAcknowledgement.LengthError;
+
+        // The binary check is part of the guard, not a fallback to an empty body. Handing the store
+        // `default` for a PPBODY that arrived as text would save a program of zero bytes and answer
+        // ACKC7 0 - telling the host its recipe landed when what landed was nothing.
+        if (request.Item is { IsList: true, Count: 2 } body
+            && body[0].Format.IsText()
+            && body[1].Format == SecsFormat.Binary)
+        {
+            // GetMemory rather than a copy: the store decides what to keep, and most of them will
+            // write straight to disk. The memory is only valid for the length of this call, which
+            // is why IGemProcessProgramStore says so.
+            acknowledgement = await _programs
+                .SaveAsync(body[0].GetString().TrimEnd(), body[1].GetMemory<byte>(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new SecsMessage(7, 4, replyExpected: false)
+        {
+            Name = "ProcessProgramAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC7"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnProgramRequestAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_programs is null)
+        {
+            return null;
+        }
+
+        var id = request.Item is { } item && item.Format.IsText() ? item.GetString().TrimEnd() : string.Empty;
+        var body = id.Length == 0
+            ? null
+            : await _programs.LoadAsync(id, cancellationToken).ConfigureAwait(false);
+
+        return new SecsMessage(7, 6, replyExpected: false)
+        {
+            Name = "ProcessProgramData",
+
+            // A zero-length list for "no such program". E5 has no acknowledgement code in S7F6 to
+            // carry a refusal, so the empty body is the refusal.
+            Item = body is null
+                ? SecsItem.L()
+                : SecsItem.L(
+                    SecsItem.A(id).Named("PPID"),
+                    SecsItem.B(body.Value.ToArray()).Named("PPBODY")),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnProgramDeleteAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_programs is null)
+        {
+            return null;
+        }
+
+        var ids = ReadTextList(request.Item);
+
+        // An empty list means every program. E5 is explicit about that, and it is the one place
+        // where answering the literal request would do far less than the host asked for.
+        var acknowledgement = ids.Count == 0
+            ? await _programs.DeleteAllAsync(cancellationToken).ConfigureAwait(false)
+            : GemProcessProgramAcknowledgement.Accepted;
+
+        foreach (var id in ids)
+        {
+            var result = await _programs.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+
+            if (result != GemProcessProgramAcknowledgement.Accepted)
+            {
+                acknowledgement = result;
+            }
+        }
+
+        return new SecsMessage(7, 18, replyExpected: false)
+        {
+            Name = "DeleteProcessProgramAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC7"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnProgramListAsync(CancellationToken cancellationToken)
+    {
+        if (_programs is null)
+        {
+            return null;
+        }
+
+        var ids = await _programs.ListAsync(cancellationToken).ConfigureAwait(false);
+        var entries = new List<SecsItem>(ids.Count);
+
+        foreach (var id in ids)
+        {
+            entries.Add(SecsItem.A(id).Named("PPID"));
+        }
+
+        return new SecsMessage(7, 20, replyExpected: false)
+        {
+            Name = "CurrentEppdData",
+            Item = SecsItem.L(entries),
+        };
+    }
+
+    /// <summary>Reads a list of text items, tolerating a bare one where a list was expected.</summary>
+    private static List<string> ReadTextList(SecsItem? item)
+    {
+        List<string> values = [];
+
+        if (item is null)
+        {
+            return values;
+        }
+
+        if (!item.IsList)
+        {
+            if (item.Format.IsText() && item.Count > 0)
+            {
+                values.Add(item.GetString().TrimEnd());
+            }
+
+            return values;
+        }
+
+        foreach (var element in item.Items)
+        {
+            if (element.Format.IsText() && element.Count > 0)
+            {
+                values.Add(element.GetString().TrimEnd());
+            }
+        }
+
+        return values;
     }
 
     // ----------------------------------------------------------------- namelists and listings

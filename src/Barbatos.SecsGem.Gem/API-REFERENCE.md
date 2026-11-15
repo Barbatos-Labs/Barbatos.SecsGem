@@ -44,7 +44,8 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | Member | Signature | Notes |
 | --- | --- | --- |
 | ctor | `GemEquipment(GemOptions options, GemEquipmentModel model, HsmsConnection connection, TimeProvider? timeProvider = null, ILogger<GemEquipment>? logger = null)` | `null` provider means `TimeProvider.System`; `null` logger discards diagnostics. |
-| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | Every pair this object answers. Registering it is how the equipment declares its capability - see below. |
+| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The twenty core pairs. Registering them is how the equipment declares its capability - see below. |
+| `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The five stream 7 pairs, registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn. |
 | `RunAsync` | `Task RunAsync(CancellationToken cancellationToken = default)` | Drives the state models. Run it **alongside** `HsmsConnection.RunAsync`, not instead of it. Throws `InvalidOperationException` on a second call. |
 | `HandleAsync` | `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken cancellationToken = default)` | Handles one inbound primary. Wired to every pair in `HandledMessages`. |
 | `Model` | `GemEquipmentModel { get; }` | |
@@ -339,6 +340,78 @@ handler; do not keep one past the call, and do not dispose one.
 
 ---
 
+## Process programs
+
+Everything here is opt-in. Without `AddGemProcessPrograms`, stream 7 is not in the routing table
+and the connection answers S9F3 for it.
+
+### `IGemProcessProgramStore`
+
+`public interface IGemProcessProgramStore`
+
+| Member | Signature | Answers |
+| --- | --- | --- |
+| `InquireAsync` | `ValueTask<GemProcessProgramGrant> InquireAsync(string id, int length, CancellationToken cancellationToken)` | S7F2 (PPGNT) |
+| `SaveAsync` | `ValueTask<GemProcessProgramAcknowledgement> SaveAsync(string id, ReadOnlyMemory<byte> body, CancellationToken cancellationToken)` | S7F4 (ACKC7) |
+| `LoadAsync` | `ValueTask<ReadOnlyMemory<byte>?> LoadAsync(string id, CancellationToken cancellationToken)` | S7F6; `null` means no such program |
+| `DeleteAsync` | `ValueTask<GemProcessProgramAcknowledgement> DeleteAsync(string id, CancellationToken cancellationToken)` | S7F18 |
+| `DeleteAllAsync` | `ValueTask<GemProcessProgramAcknowledgement> DeleteAllAsync(CancellationToken cancellationToken)` | S7F18, for an S7F17 carrying an empty list |
+| `ListAsync` | `ValueTask<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken)` | S7F20 |
+
+**The body passed to `SaveAsync` is only valid for the length of the call.** It is a window onto the
+message that arrived, and that message is disposed as soon as the handler returns. Copy what you
+keep.
+
+Every method may be called from the connection's dispatch loop, so a slow one holds up every other
+message on the link. Write a large program in the background and answer
+`GemProcessProgramAcknowledgement.PerformedLater`.
+
+### `GemInMemoryProcessProgramStore`
+
+`public sealed class GemInMemoryProcessProgramStore : IGemProcessProgramStore`
+
+| Member | Signature | Default |
+| --- | --- | --- |
+| `MaxIdLength` | `const int` | `120` - E5's cap on a PPID |
+| `Capacity` | `int { get; set; }` | `64` programs |
+| `MaxBodyLength` | `int { get; set; }` | 1 MiB |
+| `Count` | `int { get; }` | |
+
+Copies what it is given. Replacing an existing program is not a new slot, so it still fits at
+capacity. An empty or over-long identifier is `InvalidId`.
+
+### `GemProcessProgramGrant`
+
+`public enum GemProcessProgramGrant : byte` - S7F2 PPGNT.
+
+| Member | Value |
+| --- | --- |
+| `Ok` | 0 |
+| `AlreadyHave` | 1 |
+| `NoSpace` | 2 |
+| `InvalidId` | 3 |
+| `Busy` | 4 |
+| `WillNotAccept` | 5 |
+
+### `GemProcessProgramAcknowledgement`
+
+`public enum GemProcessProgramAcknowledgement : byte` - ACKC7.
+
+| Member | Value |
+| --- | --- |
+| `Accepted` | 0 |
+| `PermissionNotGranted` | 1 |
+| `LengthError` | 2 |
+| `MatrixOverflow` | 3 |
+| `NotFound` | 4 |
+| `ModeUnsupported` | 5 |
+| `PerformedLater` | 6 |
+
+ACKC7 has no code for "that body made no sense", so a PPBODY that did not arrive as a binary item
+is answered `LengthError` rather than stored as an empty program.
+
+---
+
 ## Acknowledgement codes
 
 Every one of these is `: byte`, and in every one **zero means accepted**. A handler that tests for
@@ -425,6 +498,24 @@ machine is a service.
 | Hosted service | Singleton | Runs `GemEquipment.RunAsync`, unless `runAsHostedService` is `false`. |
 
 It also registers a handler for every pair in `GemEquipment.HandledMessages`.
+
+### `AddGemProcessPrograms`
+
+```csharp
+public static ISecsGemBuilder AddGemProcessPrograms(this ISecsGemBuilder builder)
+public static ISecsGemBuilder AddGemProcessPrograms<TStore>(this ISecsGemBuilder builder)
+    where TStore : class, IGemProcessProgramStore
+public static ISecsGemBuilder AddGemProcessPrograms(this ISecsGemBuilder builder, IGemProcessProgramStore store)
+```
+
+Registers the store and, with it, the five stream 7 pairs. The parameterless overload uses
+`GemInMemoryProcessProgramStore`.
+
+This is what declares stream 7 - omit it and the connection reports S9F3 for anything in that
+stream. Call it once: a second call registers the same pairs twice, which the routing table refuses.
+
+Order does not matter relative to `AddGemEquipment`. The equipment resolves its store with
+`GetService`, so it is `null` when nothing registered one.
 
 **Two loops, two hosted services.** The connection still needs its own `RunAsHostedService()`. The
 GEM loop is registered here by default because it is what establishes communications: equipment

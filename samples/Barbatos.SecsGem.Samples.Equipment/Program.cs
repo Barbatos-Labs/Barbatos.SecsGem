@@ -161,6 +161,12 @@ internal static class Program
                     gem.EstablishCommunicationsRetryInterval = TimeSpan.FromSeconds(10);
                     gem.DefaultControlState = GemControlState.OnlineRemote;
                 })
+
+            // Stream 7, with the in-memory store. Take this line out and the equipment stops
+            // answering S7 entirely - the connection reports S9F3 for it, which is the honest
+            // answer for a machine that does not hold recipes. Real equipment supplies its own
+            // IGemProcessProgramStore over whatever it already persists.
+            .AddGemProcessPrograms()
             .RunAsHostedService();
 
         builder.Services.AddHostedService<ChamberRunner>();

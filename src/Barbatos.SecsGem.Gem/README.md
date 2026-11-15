@@ -184,6 +184,50 @@ while the chamber was out of range.
 **S6F15 answers a disabled event.** S2F37 governs what the equipment sends on its own; a host
 asking directly has already said it wants this one now.
 
+## Recipes, if the machine has any
+
+Stream 7 moves process programs - recipes - onto the machine and off it. It is **opt-in**, and that
+is the interesting part:
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => { /* ... */ })
+    .AddGemProcessPrograms()                     // the in-memory store
+    .RunAsHostedService();
+```
+
+| Message | The host is doing | Answered with |
+| --- | --- | --- |
+| S7F1 | May I send you this program, this many bytes? | S7F2 (PPGNT) |
+| S7F3 | Here it is | S7F4 (ACKC7) |
+| S7F5 | Send me this one back | S7F6 - PPID and PPBODY, or a zero-length list |
+| S7F17 | Delete these - or all of them, with an empty list | S7F18 (ACKC7) |
+| S7F19 | What do you have? | S7F20 - the PPID list |
+
+**Equipment that does not call `AddGemProcessPrograms` does not answer stream 7 at all.** The
+routing table is the declaration of what an entity understands, so leaving it out means the
+connection reports S9F3 - "I do not do stream 7" - which is true and useful. Declaring the messages
+and then refusing every one with an acknowledgement code would be neither. That is why
+`ProcessProgramMessages` is a separate list from `HandledMessages`.
+
+**S7F1 exists so a refusal is cheap.** A recipe can be megabytes. The host names the identifier and
+the length first, and the equipment answers on the strength of that:
+
+```csharp
+public ValueTask<GemProcessProgramGrant> InquireAsync(string id, int length, CancellationToken ct)
+    => ValueTask.FromResult(length > _budget ? GemProcessProgramGrant.NoSpace : GemProcessProgramGrant.Ok);
+```
+
+Where recipes actually live is the application's business - a file, a database row, something a
+controller already owns - so `IGemProcessProgramStore` is an interface with a usable default rather
+than a storage decision baked in. `GemInMemoryProcessProgramStore` is enough for a simulator or for
+recipes regenerated at start-up; anything that must survive a restart wants its own.
+
+One thing the interface insists on: **the body you are handed is only valid for the length of the
+call.** It is a window onto the message that arrived, and that message is disposed as soon as the
+handler returns. Copy what you keep - the in-memory store does.
+
 ## Identifiers are numbers, not U4s
 
 ```csharp
@@ -250,7 +294,7 @@ gate, because a host asking for off-line has to be answered with the state its r
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
 | Spooling (E30 §spooling) | A whole subsystem: durable storage, an overflow policy, S6F23 purge, and a conversation about what happens when the disk fills |
-| S7 process program management | Its own stream and its own object model - a program store with load, send, request, delete and a current-program list |
+| The rest of stream 7 | The five unformatted pairs are here. The matrix messages (S7F11 through S7F16), verification (S7F9/F10) and formatted programs (S7F23/F24) are not |
 | A host-side GEM helper | E30 models the *equipment*. A host sends messages and reads replies, which the HSMS layer already does - see the host sample |
 
 ## Documentation

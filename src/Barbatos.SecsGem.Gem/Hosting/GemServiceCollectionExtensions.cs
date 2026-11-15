@@ -105,7 +105,12 @@ public static class GemServiceCollectionExtensions
             provider.GetRequiredService<GemEquipmentModel>(),
             provider.GetRequiredService<HsmsConnection>(),
             provider.GetRequiredService<TimeProvider>(),
-            provider.GetService<ILogger<GemEquipment>>()));
+            provider.GetService<ILogger<GemEquipment>>(),
+
+            // GetService, not GetRequiredService: process programs are opt-in, and equipment that
+            // does not manage them resolves null here and never declares stream 7. Order does not
+            // matter - AddGemProcessPrograms may come before or after this call.
+            provider.GetService<IGemProcessProgramStore>()));
 
         // Every GEM message, registered as a factory - and the equipment is resolved inside the
         // handler rather than inside the factory. That distinction is the whole game.
@@ -124,6 +129,66 @@ public static class GemServiceCollectionExtensions
         if (runAsHostedService)
         {
             builder.Services.AddHostedService<GemEquipmentHostedService>();
+        }
+
+        return builder;
+    }
+
+    /// <summary>Adds process program management, backed by the in-memory store.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// Enough for a simulator or equipment whose recipes are small and regenerated at start-up.
+    /// Anything that must survive a restart wants its own store.
+    /// </remarks>
+    public static ISecsGemBuilder AddGemProcessPrograms(this ISecsGemBuilder builder)
+        => builder.AddGemProcessPrograms<GemInMemoryProcessProgramStore>();
+
+    /// <summary>Adds process program management, backed by a store of your own.</summary>
+    /// <typeparam name="TStore">The store.</typeparam>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// This is what declares stream 7. Equipment that does not call it does not answer S7 at all,
+    /// and the connection reports S9F3 for anything in that stream - which is the honest answer
+    /// rather than an acknowledgement code meaning "no".
+    /// </para>
+    /// <para>
+    /// Call it once. A second call registers the same stream and function twice, which the routing
+    /// table refuses.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemProcessPrograms<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStore>(
+        this ISecsGemBuilder builder)
+        where TStore : class, IGemProcessProgramStore
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton<IGemProcessProgramStore, TStore>();
+        return DeclareProcessPrograms(builder);
+    }
+
+    /// <summary>Adds process program management, backed by a store you have already built.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="store">The store.</param>
+    /// <returns>The builder, for chaining.</returns>
+    public static ISecsGemBuilder AddGemProcessPrograms(this ISecsGemBuilder builder, IGemProcessProgramStore store)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(store);
+
+        builder.Services.TryAddSingleton(store);
+        return DeclareProcessPrograms(builder);
+    }
+
+    private static ISecsGemBuilder DeclareProcessPrograms(ISecsGemBuilder builder)
+    {
+        foreach (var (stream, function) in GemEquipment.ProcessProgramMessages)
+        {
+            builder.OnPrimary(stream, function, static provider =>
+                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
         }
 
         return builder;

@@ -340,7 +340,10 @@ internal static class Program
         Console.WriteLine("-- and asks for a stream that is not there --");
         Console.WriteLine();
 
-        using (var absent = new SecsMessage(7, 1, replyExpected: false) { Item = SecsItem.A("RECIPE-404") })
+        // S3, not S7. The equipment sample now calls AddGemProcessPrograms, so stream 7 is a thing
+        // it answers - which is the point of that call, and is also exactly how this probe stopped
+        // working when it was added. Material status is a stream neither mode implements.
+        using (var absent = new SecsMessage(3, 1, replyExpected: false) { Item = SecsItem.U4(1u) })
         {
             await host.PostAsync(absent, cancellationToken);
         }
