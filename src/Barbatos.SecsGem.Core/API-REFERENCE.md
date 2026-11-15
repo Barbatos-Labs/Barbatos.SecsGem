@@ -76,6 +76,10 @@ shapes private - you build one through the factories below and never name its ru
 | `TryGetSpan<T>(out ReadOnlySpan<T>)` | `virtual bool` | The non-throwing form, for when the format is not known up front. |
 | `FirstValue<T>()` | `virtual ref T` | A reference to element zero, so a caller can read or write in place. |
 | `FirstValueOrDefault<T>(T defaultValue = default)` | `virtual T` | Element zero, or `defaultValue` for an empty item. |
+
+Every one of those five generic accessors is constrained `where T : unmanaged, IEquatable<T>`. The
+`unmanaged` half is what makes reinterpreting the payload sound; `IEquatable<T>` is what lets the
+comparison in `Equals` stay allocation-free rather than boxing each element.
 | `Named(string?)` | `SecsItem` | Sets `Label` and returns the same instance - except on a shared empty, which is cloned instead so a label cannot leak between callers. |
 | `EncodeTo(IBufferWriter<byte>)` | `void` | Uses `SecsCodecOptions.Default`. |
 | `EncodeTo(IBufferWriter<byte>, SecsCodecOptions)` | `abstract void` | |

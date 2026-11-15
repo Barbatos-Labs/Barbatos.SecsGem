@@ -4,8 +4,8 @@
 // All Rights Reserved.
 
 using Barbatos.SecsGem;
+using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
-using Barbatos.SecsGem.Samples.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,16 +13,19 @@ using Microsoft.Extensions.Logging;
 namespace Barbatos.SecsGem.Samples.Equipment;
 
 /// <summary>
-/// A piece of equipment: passive HSMS, waiting to be selected, answering what it implements.
+/// A piece of GEM equipment: passive HSMS, two state models, and a machine to report on.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The whole thing is the <c>AddSecsGem</c> call below. The connection binds the port, waits for a
-/// host, completes the Select handshake, answers Linktest, enforces T3 through T8 and reports S9Fx
-/// on its own. What this file adds is only the four messages this equipment claims to implement.
+/// Everything E30 asks for is in the <c>AddGemEquipment</c> call. The GEM layer establishes
+/// communications, keeps the control state, answers the standard message set, lets the host define
+/// its own reports, and refuses a remote command unless the host is actually in charge. What this
+/// file declares is only what <em>this</em> machine has: its variables, its events, its alarm and
+/// its commands.
 /// </para>
 /// <para>
-/// Run the host sample against it:
+/// Compare it with phase 3's version of this file, which wired four handlers by hand and still had
+/// no idea whether it was communicating.
 /// </para>
 /// <code>
 /// dotnet run --project samples/Barbatos.SecsGem.Samples.Equipment
@@ -31,6 +34,18 @@ namespace Barbatos.SecsGem.Samples.Equipment;
 /// </remarks>
 internal static class Program
 {
+    // The machine's own identifiers, named rather than scattered as literals.
+    internal const uint ControlStateVariable = 1;
+    internal const uint PressureVariable = 2;
+    internal const uint LotIdVariable = 10;
+    internal const uint SetpointConstant = 100;
+    internal const uint ProcessStartEvent = 1_000;
+    internal const uint ProcessEndEvent = 1_001;
+    internal const uint AlarmSetEvent = 2_000;
+    internal const uint AlarmClearedEvent = 2_001;
+    internal const uint DefaultReport = 5_000;
+    internal const ulong PressureAlarm = 9_000;
+
     private static async Task Main(string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
@@ -40,6 +55,8 @@ internal static class Program
             console.SingleLine = true;
             console.TimestampFormat = "HH:mm:ss.fff ";
         });
+
+        builder.Services.AddSingleton<Chamber>();
 
         builder.Services
             .AddSecsGem(builder.Configuration, options =>
@@ -53,23 +70,111 @@ internal static class Program
                 options.LinkTestInterval = TimeSpan.FromSeconds(15);
             })
             .UseTcp()
+            .AddGemEquipment(
+                (model, provider) =>
+                {
+                    // The overload that takes the provider, because a status variable reads the
+                    // machine and the machine is a service.
+                    var chamber = provider.GetRequiredService<Chamber>();
 
-            // The routing table, which is also the declaration of what this equipment understands.
-            // A host asking for anything else gets S9F5, or S9F3 for a stream that is not here at
-            // all, with nothing further to write.
-            .OnPrimary(1, 1, EquipmentHandlers.AreYouThereAsync)
-            .OnPrimary(1, 13, EquipmentHandlers.EstablishCommunicationsAsync)
-            .OnPrimary(2, 41, EquipmentHandlers.HostCommandAsync)
+                    model
+                        .AddStatusVariable(ControlStateVariable, "ControlState", () => SecsItem.U1((byte)chamber.ControlState))
+                        .AddStatusVariable(PressureVariable, "Pressure", () => SecsItem.F8(chamber.Pressure), "mbar")
+                        .AddDataVariable(LotIdVariable, "LotId", () => SecsItem.A(chamber.LotId))
+
+                        .AddConstant(new GemEquipmentConstant
+                        {
+                            Id = SetpointConstant,
+                            Name = "PressureSetpoint",
+                            Units = "mbar",
+                            Read = () => SecsItem.F8(chamber.Setpoint),
+
+                            // Writable, with the range check where only the machine knows it.
+                            Write = item =>
+                            {
+                                var candidate = item.FirstValueOrDefault<double>();
+
+                                if (candidate is < 100d or > 2_000d)
+                                {
+                                    return false;
+                                }
+
+                                chamber.Setpoint = candidate;
+                                return true;
+                            },
+                        })
+
+                        .AddEvent(ProcessStartEvent, "ProcessStart")
+                        .AddEvent(ProcessEndEvent, "ProcessEnd")
+                        .AddEvent(AlarmSetEvent, "PressureAlarmSet")
+                        .AddEvent(AlarmClearedEvent, "PressureAlarmCleared")
+
+                        // A default report, which a host is free to replace entirely with S2F33.
+                        .AddReport(DefaultReport, ControlStateVariable, PressureVariable, LotIdVariable)
+
+                        .AddAlarm(new GemAlarm
+                        {
+                            Id = PressureAlarm,
+                            Text = "Chamber pressure outside the setpoint window",
+                            SetEventId = AlarmSetEvent,
+                            ClearEventId = AlarmClearedEvent,
+                        })
+
+                        .AddRemoteCommand("START", (context, _) =>
+                        {
+                            var lot = context.GetText("LOTID");
+
+                            if (string.IsNullOrWhiteSpace(lot))
+                            {
+                                return ValueTask.FromResult(GemHostCommandAcknowledgement.InvalidParameter);
+                            }
+
+                            if (chamber.IsRunning)
+                            {
+                                return ValueTask.FromResult(GemHostCommandAcknowledgement.AlreadyInDesiredCondition);
+                            }
+
+                            chamber.Start(lot);
+
+                            // Accepted and not finished. Completion arrives as ProcessEnd, which is
+                            // what HCACK 4 promises - answering 0 here would tell the host a wafer
+                            // had been processed before the chamber had pumped down.
+                            return ValueTask.FromResult(GemHostCommandAcknowledgement.CompletionLater);
+                        })
+
+                        .AddRemoteCommand("STOP", (_, _) =>
+                        {
+                            if (!chamber.IsRunning)
+                            {
+                                return ValueTask.FromResult(GemHostCommandAcknowledgement.AlreadyInDesiredCondition);
+                            }
+
+                            chamber.Stop();
+                            return ValueTask.FromResult(GemHostCommandAcknowledgement.Accepted);
+                        });
+                },
+                builder.Configuration,
+                gem =>
+                {
+                    gem.ModelName = "BRBTOS-1";
+                    gem.SoftwareRevision = "0.1.0";
+                    gem.EstablishCommunicationsRetryInterval = TimeSpan.FromSeconds(10);
+                    gem.DefaultControlState = GemControlState.OnlineRemote;
+                })
             .RunAsHostedService();
 
-        builder.Services.AddHostedService<EventReporter>();
+        builder.Services.AddHostedService<ChamberRunner>();
 
         var app = builder.Build();
 
         var connection = app.Services.GetRequiredService<HsmsConnection>();
-        connection.StateChanged += (_, state) => Console.WriteLine($"   [equipment] {state}");
+        var equipment = app.Services.GetRequiredService<GemEquipment>();
 
-        Console.WriteLine("Barbatos.SecsGem - equipment (passive) on 127.0.0.1:5000, device 7");
+        connection.StateChanged += (_, state) => Console.WriteLine($"   [link]    {state}");
+        equipment.CommunicationStateChanged += (_, state) => Console.WriteLine($"   [comms]   {state}");
+        equipment.ControlStateChanged += (_, state) => Console.WriteLine($"   [control] {state}");
+
+        Console.WriteLine("Barbatos.SecsGem - GEM equipment (passive) on 127.0.0.1:5000, device 7");
         Console.WriteLine("Waiting for a host. Ctrl+C to stop.");
         Console.WriteLine();
 
@@ -77,56 +182,102 @@ internal static class Program
     }
 }
 
+/// <summary>The machine: a little state and a pressure that drifts.</summary>
+internal sealed class Chamber
+{
+    private readonly Random _random = new(Seed: 20_261_115);
+
+    /// <summary>Gets the chamber pressure, in millibars.</summary>
+    public double Pressure { get; private set; } = 1_013.25d;
+
+    /// <summary>Gets or sets the pressure the recipe asks for.</summary>
+    public double Setpoint { get; set; } = 1_013.25d;
+
+    /// <summary>Gets the lot currently loaded, or an empty string.</summary>
+    public string LotId { get; private set; } = string.Empty;
+
+    /// <summary>Gets a value indicating whether a lot is being processed.</summary>
+    public bool IsRunning { get; private set; }
+
+    /// <summary>Gets the GEM control state, as a status variable reports it.</summary>
+    public byte ControlState { get; set; } = (byte)GemControlState.OnlineRemote;
+
+    /// <summary>Gets a value indicating whether the pressure has wandered out of its window.</summary>
+    public bool IsOutOfRange => Math.Abs(Pressure - Setpoint) > 50d;
+
+    /// <summary>Loads a lot and starts processing it.</summary>
+    /// <param name="lotId">The lot.</param>
+    public void Start(string lotId)
+    {
+        LotId = lotId;
+        IsRunning = true;
+    }
+
+    /// <summary>Stops processing.</summary>
+    public void Stop() => IsRunning = false;
+
+    /// <summary>Moves the pressure a little, the way a real one does.</summary>
+    public void Drift() => Pressure += (_random.NextDouble() - 0.45d) * 40d;
+}
+
 /// <summary>
-/// Sends an event report every few seconds, once there is somewhere to send it.
+/// Drives the machine, and reports what it does.
 /// </summary>
 /// <remarks>
-/// The <see cref="HsmsConnection.IsSelected"/> check is the whole of the guard. Posting while the
-/// link is down throws rather than queueing, which is deliberate: a report about something that
-/// happened thirty seconds ago is not worth delivering, and a queue of them is how a reconnection
-/// turns into a flood.
+/// Note what is <em>not</em> here: no check on whether the link is up, no check on whether an event
+/// is enabled, no decision about which reports to attach. <c>TriggerEventAsync</c> answers all
+/// three and returns <see langword="false"/> when there was nothing to send, because a host that
+/// disabled an event has said it does not want it and that is not a fault worth handling.
 /// </remarks>
-internal sealed class EventReporter(HsmsConnection connection, ILogger<EventReporter> logger) : BackgroundService
+internal sealed class ChamberRunner(
+    GemEquipment equipment,
+    Chamber chamber,
+    ILogger<ChamberRunner> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var eventId = 7001u;
+        var alarmRaised = false;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 return;
             }
 
-            if (!connection.IsSelected)
+            chamber.Drift();
+            chamber.ControlState = (byte)equipment.ControlState;
+
+            if (chamber.IsOutOfRange != alarmRaised)
+            {
+                alarmRaised = chamber.IsOutOfRange;
+
+                var sent = alarmRaised
+                    ? await equipment.SetAlarmAsync(Program.PressureAlarm, stoppingToken).ConfigureAwait(false)
+                    : await equipment.ClearAlarmAsync(Program.PressureAlarm, stoppingToken).ConfigureAwait(false);
+
+                logger.LogInformation(
+                    "Pressure alarm {State} at {Pressure:F2} mbar (reported: {Sent}).",
+                    alarmRaised ? "set" : "cleared",
+                    chamber.Pressure,
+                    sent);
+            }
+
+            if (!chamber.IsRunning)
             {
                 continue;
             }
 
-            try
+            if (await equipment.TriggerEventAsync(Program.ProcessEndEvent, stoppingToken).ConfigureAwait(false))
             {
-                using var report = SampleMessages.EventReportSend(eventId++);
-                using var acknowledgement = await connection.SendAsync(report, stoppingToken).ConfigureAwait(false);
+                logger.LogInformation("Reported ProcessEnd for {LotId}.", chamber.LotId);
+            }
 
-                logger.LogInformation(
-                    "Reported event {EventId}; the host answered {Reply} with ACKC6 {Ackc6}.",
-                    eventId - 1,
-                    acknowledgement,
-                    acknowledgement.Item?.FirstValueOrDefault<byte>());
-            }
-            catch (SecsTimeoutException ex)
-            {
-                logger.LogWarning("The host did not answer the event report: {Timer} expired.", ex.Timer);
-            }
-            catch (SecsException ex)
-            {
-                logger.LogWarning("Could not report the event: {Reason}", ex.Message);
-            }
+            chamber.Stop();
         }
     }
 }

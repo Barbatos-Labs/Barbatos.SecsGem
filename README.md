@@ -32,7 +32,7 @@ Two things set it apart from what came before:
 | `Barbatos.SecsGem.Serialization.Ini` | `.ini` reader/writer, path-addressed keys. |
 | `Barbatos.SecsGem.Mapper` | `SecsSerializer`: C# objects <-> `SecsItem`, convention over configuration. |
 | `Barbatos.SecsGem.SourceGenerators` | Roslyn generator and analyzer BSG001 behind the mapper's exact property order. Optional. |
-| `Barbatos.SecsGem.Gem` | GEM (E30) layer. Phase 7. |
+| `Barbatos.SecsGem.Gem` | GEM (E30) equipment layer: communication and control state models, host-configured reporting, alarms, remote commands. |
 
 ## Quick start
 
@@ -141,7 +141,7 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 4 | The 25-pair format round-trip matrix, committed conformance fixtures, per-spoke reader tests. | Done |
 | 5 | Source generator, analyzer BSG001, generated-against-reflection parity tests. | Done |
 | 6 | BenchmarkDotNet suite, and a README plus an API reference for every shipping package. The benchmarks found a missing contract cache that made the source generator slower than the reflection it replaces. | Done |
-| 7 | GEM layer. | Next |
+| 7 | GEM (E30) equipment layer: both state models as actors, the standard message set, host-configured report definitions, alarms, remote commands gated on the control state. Brought `DeselectAsync` and container-resolved message handlers back into the HSMS package. | Done |
 
 ## Licence
 

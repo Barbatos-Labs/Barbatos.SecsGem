@@ -14,8 +14,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem\Barbatos.SecsGem.csproj" />
-    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
-    <ProjectReference Include="..\..\samples\Barbatos.SecsGem.Samples.Shared\Barbatos.SecsGem.Samples.Shared.csproj" />
+    <!-- The GEM layer is the whole of this sample now. Nothing from Samples.Shared is needed any
+         more: the handlers that file used to supply are what AddGemEquipment replaces. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Gem\Barbatos.SecsGem.Gem.csproj" />
   </ItemGroup>
 
 </Project>

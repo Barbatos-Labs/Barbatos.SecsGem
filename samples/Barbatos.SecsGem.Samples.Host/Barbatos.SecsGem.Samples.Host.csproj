@@ -14,6 +14,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem\Barbatos.SecsGem.csproj" />
+    <!-- The loopback mode runs a real GemEquipment, so the host sample needs the GEM layer even
+         though a host is not the side E30 models. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Gem\Barbatos.SecsGem.Gem.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />
     <ProjectReference Include="..\..\samples\Barbatos.SecsGem.Samples.Shared\Barbatos.SecsGem.Samples.Shared.csproj" />
   </ItemGroup>
