@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.Catalog</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Catalog</RootNamespace>
+    <PackageTags>secs;e5;reference;catalog;streamfunction;dataitem;svid;ceid</PackageTags>
+    <Description>A reference catalogue of the SECS-II (SEMI E5) message set for .NET: 524 stream/function pairs across 20 streams with their standard names, direction, primary or secondary, reply function and body data items, plus 317 data items with their formats and standard code values. Loaded lazily from one embedded 39 KB resource into frozen lookups - no reflection, no dependencies beyond Barbatos.SecsGem.Core.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- One compact resource rather than generated source. 524 messages as C# would be thousands
+         of lines the compiler has to chew through on every build, to produce a table that is read
+         at most once per process. -->
+    <EmbeddedResource Include="Data\secs2-catalog.txt" LogicalName="Barbatos.SecsGem.Catalog.secs2-catalog.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+  </ItemGroup>
+
+</Project>

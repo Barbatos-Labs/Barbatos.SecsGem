@@ -3,6 +3,7 @@
 // Copyright (C) Barbatos Labs | Pham The Hung and Barbatos.SecsGem Contributors.
 // All Rights Reserved.
 
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Threading.Channels;
 using Barbatos.SecsGem.Hsms;
@@ -56,6 +57,10 @@ public sealed class GemEquipment : IAsyncDisposable
 
     private readonly object _gate = new();
 
+    // Which alarms are in alarm right now, as opposed to which are allowed to report. S5F6 has to
+    // answer the first question and S5F3 configures the second, so they cannot be the same set.
+    private readonly ConcurrentDictionary<ulong, byte> _active = new();
+
     private GemCommunicationState _communication;
     private GemControlState _control;
     private ITimer? _retry;
@@ -99,18 +104,24 @@ public sealed class GemEquipment : IAsyncDisposable
     [
         (1, 1),    // Are You There
         (1, 3),    // Selected Equipment Status Request
+        (1, 11),   // Status Variable Namelist Request
         (1, 13),   // Establish Communications Request
         (1, 15),   // Request Off-Line
         (1, 17),   // Request On-Line
         (2, 13),   // Equipment Constant Request
         (2, 15),   // New Equipment Constant Send
         (2, 17),   // Date and Time Request
+        (2, 29),   // Equipment Constant Namelist Request
         (2, 31),   // Date and Time Set Request
         (2, 33),   // Define Report
         (2, 35),   // Link Event Report
         (2, 37),   // Enable/Disable Event Report
         (2, 41),   // Host Command Send
         (5, 3),    // Enable/Disable Alarm Send
+        (5, 5),    // List Alarms Request
+        (5, 7),    // List Enabled Alarm Request
+        (6, 15),   // Event Report Request
+        (6, 19),   // Individual Report Request
     ];
 
     /// <summary>Raised after the communication state changes.</summary>
@@ -133,6 +144,17 @@ public sealed class GemEquipment : IAsyncDisposable
 
     /// <summary>Gets a value indicating whether the host may send remote commands.</summary>
     public bool IsOnlineRemote => _control == GemControlState.OnlineRemote;
+
+    /// <summary>Gets a value indicating whether an alarm is in alarm right now.</summary>
+    /// <param name="alarmId">The ALID.</param>
+    /// <returns><see langword="true"/> when set and not yet cleared.</returns>
+    /// <remarks>
+    /// Not the same question as <see cref="GemEquipmentModel.IsAlarmEnabled"/>. Enabled is whether
+    /// the host wants to hear about it; this is whether it is happening. S5F6 reports the second in
+    /// ALCD's top bit, so an implementation that only tracked the first would list every alarm as
+    /// quiet while the chamber was out of range.
+    /// </remarks>
+    public bool IsAlarmSet(ulong alarmId) => _active.ContainsKey(alarmId);
 
     /// <summary>Gets the time this equipment reports, including any offset a host has set.</summary>
     /// <remarks>
@@ -292,17 +314,23 @@ public sealed class GemEquipment : IAsyncDisposable
         {
             (1, 1) => OnAreYouThere(),
             (1, 3) => OnStatusRequest(transaction.Message),
+            (1, 11) => OnStatusNamelist(transaction.Message),
             (1, 13) => OnEstablishCommunications(),
             (1, 15) => OnRequestOffline(),
             (1, 17) => OnRequestOnline(),
             (2, 13) => OnConstantRequest(transaction.Message),
             (2, 15) => OnNewConstants(transaction.Message),
             (2, 17) => OnTimeRequest(),
+            (2, 29) => OnConstantNamelist(transaction.Message),
             (2, 31) => OnTimeSet(transaction.Message),
             (2, 33) => OnDefineReport(transaction.Message),
             (2, 35) => OnLinkEventReport(transaction.Message),
             (2, 37) => OnEnableEvent(transaction.Message),
             (5, 3) => OnEnableAlarm(transaction.Message),
+            (5, 5) => OnListAlarms(transaction.Message),
+            (5, 7) => OnListEnabledAlarms(),
+            (6, 15) => OnEventReportRequest(transaction.Message),
+            (6, 19) => OnIndividualReportRequest(transaction.Message),
             _ => null,
         };
 
@@ -902,13 +930,194 @@ public sealed class GemEquipment : IAsyncDisposable
         };
     }
 
+    // ----------------------------------------------------------------- namelists and listings
+
+    private SecsMessage OnStatusNamelist(SecsMessage request)
+    {
+        var requested = ReadIdList(request.Item);
+        var entries = new List<SecsItem>();
+
+        if (requested.Count == 0)
+        {
+            foreach (var variable in Model.Variables.Values
+                .Where(v => v.Kind == GemVariableKind.Status)
+                .OrderBy(v => v.Id))
+            {
+                entries.Add(StatusNamelistEntry(variable.Id, variable));
+            }
+        }
+        else
+        {
+            foreach (var id in requested)
+            {
+                var known = id <= uint.MaxValue
+                    && Model.Variables.TryGetValue((uint)id, out var variable)
+                    && variable.Kind == GemVariableKind.Status;
+
+                entries.Add(StatusNamelistEntry((uint)Math.Min(id, uint.MaxValue), known ? Model.Variables[(uint)id] : null));
+            }
+        }
+
+        return new SecsMessage(1, 12, replyExpected: false)
+        {
+            Name = "StatusVariableNamelistReply",
+            Item = SecsItem.L(entries),
+        };
+    }
+
+    private SecsMessage OnConstantNamelist(SecsMessage request)
+    {
+        var requested = ReadIdList(request.Item);
+        var entries = new List<SecsItem>();
+
+        if (requested.Count == 0)
+        {
+            foreach (var constant in Model.Constants.Values.OrderBy(c => c.Id))
+            {
+                entries.Add(ConstantNamelistEntry(constant.Id, constant));
+            }
+        }
+        else
+        {
+            foreach (var id in requested)
+            {
+                var known = id <= uint.MaxValue && Model.Constants.TryGetValue((uint)id, out _);
+                entries.Add(ConstantNamelistEntry(
+                    (uint)Math.Min(id, uint.MaxValue),
+                    known ? Model.Constants[(uint)id] : null));
+            }
+        }
+
+        return new SecsMessage(2, 30, replyExpected: false)
+        {
+            Name = "EquipmentConstantNamelist",
+            Item = SecsItem.L(entries),
+        };
+    }
+
+    private SecsMessage OnListAlarms(SecsMessage request)
+    {
+        var requested = ReadIdList(request.Item);
+        var entries = new List<SecsItem>();
+
+        if (requested.Count == 0)
+        {
+            foreach (var alarm in Model.Alarms.Values.OrderBy(a => a.Id))
+            {
+                entries.Add(AlarmListEntry(alarm));
+            }
+        }
+        else
+        {
+            foreach (var id in requested)
+            {
+                entries.Add(Model.Alarms.TryGetValue(id, out var alarm) ? AlarmListEntry(alarm) : SecsItem.L());
+            }
+        }
+
+        return new SecsMessage(5, 6, replyExpected: false)
+        {
+            Name = "ListAlarmsData",
+            Item = SecsItem.L(entries),
+        };
+    }
+
+    private SecsMessage OnListEnabledAlarms()
+    {
+        var entries = new List<SecsItem>();
+
+        foreach (var alarm in Model.Alarms.Values.Where(a => Model.IsAlarmEnabled(a.Id)).OrderBy(a => a.Id))
+        {
+            entries.Add(AlarmListEntry(alarm));
+        }
+
+        // The same three-element shape as S5F6. E5 defines S5F8 as the enabled subset of the same
+        // listing, and a host that can parse one should not need a second parser for the other -
+        // the reference table this catalogue was built from lists only ALID here, which would make
+        // the two replies gratuitously different.
+        return new SecsMessage(5, 8, replyExpected: false)
+        {
+            Name = "ListEnabledAlarmData",
+            Item = SecsItem.L(entries),
+        };
+    }
+
+    private SecsMessage OnEventReportRequest(SecsMessage request)
+    {
+        var ids = ReadIdList(request.Item);
+        var eventId = ids.Count > 0 && ids[0] <= uint.MaxValue ? (uint)ids[0] : 0u;
+
+        // Answered even when the event is disabled. S2F37 governs what the equipment sends on its
+        // own; a host asking directly has already said it wants this one now.
+        return new SecsMessage(6, 16, replyExpected: false)
+        {
+            Name = "EventReportData",
+            Item = Model.Events.ContainsKey(eventId) ? EventReportBody(eventId) : SecsItem.L(),
+        };
+    }
+
+    private SecsMessage OnIndividualReportRequest(SecsMessage request)
+    {
+        var ids = ReadIdList(request.Item);
+        var reportId = ids.Count > 0 && ids[0] <= uint.MaxValue ? (uint)ids[0] : 0u;
+        var defined = Model.VariablesForReport(reportId).Count > 0;
+
+        return new SecsMessage(6, 20, replyExpected: false)
+        {
+            Name = "IndividualReportData",
+            Item = defined ? SecsItem.L(ReportValues(reportId)) : SecsItem.L(),
+        };
+    }
+
+    private static SecsItem StatusNamelistEntry(uint id, GemVariable? variable) => SecsItem.L(
+        SecsItem.U4(id).Named("SVID"),
+        SecsItem.A(variable?.Name ?? string.Empty).Named("SVNAME"),
+        SecsItem.A(variable?.Units ?? string.Empty).Named("UNITS"));
+
+    private static SecsItem ConstantNamelistEntry(uint id, GemEquipmentConstant? constant) => SecsItem.L(
+        SecsItem.U4(id).Named("ECID"),
+        SecsItem.A(constant?.Name ?? string.Empty).Named("ECNAME"),
+        Bound(constant?.Minimum).Named("ECMIN"),
+        Bound(constant?.Maximum).Named("ECMAX"),
+        Bound(constant?.Default).Named("ECDEF"),
+        SecsItem.A(constant?.Units ?? string.Empty).Named("UNITS"));
+
+    private SecsItem AlarmListEntry(GemAlarm alarm) => SecsItem.L(
+        SecsItem.B((byte)(IsAlarmSet(alarm.Id) ? 0x80 : 0x00)).Named("ALCD"),
+        AlarmIdItem(alarm.Id).Named("ALID"),
+        SecsItem.A(AlarmText(alarm)).Named("ALTX"));
+
+    /// <summary>A documented bound, or a zero-length item meaning there is not one.</summary>
+    private static SecsItem Bound(Func<SecsItem>? read) => read is null ? SecsItem.L() : read();
+
+    private static string AlarmText(GemAlarm alarm) => alarm.Text.Length > GemOptions.MaxAlarmTextLength
+        ? alarm.Text[..GemOptions.MaxAlarmTextLength]
+        : alarm.Text;
+
     // ----------------------------------------------------------------- outbound
 
     private async ValueTask<bool> AlarmAsync(ulong alarmId, bool set, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (!IsCommunicating || !Model.Alarms.TryGetValue(alarmId, out var alarm))
+        if (!Model.Alarms.TryGetValue(alarmId, out var alarm))
+        {
+            return false;
+        }
+
+        // The machine is in alarm whether or not there is a host to tell, so the condition is
+        // recorded before anything about reporting is decided. S5F6 asks what is wrong with the
+        // machine, not what the machine managed to send.
+        if (set)
+        {
+            _active[alarmId] = 0;
+        }
+        else
+        {
+            _active.TryRemove(alarmId, out _);
+        }
+
+        if (!IsCommunicating)
         {
             return false;
         }
@@ -918,9 +1127,6 @@ public sealed class GemEquipment : IAsyncDisposable
             // ALCD carries the alarm category in the low bits and "is set" in bit 7, which is why
             // a clear and a set are the same message with one bit between them.
             var alcd = (byte)(set ? 0x80 : 0x00);
-            var text = alarm.Text.Length > GemOptions.MaxAlarmTextLength
-                ? alarm.Text[..GemOptions.MaxAlarmTextLength]
-                : alarm.Text;
 
             using var message = new SecsMessage(5, 1, replyExpected: _options.AlarmReportsExpectReply)
             {
@@ -928,7 +1134,7 @@ public sealed class GemEquipment : IAsyncDisposable
                 Item = SecsItem.L(
                     SecsItem.B(alcd).Named("ALCD"),
                     AlarmIdItem(alarmId).Named("ALID"),
-                    SecsItem.A(text).Named("ALTX")),
+                    SecsItem.A(AlarmText(alarm)).Named("ALTX")),
             };
 
             await SendReportAsync(message, cancellationToken).ConfigureAwait(false);
@@ -948,33 +1154,42 @@ public sealed class GemEquipment : IAsyncDisposable
     }
 
     private SecsMessage BuildEventReport(uint eventId)
+        => new(6, 11, replyExpected: _options.EventReportsExpectReply)
+        {
+            Name = "EventReportSend",
+            Item = EventReportBody(eventId),
+        };
+
+    /// <summary>The body S6F11 and S6F16 share: DATAID, CEID and the linked reports.</summary>
+    private SecsItem EventReportBody(uint eventId)
     {
         var reports = new List<SecsItem>();
 
         foreach (var reportId in Model.ReportsForEvent(eventId))
         {
-            var values = new List<SecsItem>();
-
-            foreach (var variableId in Model.VariablesForReport(reportId))
-            {
-                values.Add(Model.Variables.TryGetValue(variableId, out var variable)
-                    ? variable.Read().Named(variable.Name)
-                    : SecsItem.L());
-            }
-
             reports.Add(SecsItem.L(
                 SecsItem.U4(reportId).Named("RPTID"),
-                SecsItem.L(values)));
+                SecsItem.L(ReportValues(reportId))));
         }
 
-        return new SecsMessage(6, 11, replyExpected: _options.EventReportsExpectReply)
+        return SecsItem.L(
+            SecsItem.U4((uint)Interlocked.Increment(ref _dataId)).Named("DATAID"),
+            SecsItem.U4(eventId).Named("CEID"),
+            SecsItem.L(reports));
+    }
+
+    private List<SecsItem> ReportValues(uint reportId)
+    {
+        var values = new List<SecsItem>();
+
+        foreach (var variableId in Model.VariablesForReport(reportId))
         {
-            Name = "EventReportSend",
-            Item = SecsItem.L(
-                SecsItem.U4((uint)Interlocked.Increment(ref _dataId)).Named("DATAID"),
-                SecsItem.U4(eventId).Named("CEID"),
-                SecsItem.L(reports)),
-        };
+            values.Add(Model.Variables.TryGetValue(variableId, out var variable)
+                ? variable.Read().Named(variable.Name)
+                : SecsItem.L());
+        }
+
+        return values;
     }
 
     private async ValueTask SendReportAsync(SecsMessage message, CancellationToken cancellationToken)

@@ -71,6 +71,27 @@ public sealed class GemEquipmentConstant
     /// </remarks>
     public Func<SecsItem, bool>? Write { get; init; }
 
+    /// <summary>Gets the smallest value the host may set, for S2F30. Optional.</summary>
+    /// <remarks>
+    /// <para>
+    /// These three exist for the namelist reply and nothing else. <see cref="Write"/> remains the
+    /// authority on whether a value is acceptable, because a range is not always a pair of bounds -
+    /// a setpoint may be limited by what the chamber is doing right now, which no static minimum
+    /// can express.
+    /// </para>
+    /// <para>
+    /// Left <see langword="null"/>, S2F30 reports a zero-length item in its place, which E5 allows
+    /// and which says "no documented bound" rather than inventing one.
+    /// </para>
+    /// </remarks>
+    public Func<SecsItem>? Minimum { get; init; }
+
+    /// <summary>Gets the largest value the host may set, for S2F30. Optional.</summary>
+    public Func<SecsItem>? Maximum { get; init; }
+
+    /// <summary>Gets the factory default, for S2F30. Optional.</summary>
+    public Func<SecsItem>? Default { get; init; }
+
     /// <summary>Gets a value indicating whether the host may set this constant.</summary>
     public bool IsWritable => Write is not null;
 }

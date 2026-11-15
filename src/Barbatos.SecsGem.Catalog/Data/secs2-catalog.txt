@@ -1,0 +1,922 @@
+#streams
+1|Equipment Status
+2|Equipment Control and Diagnostics
+3|Material Status
+4|Material Control
+5|Exception Handling
+6|Data Collection
+7|Process Program Management
+8|Control Program Transfer
+9|System Errors
+10|Terminal Services
+12|Wafer Mapping
+13|Data Set Transfer
+14|Object Services
+15|Recipe Management
+16|Processing Management
+17|Equipment Control and Diagnostics (Extended)
+18|Subsystem Control and Data
+19|Recipe Management
+20|Recipe Management System
+21|Item Transfer
+#messages
+1|1|Are You There Request|B|P|2|0|
+1|2|On Line Data|B|S|1|0|MDLN,SOFTREV
+1|3|Selected Equipment Status Request|H|P|4|0|SVID
+1|4|Selected Equipment Status Data|E|S|3|0|SV
+1|5|Formatted Status Request|H|P|6|1|SFCD
+1|6|Formatted Status Data|E|S|5|1|SV
+1|7|Fixed Form Request|H|P|8|1|SFCD
+1|8|Fixed Form Data|E|S|7|1|SVNAME,SV
+1|9|Material Transfer Status Request|H|P|10|1|
+1|10|Material Transfer Status Data|E|S|9|1|TSIP,TSOP
+1|11|Status Variable Namelist Request|H|P|12|0|SVID
+1|12|Status Variable Namelist Reply|E|S|11|0|SVID,SVNAME,UNITS
+1|13|Establish Communications Request|B|P|14|0|MDLN,SOFTREV
+1|14|Establish Communications Acknowledge|B|S|13|0|COMMACK,MDLN,SOFTREV
+1|15|Request OFF-LINE|B|P|16|0|
+1|16|OFF-LINE Acknowledge|B|S|15|0|OFLACK
+1|17|Request ON-LINE|B|P|18|0|
+1|18|ON-LINE Acknowledge|B|S|17|0|ONLACK
+1|19|Get Attribute|H|P|20|1|OBJTYPE,OBJID,ATTRID
+1|20|Attribute Data|E|S|19|1|ATTRDATA,ERRCODE,ERRTEXT
+1|21|Data Variable Namelist Request|H|P|22|0|VID
+1|22|Data Variable Namelist|E|S|21|0|VID,DVVALNAME,UNITS
+1|23|Collection Event Namelist Request|H|P|24|0|CEID
+1|24|Collection Event Namelist|E|S|23|0|CEID,CENAME,VID
+2|1|Service Program Load Inquire|H|P|2|1|SPID,LENGTH
+2|2|Service Program Load Grant|E|S|1|1|GRANT
+2|3|Service Program Send|H|P|4|1|SPD
+2|4|Service Program Send Acknowledge|E|S|3|1|ACKC2
+2|5|Service Program Request|H|P|6|1|SPID
+2|6|Service Program Data|E|S|5|1|SPD
+2|7|Service Program Run Send|H|P|8|1|SPID
+2|8|Service Program Run Acknowledge|E|S|7|1|ACKC2
+2|9|Service Program Results Request|H|P|10|1|SPID
+2|10|Service Program Results Data|E|S|9|1|SPR
+2|11|Service Program Directory Request|H|P|12|1|
+2|12|Service Program Directory Data|E|S|11|1|SPID
+2|13|Equipment Constant Request|H|P|14|0|ECID
+2|14|Equipment Constant Data|E|S|13|0|ECV
+2|15|New Equipment Constant Send|H|P|16|0|ECID,ECV
+2|16|New Equipment Constant Acknowledge|E|S|15|0|EAC
+2|17|Date and Time Request|H|P|18|0|
+2|18|Date and Time Data|E|S|17|0|TIME
+2|19|Reset/Initialize Send|H|P|20|1|RSTC
+2|20|Reset/Initialize Acknowledge|E|S|19|1|RIACK
+2|21|Remote Command|H|P|22|0|RCMD
+2|22|Remote Command Acknowledge|E|S|21|0|CMDA
+2|23|Trace Initialize|H|P|24|0|TRID,DSPER,TOTSMP,REPGSZ,SVID
+2|24|Trace Initialize Acknowledge|E|S|23|1|TIAACK
+2|25|Loopback Diagnostic Request|B|P|26|0|ABS
+2|26|Loopback Diagnostic Data|B|S|25|0|ABS
+2|27|Initiate Processing Request|H|P|28|1|PPID
+2|28|Initiate Processing Acknowledge|E|S|27|1|PRACK
+2|29|Equipment Constant Namelist Request|H|P|30|0|ECID
+2|30|Equipment Constant Namelist|E|S|29|0|ECID,ECNAME,ECMIN,ECMAX,ECDEF,UNITS
+2|31|Date and Time Set Request|H|P|32|0|TIME
+2|32|Date and Time Set Acknowledge|E|S|31|0|TIACK
+2|33|Define Report|H|P|34|0|DATAID,RPTID,VID
+2|34|Define Report Acknowledge|E|S|33|0|DRACK
+2|35|Link Event Report|H|P|36|0|DATAID,CEID
+2|36|Link Event Report Acknowledge|E|S|35|0|LRACK
+2|37|Enable/Disable Event Report|H|P|38|0|CEED,CEID
+2|38|Enable/Disable Event Report Acknowledge|E|S|37|0|ERACK
+2|39|Multi-block Inquire|H|P|40|1|DATAID,DATALENGTH
+2|40|Multi-block Grant|E|S|39|1|GRANT
+2|41|Host Command Send|H|P|42|0|RCMD,CPNAME,CPVAL
+2|42|Host Command Acknowledge|E|S|41|0|HCACK,CPNAME,CPACK
+2|43|Reset Spooling Streams and Functions|H|P|44|1|STRID,FCNID
+2|44|Reset Spooling Acknowledge|E|S|43|1|RSPACK,STRID,STRACK,FCNID
+2|45|Define Variable Limit Attributes|H|P|46|1|DATAID,VID,LIMITID,UPPERDB,LOWERDB
+2|46|Variable Limit Attribute Acknowledge|E|S|45|1|VLAACK,VID,LVACK,LIMITID,LIMITACK
+2|47|Variable Limit Attribute Request|H|P|48|0|VID
+2|48|Variable Limit Attributes Send|E|S|47|1|VID,UNITS,LIMITMIN,LIMITMAX,LIMITID,UPPERDB,LOWERDB
+2|49|Enhanced Remote Command|H|P|50|0|DATAID,OBJSPEC,RCMD,CPNAME,CPVAL
+2|50|Enhanced Remote Command Acknowledge|E|S|49|0|HCACK,CPNAME,CPACK
+2|51|Bind Report Request|H|P|52|1|RPTID,OBJSPEC
+2|52|Bind Report Acknowledge|E|S|51|1|RPACK
+2|53|Unbind Report Request|H|P|54|1|RPTID,OBJSPEC
+2|54|Unbind Report Acknowledge|E|S|53|1|URACK
+2|55|Enhanced Equipment Constant Request|H|P|56|1|OBJSPEC,ECID
+2|56|Enhanced Equipment Constant Data|E|S|55|1|ECV
+2|57|Enhanced Status Variable Request|H|P|58|1|OBJSPEC,SVID
+2|58|Enhanced Status Variable Data|E|S|57|1|SV
+2|59|Enhanced Data Variable Request|H|P|60|1|OBJSPEC,VID
+2|60|Enhanced Data Variable Data|E|S|59|1|SV
+2|61|Enhanced Alarm Status Request|H|P|62|1|OBJSPEC,ALID
+2|62|Enhanced Alarm Status Data|E|S|61|1|ALCD,ALID,ALTX
+2|63|Enhanced Diagnostic Data Request|H|P|64|1|OBJSPEC,DATAID
+2|64|Enhanced Diagnostic Data Report|E|S|63|1|DATAID,DGDATA
+3|1|Material Status Request|H|P|2|1|
+3|2|Material Status Data|E|S|1|1|MID,LOC,QUA
+3|3|Time to Completion Request|H|P|4|1|
+3|4|Time to Completion Data|E|S|3|1|MID,LOC,TTC
+3|5|Material Found Send|E|P|6|1|MID,LOC
+3|6|Material Found Acknowledge|H|S|5|1|ACKC3
+3|7|Material Lost Send|E|P|8|1|MID,LOC
+3|8|Material Lost Acknowledge|H|S|7|1|ACKC3
+3|9|Material Location Request|H|P|10|1|MID
+3|10|Material Location Data|E|S|9|1|MID,LOC
+3|11|Material Transfer Request|H|P|12|1|MID,DESTLOC
+3|12|Material Transfer Acknowledge|E|S|11|1|ACKC3
+3|13|Material Status Change Send|E|P|14|1|MID,LOC,MATLSTATUS
+3|14|Material Status Change Acknowledge|H|S|13|1|ACKC3
+3|15|Materials Multi-block Inquire|H|P|16|1|DATAID
+3|16|Materials Multi-block Grant|E|S|15|1|GRANT
+3|17|Carrier Action Request|H|P|18|1|CARRIERACTION,CARRIERID,PTN
+3|18|Carrier Action Acknowledge|E|S|17|1|CAACK,ERRCODE,ERRTEXT
+3|19|Carrier Status Request|H|P|20|1|CARRIERID
+3|20|Carrier Status Data|E|S|19|1|CARRIERID,PTN,CARRIERSTATUS
+3|21|Storage Port Status Request|H|P|22|1|PTN
+3|22|Storage Port Status Data|E|S|21|1|PTN,PORTSTATUS,CARRIERID
+3|23|Carrier Location Request|H|P|24|1|CARRIERID
+3|24|Carrier Location Data|E|S|23|1|CARRIERID,LOC
+3|25|Carrier ID Read Request|H|P|26|1|PTN
+3|26|Carrier ID Read Acknowledge|E|S|25|1|ACKC3,CARRIERID
+3|27|Slot Map Request|H|P|28|1|CARRIERID
+3|28|Slot Map Data|E|S|27|1|CARRIERID,SLOTMAP
+3|29|Carrier Reservation Request|H|P|30|1|CARRIERID,PTN
+3|30|Carrier Reservation Acknowledge|E|S|29|1|ACKC3
+3|31|Storage Status Request|H|P|32|1|
+3|32|Storage Status Data|E|S|31|1|LOC,PORTSTATUS,CARRIERID
+3|33|Carrier Out Request|H|P|34|1|CARRIERID
+3|34|Carrier Out Acknowledge|E|S|33|1|ACKC3
+3|35|Material Movement Event Report Send|E|P|36|1|MID,LOC,DESTLOC
+3|36|Material Movement Event Acknowledge|H|S|35|1|ACKC3
+4|1|Ready to Send Material|B|P|2|1|PTN,MID
+4|2|Ready to Send Acknowledge|B|S|1|1|RSACK
+4|3|Send Material|B|P||1|PTN,MID
+4|5|Handshake Complete|B|P||1|PTN,MID
+4|7|Not Ready to Send|B|P||1|PTN,MID
+4|9|Stuck in Sender|B|P||1|PTN,MID
+4|11|Stuck in Receiver|B|P||1|PTN,MID
+4|13|Send Incomplete Timeout|B|P||1|PTN,MID
+4|15|Material Received|B|P||1|PTN,MID
+4|17|Request to Receive|B|P|18|1|PTN,MID
+4|18|Request to Receive Acknowledge|B|S|17|1|RRACK
+4|19|Transfer Job Create|H|P|20|1|DATAID,TRJOBNAME,TRLINK,TROBJNAME,TROBJTYPE,TRPORT,TRROLE,TRPTNR,TRPTPORT,TRLOCATION
+4|20|Transfer Job Acknowledge|E|S|19|1|TRJOBID,TRACK,ERRCODE,ERRTEXT
+4|21|Transfer Job Command|H|P|22|1|TRJOBID,TRCMDNAME,CPNAME,CPVAL
+4|22|Transfer Job Command Acknowledge|E|S|21|1|TRACK,ERRCODE,ERRTEXT
+4|23|Transfer Command Alert|E|P|24|1|TRJOBID,TRJOBNAME,TRJOBMS,ERRCODE,ERRTEXT
+4|24|Transfer Alert Acknowledge|H|S|23|1|
+4|25|Multi-block Inquire|H|P|26|1|DATAID,DATALENGTH
+4|26|Multi-block Grant|E|S|25|1|GRANT
+4|27|Handoff Ready|B|P||1|EQNAME,TRLINK,TROBJNAME,TROBJTYPE,TRPORT,TRROLE,TRPTNR,TRPTPORT,TRLOCATION
+4|29|Handoff Command|B|P||1|TRLINK,MCINDEX,HOCMDNAME,CPNAME,CPVAL
+4|31|Handoff Command Complete|B|P||1|TRLINK,MCINDEX,HOACK
+4|33|Handoff Verified|B|P||1|TRLINK,HOACK,ERRCODE,ERRTEXT
+4|35|Handoff Cancel Ready|B|P||1|TRLINK
+4|37|Handoff Cancel Ready Acknowledge|B|P||1|TRLINK,HOCANCELACK
+4|39|Handoff Halt|B|P||1|TRLINK
+4|41|Handoff Halt Acknowledge|B|P||1|TRLINK,HOHALTACK
+5|1|Alarm Report Send|E|P|2|0|ALCD,ALID,ALTX
+5|2|Alarm Report Acknowledge|H|S|1|0|ACKC5
+5|3|Enable/Disable Alarm Send|H|P|4|0|ALED,ALID
+5|4|Enable/Disable Alarm Acknowledge|E|S|3|0|ACKC5
+5|5|List Alarms Request|H|P|6|0|ALID
+5|6|List Alarms Data|E|S|5|0|ALCD,ALID,ALTX
+5|7|List Enabled Alarm Request|H|P|8|0|
+5|8|List Enabled Alarm Data|E|S|7|0|ALID
+5|9|Exception Post Notify|E|P|10|0|TIMESTAMP,EXID,EXTYPE,EXMESSAGE
+5|10|Exception Post Acknowledge|H|S|9|0|ACKC5
+5|11|Exception Clear Notify|E|P|12|1|TIMESTAMP,EXID
+5|12|Exception Clear Acknowledge|H|S|11|1|ACKC5
+5|13|Exception Recover Notify|E|P|14|1|TIMESTAMP,EXID
+5|14|Exception Recover Acknowledge|H|S|13|1|ACKC5
+5|15|Exception Recover Complete Notify|E|P|16|1|TIMESTAMP,EXID,EXMESSAGE
+5|16|Exception Recover Complete Acknowledge|H|S|15|1|ACKC5
+5|17|Exception Recover Abort Request|H|P|18|1|EXID
+5|18|Exception Recover Abort Acknowledge|E|S|17|1|EXID,ACKA,ERRCODE,ERRTEXT
+6|1|Event Report Send|E|P|2|0|DATAID,CEID,RPTID,V
+6|2|Event Report Acknowledge|H|S|1|0|ACKC6
+6|3|Discrete Variable Data Send|E|P|4|0|DATAID,CEID
+6|4|Discrete Variable Data Acknowledge|H|S|3|0|ACKC6
+6|5|Multi-block Data Send Inquire|E|P|6|0|DATAID,DATALENGTH
+6|6|Multi-block Grant|H|S|5|0|GRANT6
+6|7|Data Transfer Request|H|P|8|1|DATAID
+6|8|Data Transfer Data|E|S|7|1|DATAID,V
+6|9|Unformatted Data Send|E|P|10|1|DATAID,V
+6|10|Unformatted Data Acknowledge|H|S|9|1|ACKC6
+6|11|Event Report Send|E|P|12|0|DATAID,CEID,RPTID,V
+6|12|Event Report Acknowledge|H|S|11|0|ACKC6
+6|13|Annotated Event Report Send|E|P|14|1|DATAID,CEID,RPTID,SVNAME,V
+6|14|Annotated Event Report Acknowledge|H|S|13|1|ACKC6
+6|15|Event Report Request|H|P|16|0|CEID
+6|16|Event Report Data|E|S|15|0|DATAID,CEID
+6|17|Annotated Individual Report Request|H|P|18|1|RPTID
+6|18|Annotated Individual Report Data|E|S|17|1|RPTID,VID,V,UNITS
+6|19|Individual Report Request|H|P|20|0|RPTID
+6|20|Individual Report Data|E|S|19|0|RPTID,VID
+6|21|Data Cell Report Send|E|P|22|1|DATAID,CEID,CELLNAME,V
+6|22|Data Cell Report Acknowledge|H|S|21|1|ACKC6
+6|23|Request Spooled Data|H|P|24|1|DATAID
+6|24|Request Spooled Data Acknowledge|E|S|23|1|SPACK
+6|25|Notification Report Send|E|P|26|1|DATAID,CEID
+6|26|Notification Report Acknowledge|H|S|25|1|ACKC6
+6|27|Notification Report Request|H|P|28|1|CEID
+6|28|Notification Report Data|E|S|27|1|CEID,RPTID
+6|29|Enable/Disable Notification Report Send|H|P|30|1|NRED,CEID
+6|30|Enable/Disable Notification Report Acknowledge|E|S|29|1|ACKC6
+7|1|Process Program Load Inquire|H|P|2|0|PPID,LENGTH
+7|2|Process Program Load Grant|E|S|1|0|PPGNT
+7|3|Process Program Send|H|P|4|0|PPID,PPBODY
+7|4|Process Program Acknowledge|E|S|3|0|ACKC7
+7|5|Process Program Request|H|P|6|0|PPID
+7|6|Process Program Data|E|S|5|0|PPID,PPBODY
+7|7|Process Program Directory Request|H|P|8|1|
+7|8|Process Program Directory Data|E|S|7|1|PPID
+7|9|Process Program Verify Send|H|P|10|1|PPID,PPBODY
+7|10|Process Program Verify Acknowledge|E|S|9|1|ACKC7
+7|11|Process Program Matrix Send|H|P|12|1|PPID,PPBODY
+7|12|Process Program Matrix Acknowledge|E|S|11|1|ACKC7
+7|13|Process Program Matrix Load Inquire|H|P|14|1|PPID,LENGTH
+7|14|Process Program Matrix Load Grant|E|S|13|1|PPGNT
+7|15|Process Program Matrix Verify Send|H|P|16|1|PPID,PPBODY
+7|16|Process Program Matrix Verify Acknowledge|E|S|15|1|ACKC7
+7|17|Delete Process Program Send|H|P|18|0|PPID
+7|18|Delete Process Program Acknowledge|E|S|17|0|ACKC7
+7|19|Current EPPD Request|H|P|20|0|
+7|20|Current EPPD Data|E|S|19|0|PPID
+7|21|Process Program Reference Send|H|P|22|1|PPID
+7|22|Process Program Reference Acknowledge|E|S|21|1|ACKC7
+7|23|Formatted Process Program Send|H|P|24|0|PPID,PPBODY
+7|24|Formatted Process Program Acknowledge|E|S|23|0|ACKC7
+7|25|Formatted Process Program Request|H|P|26|0|PPID
+7|26|Formatted Process Program Data|E|S|25|0|PPID,PPBODY
+7|27|Formatted Process Program Verify Send|H|P|28|1|PPID,PPBODY
+7|28|Formatted Process Program Verify Acknowledge|E|S|27|1|ACKC7
+7|29|Process Program Change Notify|E|P|30|1|PPID
+7|30|Process Program Change Acknowledge|H|S|29|1|ACKC7
+7|31|Process Program Available Request|H|P|32|1|PPID
+7|32|Process Program Available Data|E|S|31|1|PPGNT
+7|33|Formatted Process Program Load Inquire|H|P|34|1|PPID,LENGTH
+7|34|Formatted Process Program Load Grant|E|S|33|1|PPGNT
+7|35|Formatted Process Program Directory Request|H|P|36|1|
+7|36|Formatted Process Program Directory Data|E|S|35|1|PPID,PPBODY
+7|37|Process Program Related Remote Command Send|H|P|38|1|PPID,RCMD
+7|38|Process Program Related Remote Command Acknowledge|E|S|37|1|CMDA
+7|39|Process Program Selected Notify|E|P|40|1|PPID
+7|40|Process Program Selected Acknowledge|H|S|39|1|ACKC7
+7|41|Process Program Related Remote Command With Parameters Send|H|P|42|1|PPID,RCMD,CPNAME,CPVAL
+7|42|Process Program Related Remote Command With Parameters Acknowledge|E|S|41|1|CMDA
+7|43|Process Program Related Remote Command Cancel Send|H|P|44|1|PPID,RCMD
+7|44|Process Program Related Remote Command Cancel Acknowledge|E|S|43|1|CMDA
+8|1|Boot/Control Program Load Inquire|H|P|2|0|LENGTH
+8|2|Boot/Control Program Load Grant|E|S|1|0|GRANT
+8|3|Boot/Control Program Send|H|P|4|0|CPBODY
+8|4|Boot/Control Program Send Acknowledge|E|S|3|0|ACKC8
+8|5|Control Program Request|H|P|6|1|CPID
+8|6|Control Program Data|E|S|5|1|CPID,CPBODY
+8|7|Control Program Send Block|H|P|8|1|CPID,BLKNUM,CPBODY
+8|8|Control Program Send Block Acknowledge|E|S|7|1|ACKC8
+8|9|Control Program Request Block|H|P|10|1|CPID,BLKNUM
+8|10|Control Program Block Data|E|S|9|1|CPID,BLKNUM,BLKEND,CPBODY
+8|11|Control Program Directory Request|H|P|12|1|
+8|12|Control Program Directory Data|E|S|11|1|CPID
+8|13|Control Program Transfer Abort|H|P|14|1|CPID
+8|14|Control Program Transfer Abort Acknowledge|E|S|13|1|ACKC8
+8|15|Control Program Status Request|H|P|16|1|CPID
+8|16|Control Program Status Data|E|S|15|1|CPID,SOFTREV
+9|1|Unrecognized Device ID|E|P||0|MHEAD
+9|3|Unrecognized Stream Type|E|P||0|MHEAD
+9|5|Unrecognized Function Type|E|P||0|MHEAD
+9|7|Illegal Data|E|P||0|MHEAD
+9|9|Transaction Timer Timeout|E|P||0|SHEAD
+9|11|Data Too Long|E|P||0|MHEAD
+9|13|Conversation Timeout|E|P||0|DATAID,MEXP
+10|1|Terminal Request|E|P|2|0|TID,TEXT
+10|2|Terminal Acknowledge|H|S|1|0|ACKC10
+10|3|Terminal Display (Single)|H|P|4|0|TID,TEXT
+10|4|Terminal Display Acknowledge|E|S|3|0|ACKC10
+10|5|Multi-block Terminal Display|H|P|6|0|TID,TEXT
+10|6|Multi-block Terminal Display Acknowledge|E|S|5|0|ACKC10
+10|7|Terminal Not Accessible|B|P||1|TID
+10|9|Broadcast Message|H|P|10|0|TEXT
+10|10|Broadcast Message Acknowledge|E|S|9|0|ACKC10
+12|1|Map Setup Data Send|E|P|2|1|MID,IDTYP,FNLOC,FFROT,ORLOC,RPSEL,REFP,DUTMS,XDIES,YDIES,ROWCT,COLCT,NULBC,PRDCT,PRAXI
+12|2|Map Setup Data Acknowledge|H|S|1|0|SDACK
+12|3|Map Setup Data Request|E|P|4|0|MID,IDTYP,MAPFT,FNLOC,FFROT,ORLOC,PRAXI,BCEQU,NULBC
+12|4|Map Setup Data|H|S|3|0|MID,IDTYP,FNLOC,ORLOC,RPSEL,REFP,DUTMS,XDIES,YDIES,ROWCT,COLCT,PRDCT,BCEQU,NULBC,MLCL
+12|5|Map Transmit Inquire|E|P|6|0|MID,IDTYP,MAPFT,MLCL
+12|6|Map Transmit Grant|H|S|5|0|GRNT1
+12|7|Map Data Type 1 Send|E|P|8|0|MID,IDTYP,RSINF,BINLT
+12|8|Map Data Type 1 Acknowledge|H|S|7|0|MDACK
+12|9|Map Data Type 2 Send|E|P|10|0|MID,IDTYP,STRP,BINLT
+12|10|Map Data Type 2 Acknowledge|H|S|9|0|MDACK
+12|11|Map Data Type 3 Send|E|P|12|0|MID,IDTYP,XYPOS,BINLT
+12|12|Map Data Type 3 Acknowledge|H|S|11|0|MDACK
+12|13|Map Data Type 1 Request|E|P|14|0|MID,IDTYP
+12|14|Map Data Type 1|H|S|13|0|MID,IDTYP,RSINF,BINLT
+12|15|Map Data Type 2 Request|E|P|16|0|MID,IDTYP
+12|16|Map Data Type 2|H|S|15|0|MID,IDTYP,STRP,BINLT
+12|17|Map Data Type 3 Request|E|P|18|0|MID,IDTYP,SDBIN
+12|18|Map Data Type 3|H|S|17|0|MID,IDTYP,XYPOS,BINLT
+12|19|Map Error Report Send|B|P||1|MAPER,DATLC
+13|1|Open Data Set Send|H|P|2|0|DSID,LENGTH
+13|2|Open Data Set Send Acknowledge|E|S|1|0|GRANT6
+13|3|Data Set Send|H|P|4|0|DSID,DATAID,DSDATA
+13|4|Data Set Send Acknowledge|E|S|3|0|ACKC13
+13|5|Open Data Set Request|H|P|6|1|DSID
+13|6|Open Data Set Request Acknowledge|E|S|5|1|GRANT6,LENGTH
+13|7|Data Set Get|H|P|8|1|DSID,DATAID
+13|8|Data Set Data|E|S|7|1|DSID,DATAID,DSDATA
+13|9|Data Set Send Block|H|P|10|1|DSID,DATAID,BLKNUM,DSDATA
+13|10|Data Set Send Block Acknowledge|E|S|9|1|ACKC13
+13|11|Data Set Directory Request|H|P|12|1|
+13|12|Data Set Directory Data|E|S|11|1|DSID
+13|13|Data Set Close|H|P|14|1|DSID
+13|14|Data Set Close Acknowledge|E|S|13|1|ACKC13
+13|15|Data Set Status Request|H|P|16|1|DSID
+13|16|Data Set Status Data|E|S|15|1|DSID,LENGTH,ACKC13
+14|1|GetAttr Request|B|P|2|0|OBJSPEC,OBJTYPE,ATTRID
+14|2|GetAttr Data|B|S|1|1|OBJSPEC,ATTRID,ATTRDATA
+14|3|SetAttr Request|B|P|4|1|OBJSPEC,OBJTYPE,ATTRID,ATTRDATA
+14|4|SetAttr Data|B|S|3|1|ATTRID,ATTRDATA,OBJACK
+14|5|Create Object Request|H|P|6|1|OBJTYPE,ATTRID,ATTRDATA
+14|6|Create Object Acknowledge|E|S|5|1|OBJACK,OBJID
+14|7|Delete Object Request|H|P|8|1|OBJTYPE,OBJSPEC
+14|8|Delete Object Acknowledge|E|S|7|1|OBJSPEC,OBJACK
+14|9|Object Action Request|H|P|10|1|OBJSPEC,OBJTYPE,RCMD,CPNAME,CPVAL
+14|10|Object Action Acknowledge|E|S|9|1|OBJSPEC,OBJACK
+14|11|Object Attribute Relation Request|B|P|12|1|OBJTYPE,ATTRID,ATTRRELN,ATTRDATA
+14|12|Object Attribute Relation Data|B|S|11|1|OBJSPEC
+14|13|Object Type Namelist Request|H|P|14|1|
+14|14|Object Type Namelist Data|E|S|13|1|OBJTYPE
+14|15|Object Instance Namelist Request|H|P|16|1|OBJTYPE
+14|16|Object Instance Namelist Data|E|S|15|1|OBJSPEC
+14|17|Object Attribute Namelist Request|H|P|18|1|OBJSPEC,OBJTYPE
+14|18|Object Attribute Namelist Data|E|S|17|1|ATTRID
+14|19|Multi-Object GetAttr Request|B|P|20|1|OBJSPEC,ATTRID
+14|20|Multi-Object GetAttr Data|B|S|19|1|OBJSPEC,ATTRID,ATTRDATA
+14|21|Multi-Object SetAttr Request|B|P|22|1|OBJSPEC,ATTRID,ATTRDATA
+14|22|Multi-Object SetAttr Data|B|S|21|1|OBJSPEC,ATTRID,ATTRDATA,OBJACK
+14|23|Object Attribute Enable Request|H|P|24|1|OBJSPEC,OBJTYPE,ENABLE,ATTRID
+14|24|Object Attribute Enable Acknowledge|E|S|23|1|OBJACK
+14|25|Object Error Report Request|H|P|26|1|OBJSPEC
+14|26|Object Error Report Data|E|S|25|1|ERRCODE,ERRTEXT
+14|27|Object Multi-Action Request|H|P|28|1|OBJSPEC,RCMD,CPNAME,CPVAL
+14|28|Object Multi-Action Acknowledge|E|S|27|1|OBJSPEC,OBJACK
+15|1|Recipe Namespace Request|H|P|2|1|
+15|2|Recipe Namespace Data|E|S|1|1|RCPSPEC
+15|3|Recipe Directory Request|H|P|4|1|RCPSPEC
+15|4|Recipe Directory Data|E|S|3|1|RCPID,RCPVER,LENGTH,RCPATTRNAME,RCPATTRVAL
+15|5|Recipe Download Request|H|P|6|1|RCPSPEC,RCPID,LENGTH
+15|6|Recipe Download Grant|E|S|5|1|RMACK
+15|7|Recipe Download Send|H|P|8|1|RCPSPEC,RCPID,PPBODY
+15|8|Recipe Download Acknowledge|E|S|7|1|RMACK
+15|9|Recipe Upload Request|H|P|10|1|RCPSPEC,RCPID
+15|10|Recipe Upload Data|E|S|9|1|RMACK,PPBODY
+15|11|Recipe Verify Request|H|P|12|1|RCPSPEC,RCPID,CHECKSUM
+15|12|Recipe Verify Data|E|S|11|1|VFACK
+15|13|Recipe Delete Request|H|P|14|1|RCPSPEC,RCPID
+15|14|Recipe Delete Acknowledge|E|S|13|1|RMACK
+15|15|Recipe Namespace Create Request|H|P|16|1|RCPSPEC
+15|16|Recipe Namespace Create Acknowledge|E|S|15|1|RMACK
+15|17|Recipe Namespace Delete Request|H|P|18|1|RCPSPEC
+15|18|Recipe Namespace Delete Acknowledge|E|S|17|1|RMACK
+15|19|Recipe Rename Request|H|P|20|1|RCPSPEC,RCPID,RCPIDNEW
+15|20|Recipe Rename Acknowledge|E|S|19|1|RMACK
+15|21|Recipe Copy Request|H|P|22|1|RCPSPEC,RCPID,RCPSPECDST,RCPIDDST
+15|22|Recipe Copy Acknowledge|E|S|21|1|RMACK
+15|23|Recipe Lock Request|H|P|24|1|RCPSPEC,RCPID
+15|24|Recipe Lock Acknowledge|E|S|23|1|RMACK,RCPLOCKID
+15|25|Recipe Unlock Request|H|P|26|1|RCPSPEC,RCPID,RCPLOCKID
+15|26|Recipe Unlock Acknowledge|E|S|25|1|RMACK
+15|27|Recipe Attribute Get Request|H|P|28|1|RCPSPEC,RCPID,RCPATTRNAME
+15|28|Recipe Attribute Data|E|S|27|1|RCPATTRNAME,RCPATTRVAL
+15|29|Recipe Attribute Set Request|H|P|30|1|RCPSPEC,RCPID,RCPATTRNAME,RCPATTRVAL
+15|30|Recipe Attribute Set Acknowledge|E|S|29|1|RMACK
+15|31|Recipe Select Request|H|P|32|1|RCPSPEC,RCPID
+15|32|Recipe Select Acknowledge|E|S|31|1|RMACK
+15|33|Recipe Execution Status Request|H|P|34|1|RCPSPEC,RCPID
+15|34|Recipe Execution Status Data|E|S|33|1|RCPSTATE
+15|35|Current Recipe Request|H|P|36|1|RCPSPEC
+15|36|Current Recipe Data|E|S|35|1|RCPID,RCPVER
+15|37|Recipe Existence Request|H|P|38|1|RCPSPEC,RCPID
+15|38|Recipe Existence Data|E|S|37|1|RCPEXIST
+15|39|Recipe Namespace Space Request|H|P|40|1|RCPSPEC
+15|40|Recipe Namespace Space Data|E|S|39|1|SPACEAVAIL,SPACETOTAL
+15|41|Recipe Auto-Select Request|H|P|42|1|RCPSPEC,RCPID,AUTOSEL
+15|42|Recipe Auto-Select Acknowledge|E|S|41|1|RMACK
+15|43|Recipe Validate Request|H|P|44|1|RCPSPEC,RCPID
+15|44|Recipe Validate Data|E|S|43|1|VALACK,RCPATTRNAME
+15|45|Recipe Revision Compare Request|H|P|46|1|RCPSPEC,RCPID,RCPVER,RCPVER2
+15|46|Recipe Revision Compare Data|E|S|45|1|CMPRESULT,RCPATTRNAME
+15|47|Recipe Revision History Request|H|P|48|1|RCPSPEC,RCPID
+15|48|Recipe Revision History Data|E|S|47|1|RCPVER,TIME,RCPATTRVAL
+15|49|Recipe Owner Set Request|H|P|50|1|RCPSPEC,RCPID,RCPOWNER
+15|50|Recipe Owner Set Acknowledge|E|S|49|1|RMACK
+15|51|Recipe Namespace Attribute Request|H|P|52|1|RCPSPEC,RCPATTRNAME
+15|52|Recipe Namespace Attribute Data|E|S|51|1|RCPATTRNAME,RCPATTRVAL
+15|53|Recipe Operation Abort Request|H|P|54|1|RCPSPEC,RCPID
+15|54|Recipe Operation Abort Acknowledge|E|S|53|1|RMACK
+16|1|Process Job Create Request|H|P|2|1|PJID,PPID,MTRLID
+16|2|Process Job Create Acknowledge|E|S|1|1|PJID,PJACK
+16|3|Process Job Command Send|H|P|4|1|PJID,RCMD
+16|4|Process Job Command Acknowledge|E|S|3|1|PJID,CMDA
+16|5|Process Job Status Request|H|P|6|1|PJID
+16|6|Process Job Status Data|E|S|5|1|PJID,PPID,JOBSTATE
+16|7|Process Job List Request|H|P|8|1|
+16|8|Process Job List Data|E|S|7|1|PJID,PPID,JOBSTATE
+16|9|Process Job Deselect Request|H|P|10|1|PJID
+16|10|Process Job Deselect Acknowledge|E|S|9|1|PJID,PJACK
+16|11|Process Job Event Report Send|E|P|12|1|PJID,JOBSTATE,TIME
+16|12|Process Job Event Report Acknowledge|H|S|11|1|PJACK
+16|15|Process Job Additional Material Send|H|P|16|1|PJID,MTRLID
+16|16|Process Job Additional Material Acknowledge|E|S|15|1|PJID,PJACK
+16|17|Process Job Parameter Change Send|H|P|18|1|PJID,CPNAME,CPVAL
+16|18|Process Job Parameter Change Acknowledge|E|S|17|1|PJID,CPNAME,CPACK
+16|19|Process Job Queue Position Request|H|P|20|1|PJID
+16|20|Process Job Queue Position Data|E|S|19|1|PJID,QPOSN,JOBSTATE
+16|21|Process Job Queue Reorder Send|H|P|22|1|PJID
+16|22|Process Job Queue Reorder Acknowledge|E|S|21|1|HCACK
+16|23|Process Job Multi-Command Send|H|P|24|1|PJID,RCMD
+16|24|Process Job Multi-Command Acknowledge|E|S|23|1|PJID,CMDA
+16|25|Process Job Material Binding Request|H|P|26|1|PJID,MTRLID
+16|26|Process Job Material Binding Acknowledge|E|S|25|1|PJID,PJACK
+16|27|Process Job Parameter Report Request|H|P|28|1|PJID,CPNAME
+16|28|Process Job Parameter Report Data|E|S|27|1|PJID,CPNAME,CPVAL
+16|29|Process Job Queue Status Report Send|E|P|30|1|PJID,JOBSTATE
+16|30|Process Job Queue Status Report Acknowledge|H|S|29|1|PJACK
+17|1|Control Job Create Request|H|P|2|1|CJID,PJID
+17|2|Control Job Create Acknowledge|E|S|1|1|CJID,CJACK
+17|3|Control Job Command Send|H|P|4|1|CJID,RCMD
+17|4|Control Job Command Acknowledge|E|S|3|1|CJID,CMDA
+17|5|Control Job Status Request|H|P|6|1|CJID
+17|6|Control Job Status Data|E|S|5|1|CJID,CJSTATE,PJID
+17|7|Data Collection Plan Request|H|P|8|1|DCID
+17|8|Data Collection Plan Data|E|S|7|1|DCID,CEID,RPTID
+17|9|Trace Request|H|P|10|1|TRID,DSPER,TOTSMP,REPGSZ,SVID
+17|10|Trace Request Acknowledge|E|S|9|1|TRID,TRACK
+17|11|Control Job Event Report Send|E|P|12|1|CJID,CJSTATE,TIME
+17|12|Control Job Event Report Acknowledge|H|S|11|1|CJACK
+17|13|Trace Reset Request|H|P|14|1|TRID
+17|14|Trace Reset Acknowledge|E|S|13|1|ACKA,TRID,ERRCODE,ERRTEXT
+18|1|Subsystem Command Send|H|P|2|1|SSID,RCMD,CPNAME,CPVAL
+18|2|Subsystem Command Acknowledge|E|S|1|1|SSID,HCACK,CPNAME,CPACK
+18|3|Subsystem Status Request|H|P|4|1|SSID
+18|4|Subsystem Status Data|E|S|3|1|SSID,SSSTATE
+18|5|Subsystem Data Read Request|H|P|6|1|SSID,VID
+18|6|Subsystem Data Read Data|E|S|5|1|SSID,VID,SV
+18|7|Subsystem Data Write Request|H|P|8|1|SSID,VID,SV
+18|8|Subsystem Data Write Acknowledge|E|S|7|1|SSID,SSACK
+18|9|Subsystem List Request|H|P|10|1|
+18|10|Subsystem List Data|E|S|9|1|SSID,SSNAME,SSSTATE
+18|11|Subsystem Event Report Send|E|P|12|1|SSID,CEID,TIME
+18|12|Subsystem Event Report Acknowledge|H|S|11|1|SSACK
+18|13|Subsystem Alarm Report Send|E|P|14|1|SSID,ALCD,ALID,ALTX
+18|14|Subsystem Alarm Report Acknowledge|H|S|13|1|SSACK
+18|15|Read 2D Code Condition Request|H|P|16|1|TARGETID
+18|16|Read 2D Code Condition Data|E|S|15|1|TARGETID,SSACK,MID,STATUS,CONDITION
+19|1|Recipe Namespace List Request|H|P|2|1|
+19|2|Recipe Namespace List Data|E|S|1|1|RCPNS
+19|3|Recipe Directory Request|H|P|4|1|RCPNS
+19|4|Recipe Directory Data|E|S|3|1|RCPID,RCPREV,TIME
+19|5|Recipe Upload Request|H|P|6|1|RCPNS,RCPID
+19|6|Recipe Upload Data|E|S|5|1|RCPID,RCPREV,LENGTH,PPBODY
+19|7|Recipe Download Send|H|P|8|1|RCPNS,RCPID,RCPREV,LENGTH,PPBODY
+19|8|Recipe Download Acknowledge|E|S|7|1|RMACK
+19|9|Recipe Verify Request|H|P|10|1|RCPNS,RCPID
+19|10|Recipe Verify Data|E|S|9|1|RCPID,CKSUM,RMACK
+19|11|Recipe Delete Request|H|P|12|1|RCPNS,RCPID
+19|12|Recipe Delete Acknowledge|E|S|11|1|RMACK
+19|13|Recipe Parameter Request|H|P|14|1|RCPNS,RCPID
+19|14|Recipe Parameter Data|E|S|13|1|RCPPNAME,RCPPVAL
+19|15|Recipe Parameter Change Request|H|P|16|1|RCPNS,RCPID,RCPPNAME,RCPPVAL
+19|16|Recipe Parameter Change Acknowledge|E|S|15|1|RMACK
+19|17|Recipe Validate Request|H|P|18|1|RCPNS,RCPID
+19|18|Recipe Validate Data|E|S|17|1|RCPSTATE,RCPPNAME
+19|19|Recipe Status Request|H|P|20|1|RCPNS,RCPID
+19|20|Recipe Status Data|E|S|19|1|RCPID,RCPREV,RCPSTATE,TIME
+20|1|Recipe Namespace Request|H|P|2|1|
+20|2|Recipe Namespace Data|E|S|1|1|RCPSPEC,RCPATTRNAME,RCPATTRVAL
+20|3|Recipe Directory Request|H|P|4|1|RCPSPEC
+20|4|Recipe Directory Data|E|S|3|1|RCPID,RCPVER,LENGTH,RCPLOCK,RCPATTRNAME,RCPATTRVAL
+20|5|Recipe Attribute Request|H|P|6|1|RCPSPEC,RCPID,RCPATTRNAME
+20|6|Recipe Attribute Data|E|S|5|1|RMACK,RCPATTRNAME,RCPATTRVAL
+20|7|Recipe Attribute Update Request|H|P|8|1|RCPSPEC,RCPID,RCPATTRNAME,RCPATTRVAL
+20|8|Recipe Attribute Update Acknowledge|E|S|7|1|RMACK
+20|9|Recipe Download Request|H|P|10|1|RCPSPEC,RCPID,RCPVER,LENGTH
+20|10|Recipe Download Grant|E|S|9|1|RMACK
+20|11|Recipe Download Send|H|P|12|1|RCPSPEC,RCPID,RCPVER,PPBODY
+20|12|Recipe Download Acknowledge|E|S|11|1|RMACK
+20|13|Recipe Upload Request|H|P|14|1|RCPSPEC,RCPID,RCPVER
+20|14|Recipe Upload Data|E|S|13|1|RMACK,PPBODY
+20|15|Recipe Rename/Move Request|H|P|16|1|RCPSPEC,RCPID,NEWRCPSPEC,NEWRCPID
+20|16|Recipe Rename/Move Acknowledge|E|S|15|1|RMACK
+20|17|Recipe Delete Request|H|P|18|1|RCPSPEC,RCPID
+20|18|Recipe Delete Acknowledge|E|S|17|1|RMACK
+20|19|Recipe Verify Request|H|P|20|1|RCPSPEC,RCPID,CHECKSUM
+20|20|Recipe Verify Data|E|S|19|1|VFACK
+20|21|Recipe Lock Request|H|P|22|1|RCPSPEC,RCPID,OWNERID
+20|22|Recipe Lock Acknowledge|E|S|21|1|RMACK,LOCKID
+20|23|Recipe Unlock Request|H|P|24|1|RCPSPEC,RCPID,LOCKID
+20|24|Recipe Unlock Acknowledge|E|S|23|1|RMACK
+20|25|Recipe Lock Status Request|H|P|26|1|RCPSPEC,RCPID
+20|26|Recipe Lock Status Data|E|S|25|1|RCPLOCK,OWNERID,LOCKID
+20|27|Recipe Status Request|H|P|28|1|OBJSPEC
+20|28|Recipe Status Data|E|S|27|1|OBJSPEC,RCPSPEC,RCPID,RCPSTATE
+20|29|Recipe Event Notification Enable Request|H|P|30|1|CEID,NOTIFYENABLE
+20|30|Recipe Event Notification Acknowledge|E|S|29|1|ERACK
+20|31|Recipe Change Report Send|E|P|32|1|CEID,RCPSPEC,RCPID,CHANGETYPE
+20|32|Recipe Change Report Acknowledge|H|S|31|1|ACKC6
+20|33|Recipe Directory Create Request|H|P|34|1|RCPSPEC
+20|34|Recipe Directory Create Acknowledge|E|S|33|1|RMACK
+21|1|Item Directory Request|B|P|2|1|ITEMTYPE
+21|2|Item Directory Data|B|S|1|1|ITEMID,ITEMTYPE,LENGTH
+21|3|Item Attributes Request|B|P|4|1|ITEMID,ATTRID
+21|4|Item Attributes Data|B|S|3|1|ITEMID,ATTRID,ATTRDATA
+21|5|Item Transfer Request|B|P|6|1|ITEMID,DATAID,LENGTH
+21|6|Item Transfer Grant|B|S|5|1|GRANT
+21|7|Item Data Send|B|P|8|1|ITEMID,DATAID,ITEMDATA
+21|8|Item Data Acknowledge|B|S|7|1|ACKC21
+21|9|Block Transfer Request|B|P|10|1|ITEMID,DATAID,BLKSIZE
+21|10|Block Transfer Grant|B|S|9|1|GRANT,BLKSIZE
+21|11|Item Block Send|B|P|12|1|ITEMID,BLKNUM,BLKEND,ITEMDATA
+21|12|Item Block Acknowledge|B|S|11|1|BLKNUM,BLKACK
+21|13|Transfer Status Request|B|P|14|1|ITEMID,DATAID
+21|14|Transfer Status Data|B|S|13|1|XFRSTAT,BLKNUM,LENGTH
+21|15|Transfer Abort Request|B|P|16|1|ITEMID,DATAID
+21|16|Transfer Abort Acknowledge|B|S|15|1|ABTACK
+21|17|Item Delete Request|B|P|18|1|ITEMID
+21|18|Item Delete Acknowledge|B|S|17|1|DELACK
+21|19|Item Transfer Complete Send|B|P|20|1|ITEMID,DATAID,CHKSUM
+21|20|Item Transfer Complete Acknowledge|B|S|19|1|XFRACK
+#items
+ABS|BOOLEAN|1
+ACCESSMODE|U1|1|0	Automatic access|1	Manual access
+ACDS|L|n
+ACKA|BOOLEAN|1|TRUE	Accepted|FALSE	Not accepted
+ACKC10|B|1|0	Accepted for display|1	Message will not be displayed|2	Terminal not available|3-63	Reserved / Equipment specific
+ACKC13|B|1|0	Accepted|1	Denied, not available|2	Denied, invalid data set|3	Denied, invalid data
+ACKC15|B|1|0	Accepted|1	Denied, busy|2	Denied, invalid recipe ID|3	Denied, invalid data
+ACKC3|B|1|0	Accepted|1	Denied
+ACKC5|B|1|0	Accepted|1-63	Error, not accepted / Equipment specific
+ACKC6|B|1|0	Accepted|1-63	Error, not accepted / Equipment specific
+ACKC7|B|1|0	Accepted / OK|1	Permission not granted|2	Length error|3	Matrix overflow|4	PPID not found|5	Mode unsupported|6	Performed later|7-63	Reserved / Equipment specific
+ACKC7A|B|1|0	Accepted|1	Denied, insufficient space|2	Denied, invalid process program ID|3	Denied, other error
+AGENT|A|n
+ALCD|B|1|bit 8 = 1	Alarm set|bit 8 = 0	Alarm cleared|bits 7-1 = 1	Personal safety|bits 7-1 = 2	Equipment safety|bits 7-1 = 3	Parameter control warning|bits 7-1 = 4	Parameter control error|bits 7-1 = 5	Irrecoverable error|bits 7-1 = 6	Equipment status warning|bits 7-1 = 7	Attention flags|bits 7-1 = 8	Data integrity|bits 7-1 = 9-127	Other categories / equipment specific
+ALED|B|1|0	Disable alarm|128	Enable alarm
+ALID|U4|
+ALIDVECTOR|L|n
+ALTX|A|120
+ASSGNID|A|n
+ATTRDATA|L|n
+ATTRID|A|n
+ATTRRELN|U1|1|0	Equal to|1	Not equal to|2	Less than|3	Less than or equal to|4	Greater than|5	Greater than or equal to|6	Present|7	Absent
+AUTOCLEAR_DISABLE|BOOLEAN|1
+AUTOCLOSE|BOOLEAN|1
+AUTOPOST_DISABLE|BOOLEAN|1
+BCDS|L|n
+BCEQU|B|n
+BINLT|B|n
+BLKDEF|L|n
+BPD|U2|1
+BYTMAX|U4|1
+CAACK|U1|1|0	Acknowledge, command will be performed|1	Denied, invalid command|2	Denied, cannot perform now|3	Denied, invalid data
+CARRIERACTION|A|n
+CARRIERID|A|n
+CARRIERSPEC|L|n
+CATTRDATA|L|n
+CATTRID|A|n
+CCEACK|B|1|0	Accepted|1	Denied, CEID unknown
+CCODE|U1|1
+CEED|BOOLEAN|1
+CEID|U4|
+CEIDSTART|U4|1
+CEIDSTOP|U4|1
+CENAME|A|n
+CEPACK|B|1|0	Accepted|1	Denied
+CEPVAL|L|n
+CHKINFO|L|n
+CKPNT|U4|1
+CMDA|B|1|0	Command performed / completed|1	Command does not exist|2	Cannot perform now|3-63	Reserved / Equipment specific
+CMDMAX|U4|1
+CNAME|A|n
+COACK|U1|1|0	Accepted|1	Denied
+COLCT|U4|1
+COLHDR|L|n
+COMMACK|B|1|0	Accepted|1	Denied, try again
+COMPARISONOPERATOR|U1|1|0	Equal to|1	Not equal to|2	Less than|3	Less than or equal to|4	Greater than|5	Greater than or equal to
+CONDITION|A|n
+COPYID|U4|1
+CPACK|B|1|1	Parameter name (CPNAME) does not exist / not recognized|2	Illegal value specified for CPVAL|3	Illegal format specified for CPVAL|4-63	Reserved / Equipment specific
+CPNAME|A|
+CPVAL|A|
+CSAACK|U1|1|0	Accepted|1	Denied
+CTLJOBCMD|A|n|START	Start the control job|STOP	Stop the control job|PAUSE	Pause the control job|RESUME	Resume the control job|CANCEL	Cancel the control job|ABORT	Abort the control job
+CTLJOBID|A|n
+DATA|B|n
+DATAACK|B|1|0	Accepted|1	Denied
+DATAID|U4|
+DATALENGTH|U4|1
+DATASEG|B|n
+DATASRC|A|
+DATLC|U1|1
+DELRSPSTAT|U1|1
+DIRRSPSTAT|U1|1
+DRACK|B|1|0	Accepted / OK|1	Denied, insufficient space|2	Denied, invalid format|3	Denied, at least one RPTID already defined|4	Denied, at least one VID does not exist|5-63	Reserved / Equipment specific
+DRRACK|B|1
+DSID|U4|
+DSNAME|A|
+DSPER|A|8
+DUTMS|A|
+DVNAME|A|
+DVVAL|A|
+DVVALNAME|A|
+EAC|B|1|0	Acknowledge, command will be performed|1	Denied, command does not exist|2	Denied, cannot perform now|3	Denied, parameter invalid|4-63	Reserved
+ECDEF|A|
+ECID|U4|
+ECMAX|A|
+ECMIN|A|
+ECNAME|A|
+ECV|A|
+EDID|A|
+EMID|A|
+EPD|BOOLEAN|1
+EQID|A|
+EQNAME|A|
+EQUSERID|A|
+ERACK|B|1|0	Accepted / OK|1	Denied, at least one CEID does not exist|2-63	Reserved / Equipment specific
+ERRCODE|U4|
+ERRTEXT|A|
+ERRW7|B|1
+EVNTSRC|A|
+EVNTSRC2|A|
+EXID|A|
+EXMESSAGE|A|
+EXRECVRA|A|
+EXTYPE|A|
+FCNID|U1|
+FFROT|U2|
+FILDAT|A|16
+FNLOC|U1|1
+FRMLEN|U4|
+GETRSPSTAT|U1|1
+GOILACK|B|1
+GRANT|B|1|0	OK, will accept|1	Busy, try again|2	No space available|3	Duplicate identifier / invalid|4-63	Reserved / Equipment specific
+GRANT6|B|1|0	OK, permission granted|1	Busy, try again|2	Not interested / no space|3-63	Reserved / Equipment specific
+GRNT1|B|1|0	Accepted|1	Busy, try again later|2	Not interested at this time|3	Invalid MID/IDTYP|4-63	Reserved / other error
+GRXLACK|B|1
+HANDLE|A|
+HCACK|B|1|0	Acknowledge, command has been performed / completed|1	Command does not exist|2	Cannot perform now|3	At least one parameter is invalid|4	Acknowledge, command will be performed with completion signaled later|5	Rejected, already in desired condition|6	No such object exists|7-63	Reserved / Equipment specific
+HOACK|B|1
+HOCANCELACK|B|1
+HOCMDNAME|A|
+HOHALTACK|B|1
+IACDS|L|n
+IBCDS|L|n
+IDTYP|U1|1|0	No wafer ID|1	Wafer ID present|2	Wafer ID and orientation present
+INPTN|U1|
+ITEMACK|B|1
+ITEMERROR|U1|
+ITEMID|A|
+ITEMINDEX|U4|
+ITEMLENGTH|U4|
+ITEMPART|B|
+ITEMPARTCOUNT|U4|
+ITEMPARTLENGTH|U4|1
+ITEMTYPE|A|n
+ITEMTYPESUPPORT|BOOLEAN|1
+ITEMVERSION|A|n
+JOBACTION|A|n
+LENGTH|U4|
+LIMITACK|B|1|0	Acknowledge|1	Limit attribute definition error|2	Cannot perform now|3	No such limit VID|4	Limit value error
+LIMITID|U4|1
+LIMITMAX|F4|1
+LIMITMIN|F4|1
+LINKID|U4|1
+LOC|U4|1
+LOCID|A|n
+LOWERDB|F8|1
+LRACK|B|1|0	Accepted / OK|1	Denied, insufficient space|2	Denied, invalid format|3	Denied, at least one CEID link already defined|4	Denied, at least one CEID does not exist|5	Denied, at least one RPTID does not exist|6-63	Reserved / Equipment specific
+LVACK|B|1|0	Accepted|1	Rejected
+MAPER|B|1|0	Map correctly received|1	Slot count invalid|2	Format error|3	No carrier at that location
+MAPFT|A|n
+MAXNUMBER|U4|1
+MAXTIME|U4|1
+MCINDEX|U4|1
+MDACK|B|1|0	Accepted|1	Rejected
+MDLN|A|20
+MEXP|A|6
+MF|U1|1
+MHEAD|B|10
+MID|A|n
+MIDAC|B|1|0	Accepted|1	Rejected, ID unknown
+MIDRA|L|n
+MLCL|U4|1
+MMODE|U1|1
+NACDS|U4|1
+NBCDS|U4|1
+NULBC|A|1
+OBJACK|B|1|0	Successful|1	Error|2	Denied, invalid object type|3	Denied, invalid object instance|4	Denied, invalid attribute
+OBJCMD|A|n
+OBJID|A|n
+OBJSPEC|A|
+OBJTOKEN|L|2
+OBJTYPE|A|
+OCEACK|B|1|0	Accepted|1	Rejected
+OFLACK|B|1|0	OFF-LINE acknowledge, request completed|1-63	Reserved / Equipment specific
+ONLACK|B|1|0	ON-LINE accepted|1	ON-LINE not allowed at this time|2	Already ON-LINE|3-63	Reserved / Equipment specific
+OPEID|A|n
+OPETYPE|A|n
+OPID|A|n
+ORLOC|U1|1
+OUTPTN|L|n
+PARAMNAME|A|n
+PARAMVAL|A|n
+PDEATTRIBUTE|L|2
+PDEATTRIBUTENAME|A|n
+PDEATTRIBUTEVALUE|A|n
+PDEREF|A|n
+PECEACK|B|1|0	Accepted|1	Rejected
+PECRSLT|L|n
+PFCD|L|n
+PGRPACTION|A|n
+PODID|A|n
+PORTACTION|A|n
+PORTGRPNAME|A|n
+PPARM|L|n
+PPBODY|B|
+PPGNT|B|1|0	OK|1	Already have|2	No space|3	Invalid PPID|4	Busy, try later|5	Will not accept|6-63	Reserved / Equipment specific
+PPID|A|120
+PRAXI|U1|1
+PRCMDNAME|A|n
+PRCPREEXECHK|U1|1|0	Pre-execution check disabled|1	Pre-execution check enabled
+PRDCT|A|n
+PREACK|U1|1|0	Accepted|1	Rejected
+PREVENTID|U4|1
+PRJOBID|A|n
+PRJOBMILESTONE|U1|1
+PRJOBSPACE|U2|1
+PRMTRLORDER|U1|1|1	Arrival sequence|2	Maximize throughput|3	Listed sequence
+PRPAUSEEVENTID|U4|1
+PRPROCESSSTART|BOOLEAN|1
+PRRECIPEMETHOD|U1|1|1	Recipe without variable tuning|2	Recipe with variable tuning
+PRSTATE|U1|1|0	Queued (pooled, awaiting selection)|1	Setting up|2	Waiting for start|3	Processing|4	Processing complete|5	Reserved|6	Pausing|7	Paused|8	Stopping|9	Aborting
+PSRACK|U1|1|0	Completed successfully|1	Error
+PSREACK|U1|1|0	Completed successfully|1	Error
+PTN|U1|1
+QPRKEACK|U1|1|0	Done|1	Error
+QREACK|U1|1|0	Done|1	Error
+QRXLEACK|U1|1|0	Done|1	Error
+QUA|B|1
+RAC|U1|1|0	OK|1	Denied
+RCMD|A|
+RCPATTRDATA|A|n
+RCPATTRID|A|n
+RCPBODY|B|n
+RCPBODYA|A|n
+RCPCLASS|A|n
+RCPCMD|U1|1|5	Delete|8	Unprotect|9	Protect|10	Verify|11	Link|12	Unlink|13	Certify|14	De-certify|15	Download|16	Upload
+RCPDEL|U1|1
+RCPDESCLTH|U4|1
+RCPDESCNM|A|n
+RCPDESCTIME|A|16
+RCPID|A|n
+RCPNAME|A|n
+RCPNEWID|A|n
+RCPOWCODE|BOOLEAN|1
+RCPPARNM|A|n
+RCPPARRULE|A|n
+RCPPARVAL|A|n
+RCPRENAME|BOOLEAN|1
+RCPSECCODE|B|1|1	Generic attributes only|3	Generic attributes and body|4	All agent-specific datasets|7	Generic attributes, body, and all agent-specific datasets|8	Single agent-specific dataset|11	Generic attributes
+RCPSECNM|A|n
+RCPSPEC|A|n
+RCPSTAT|U1|1
+RCPUPDT|BOOLEAN|1
+RCPVERS|A|n
+READLN|U4|1
+REAPER|A|n
+RECLEN|U4|1
+REFP|I4|2
+REPGSZ|U4|1
+RESOLUTION|A|n
+RESPDESTAT|U1|1|0	OK|255	Other error
+RESPEC|A|n
+RETAINRECIPE_DISABLE|U1|1|0	Retention is not disabled|1	Retention is disabled
+RETICLEID|A|n
+RETICLEID2|A|n
+RETPLACEINSTR|L|
+RETREMOVEINSTR|L|
+REVID|A|n
+RIC|B|1
+RMACK|B|1|0	Accepted / OK|1	Rejected / error, not accepted|2-63	Reserved / Equipment specific
+RMCHGSTAT|B|1|0	Change accepted/completed|1-63	Change rejected or failed; reason is equipment specific
+RMCHGTYPE|U1|1|1	Add/Insert|2	Delete|3	Rename|4-255	Equipment specific
+RMDATASIZE|U4|1
+RMGRNT|B|1|0	Granted|1	Denied — insufficient space|2	Denied — not authorized|3-63	Denied; reason equipment specific
+RMNEWNS|A|n
+RMNSCMD|U1|1|1	Create namespace|2	Delete namespace|3	Rename namespace|4	List namespace contents|5-255	Equipment specific
+RMNSSPEC|A|n
+RMRECSPEC|A|n
+RMREQUESTOR|A|n
+RMSEGSPEC|A|n
+RMSPACE|U4|1
+RMSPWD|A|n
+RMSUSERID|A|n
+ROWCT|U2|1
+RPMACK|B|1|0	Accepted|1-63	Error/rejected; reason equipment specific
+RPSEL|U1|1
+RPTID|U4|
+RPTOC|L|n
+RQCMD|A|n
+RRACK|B|1|0	Acknowledge, request granted|1	Error / denied|2-63	Equipment specific
+RRACK_S20|B|1|0	Accepted/granted|1-63	Rejected; reason equipment specific
+RSACK|B|1|0	OK, will accept|1	Invalid port|2	Port occupied|3	Busy, try again|4	Not in remote/automatic mode|5-63	Equipment specific
+RSDA|U1|1..n
+RSDC|U2|1
+RSINF|I2|3
+RSPACK|B|1|0	Accepted|1-63	Error; reason equipment specific
+RTSRSPSTAT|B|1|0	Ready to accept|1-63	Not ready / rejected; reason equipment specific
+RTYPE|U1|1
+SDACK|B|1|0	Accepted|1-63	Rejected; reason equipment/host specific (e.g. bad format, insufficient space)
+SDBIN|B|1|0	Send bin data for all coordinates|1	Send bin data only for non-null/reject dice
+SENDRSPSTAT|B|1|0	Successful|1-63	Failed; reason equipment specific
+SEQNUM|U4|1
+SFCD|B|1
+SHEAD|B|10
+SLOTID|U1|1
+SMPLN|U4|1
+SOFTREV|A|20
+SPAACK|B|1|0	Accepted|1-63	Rejected; reason equipment specific
+SPD|A|n
+SPID|U4|1
+SPNAME|A|n
+SPR|A|n
+SPVAL|A|
+SSAACK|B|1|0	Accepted|1-63	Rejected; reason equipment specific
+SSACK|B|1|0	Accepted|1	Unknown VID (data-write context)|2	Value out of range (data-write context)|3	Read-only variable (data-write context)|4-63	Reserved / equipment specific
+SSCMD|A|n
+STATUS|U1|1
+STATUSTXT|A|n
+STIME|A|16
+STRACK|B|1|0	Accepted|1-63	Error; reason equipment specific
+STRID|U1|1
+STRP|I2|2
+SV|A|
+SV0|L|n
+SVCACK|B|1|0	Accepted|1	Denied|2	Invalid parameter
+SVCNAME|A|n
+SVID|U4|
+SVNAME|A|
+TARGETID|A|n
+TARGETPDE|A|n
+TARGETSPEC|L|n
+TBLACK|B|1|0	Accepted|1	Table does not exist|2	Format error
+TBLCMD|U1|1|0	Add|1	Replace|2	Delete
+TBLELT|L|n
+TBLID|A|n
+TBLTYP|A|n
+TCID|A|n
+TEXT|A|n
+TIAACK|B|1|0	Accepted|1	Denied
+TIACK|B|1|0	Acknowledge, accepted|1	Error, not accepted|2-63	Reserved / Equipment specific
+TID|B|1
+TIME|A|16
+TIMESTAMP|A|16
+TOTSMP|U4|1
+TRACK|A|n
+TRANSFERSIZE|U4|1
+TRATOMCID|A|n
+TRAUTOD|BOOLEAN|1
+TRAUTOSTART|BOOLEAN|1
+TRCMDNAME|A|n
+TRDIR|A|n|IN	Transfer into equipment/location|OUT	Transfer out of equipment/location
+TRID|U4|
+TRJOBID|A|n
+TRJOBMS|U1|1|0	Queued|1	Selected|2	Executing|3	Paused|4	Completed|5	Cancelled
+TRJOBNAME|A|n
+TRLINK|A|n
+TRLOCATION|A|n
+TROBJNAME|A|n
+TROBJTYPE|A|n
+TRPORT|A|n
+TRPTNR|A|n
+TRPTPORT|A|n
+TRRCP|A|n
+TRROLE|A|n|SOURCE	Equipment is the material source|DESTINATION	Equipment is the material destination
+TRTYPE|A|n
+TSIP|A|n
+TSOP|A|n
+TTC|U4|1
+TYPEID|A|n
+UID|A|n
+UNFLEN|U4|1
+UNITS|A|
+UPPERDB|F8|1
+VERID|A|n
+VERIFYDEPTH|U1|1
+VERIFYRSPSTAT|B|1|0	OK|1	Denied|2	Verification failed
+VERIFYSUCCESS|BOOLEAN|1
+VERIFYTYPE|A|n
+VID|U4|
+VLAACK|B|1|0	Accepted, match confirmed|1	Mismatch detected
+WRACK|B|1|0	Accepted|1	Error, write not performed
+XDIES|U2|1
+XYPOS|I2|2
+YDIES|U2|1
