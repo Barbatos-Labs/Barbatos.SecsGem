@@ -64,7 +64,7 @@ services.AddSecsSml().AddSecsJson().AddSecsXml().AddSecsIni().AddSecsMapper();
 Converting files needs none of the protocol stack:
 
 ```csharp
-services.AddSecsSerialization().AddSecsSml().AddSecsJson();
+services.AddSecsSml().AddSecsJson();
 
 var transcoder = provider.GetRequiredService<SecsTranscoder>();
 var report = await transcoder.TranscodeFileAsync("recipe.sml", "recipe.json");

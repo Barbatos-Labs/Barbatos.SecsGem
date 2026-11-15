@@ -12,8 +12,10 @@ for the tools that still speak `.ini`, and for diffing two recipes line by line.
 dotnet add package Barbatos.SecsGem.Serialization.Ini
 ```
 
+One call registers the reader, the writer and the transcoder they plug into:
+
 ```csharp
-services.AddSecsSerialization().AddSecsIni();
+services.AddSecsIni();
 ```
 
 ## What it writes

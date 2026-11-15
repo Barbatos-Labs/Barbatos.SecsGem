@@ -17,9 +17,20 @@ public static class JsonServiceCollectionExtensions
     /// <summary>Adds the JSON reader and writer, making <c>json</c> available to the transcoder.</summary>
     /// <param name="services">The service collection.</param>
     /// <returns><paramref name="services"/>, for chaining.</returns>
+    /// <remarks>
+    /// Also registers the hub - <see cref="ISecsFormatRegistry"/>,
+    /// <see cref="SecsTranscoder"/> and the native binary spoke - through <c>TryAdd</c>, so this
+    /// call on its own is enough to resolve a transcoder and calling it beside another
+    /// <c>AddSecsXxx()</c> builds one hub rather than two. The hub types live in
+    /// <c>Barbatos.SecsGem.Core</c>, but the method that registers them cannot: that package has
+    /// no dependency on a container, so that a file converter, an analyzer or a WebAssembly tool
+    /// can use the item model without one.
+    /// </remarks>
     public static IServiceCollection AddSecsJson(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+
+        SecsSerializationRegistration.AddHub(services);
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISecsFormatReader, JsonFormatReader>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISecsFormatWriter, JsonFormatWriter>());

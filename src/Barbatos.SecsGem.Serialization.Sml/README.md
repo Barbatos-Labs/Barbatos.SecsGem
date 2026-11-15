@@ -20,10 +20,11 @@ Console.WriteLine(message.ToSml());
 ```
 
 `SmlConvert` is the convenience layer. Nothing else in the stack needs it - the real contract is
-`ISecsFormatReader`/`ISecsFormatWriter`, and this package registers both:
+`ISecsFormatReader`/`ISecsFormatWriter`, and this package registers both - along with the registry
+and the transcoder they plug into, so one call is the whole wiring:
 
 ```csharp
-services.AddSecsSerialization().AddSecsSml();
+services.AddSecsSml();
 ```
 
 ## What it writes

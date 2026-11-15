@@ -66,10 +66,10 @@ and the table would report a dead heat as a result rather than as the bug it is.
 
 Write, read and transcode-from-SML, for each of the four text spokes.
 
-The registry is built through `AddSecsSerialization().AddSecsSml()` and the rest, the way an
-application builds it, so the figures come from the configured path rather than from a reader
-instantiated by hand. The binary hub is absent on purpose: it is not a text format, and its cost is
-the two suites above.
+The registry is built through `AddSecsSml()` and the rest, the way an application builds it - each
+of those calls registers the hub it plugs into - so the figures come from the configured path
+rather than from a reader instantiated by hand. The binary hub is absent on purpose: it is not a
+text format, and its cost is the two suites above.
 
 Writing goes through a reused `MemoryStream`, so each row carries one `StreamPipeWriter` allocation
 that has nothing to do with the format. It is the same constant in all four rows, which makes the

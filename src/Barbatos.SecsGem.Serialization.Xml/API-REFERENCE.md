@@ -79,3 +79,13 @@ Namespace `Microsoft.Extensions.DependencyInjection`.
 | --- | --- | --- |
 | `ISecsFormatReader` | Singleton (enumerable) | `XmlFormatReader` |
 | `ISecsFormatWriter` | Singleton (enumerable) | `XmlFormatWriter` |
+| `SecsCodecOptions` | Singleton | `SecsCodecOptions.Default` |
+| `ISecsFormatReader` | Singleton (enumerable) | `Secs2BinaryFormatReader` |
+| `ISecsFormatWriter` | Singleton (enumerable) | `Secs2BinaryFormatWriter` |
+| `ISecsFormatRegistry` | Singleton | `SecsFormatRegistry` over every registered reader and writer |
+| `SecsTranscoder` | Singleton | |
+
+Every row goes in through `TryAdd`, so calling this twice - or beside another `AddSecsXxx()` -
+builds one hub and not two, and anything already registered wins. The last five rows *are* the
+hub: those types live in `Barbatos.SecsGem.Core`, which is not allowed a dependency on a
+container, so the packages that already need one are the packages that register them.

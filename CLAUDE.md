@@ -8,6 +8,7 @@ signature is a breaking change in somebody's fab.
 
 ```
 src/          nine shipping packages, one folder each (+ README.md, API-REFERENCE.md)
+src/Shared/   compile-linked source, not a package: the serialization hub registration
 samples/      equipment (passive), host (active), transcode CLI, shared
 tests/        one xUnit project per package + IntegrationTests
 benchmarks/   BenchmarkDotNet

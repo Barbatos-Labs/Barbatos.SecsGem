@@ -12,8 +12,10 @@ when a SECS message has to reach something that is not a SECS tool.
 dotnet add package Barbatos.SecsGem.Serialization.Json
 ```
 
+One call registers the reader, the writer and the transcoder they plug into:
+
 ```csharp
-services.AddSecsSerialization().AddSecsJson();
+services.AddSecsJson();
 ```
 
 ## What it writes

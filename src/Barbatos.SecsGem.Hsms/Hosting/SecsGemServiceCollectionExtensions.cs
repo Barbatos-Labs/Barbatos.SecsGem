@@ -5,6 +5,7 @@
 
 using System.Linq;
 using Barbatos.SecsGem.Hsms;
+using Barbatos.SecsGem.Serialization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -78,8 +79,11 @@ public static class SecsGemServiceCollectionExtensions
             provider.GetRequiredService<IOptions<SecsGemOptions>>().Value.CreateCodecOptions());
 
         // The registry, the transcoder and the native binary spoke live in the core assembly,
-        // so a tool that only converts files can have them without any of this one.
-        services.AddSecsSerialization();
+        // so a tool that only converts files can have them without any of this one. Registering
+        // them is not that assembly's job, though - it has no dependency on a container - so
+        // this is the same shared code every AddSecsXxx() runs. The codec options registered
+        // just above survive it, because the hub adds its own default through TryAdd.
+        SecsSerializationRegistration.AddHub(services);
 
         // The routing table is collected now and frozen the first time the router is resolved.
         // A second AddSecsGem call shares the first call's table rather than quietly building a

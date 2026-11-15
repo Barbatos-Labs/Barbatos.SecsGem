@@ -45,8 +45,8 @@ Namespace `Barbatos.SecsGem`, except where noted. Concepts and worked examples l
   - [`SecsUtf8Writer`](#secsutf8writer)
   - [`SecsUtf8`](#secsutf8)
   - [`SecsLineReader`](#secslinereader)
-- [Hosting](#hosting)
-  - [`AddSecsSerialization`](#addsecsserialization)
+- [No hosting in this package](#no-hosting-in-this-package)
+  - [Registering the hub from a spoke of your own](#registering-the-hub-from-a-spoke-of-your-own)
 
 ---
 
@@ -581,25 +581,56 @@ A thin UTF-8 writer over an `IBufferWriter<byte>`: no `StringBuilder`, no interm
 
 ---
 
-## Hosting
+## No hosting in this package
 
-Namespace `Microsoft.Extensions.DependencyInjection`.
+There is no `AddSecsSerialization`, and no reference to
+`Microsoft.Extensions.DependencyInjection.Abstractions`. This assembly has to stay usable from a
+file converter, a Roslyn analyzer and a WebAssembly tool, and not one of those owns a container.
 
-### `AddSecsSerialization`
+What that method used to register is registered by every `AddSecsXxx()` instead - see
+[`AddSecsSml`](../Barbatos.SecsGem.Serialization.Sml/API-REFERENCE.md#addsecssml) for the table -
+and by `AddSecsGem()` in the HSMS package. One call per format is the whole wiring, and two calls
+still build one registry, because every row goes in through `TryAdd`.
 
-`public static IServiceCollection AddSecsSerialization(this IServiceCollection services)`
+Without a container, the hub is two constructors:
 
-Registers the binary spoke, the registry and the transcoder, all as singletons and all through
-`TryAdd`, so calling it twice is harmless and anything already registered wins.
+```csharp
+var registry = new SecsFormatRegistry()
+    .Register(new Secs2BinaryFormatReader())
+    .Register(new Secs2BinaryFormatWriter());
 
-| Service | Lifetime | Implementation |
-| --- | --- | --- |
-| `SecsCodecOptions` | Singleton | `SecsCodecOptions.Default` |
-| `ISecsFormatReader` | Singleton (enumerable) | `Secs2BinaryFormatReader` |
-| `ISecsFormatWriter` | Singleton (enumerable) | `Secs2BinaryFormatWriter` |
-| `ISecsFormatRegistry` | Singleton | `SecsFormatRegistry` over every registered reader and writer |
-| `SecsTranscoder` | Singleton | |
+var transcoder = new SecsTranscoder(registry);
+```
 
-The registry is built from `IEnumerable<ISecsFormatReader>`, which is why a spoke only has to add
-itself to the collection: `AddSecsSml()` knows nothing about the registry, and the registry knows
-nothing about SML.
+`SecsCodecOptions` is a value rather than a service: hand it to `Decode`, `EncodeTo` or
+`SecsSerializationOptions.Codec` where it matters, or leave it out and get
+`SecsCodecOptions.Default`.
+
+### Registering the hub from a spoke of your own
+
+A spoke outside this repository cannot compile-link the shared file the four shipped spokes use,
+so its `AddSecsXxx()` registers the same five services itself. Every type involved is public:
+
+```csharp
+public static IServiceCollection AddSecsMyFormat(this IServiceCollection services)
+{
+    // The hub. TryAdd throughout, so this is a no-op beside any other AddSecsXxx().
+    services.TryAddSingleton(SecsCodecOptions.Default);
+    services.TryAddEnumerable(ServiceDescriptor.Singleton<ISecsFormatReader, Secs2BinaryFormatReader>());
+    services.TryAddEnumerable(ServiceDescriptor.Singleton<ISecsFormatWriter, Secs2BinaryFormatWriter>());
+    services.TryAddSingleton<ISecsFormatRegistry>(provider => new SecsFormatRegistry(
+        provider.GetServices<ISecsFormatReader>(),
+        provider.GetServices<ISecsFormatWriter>()));
+    services.TryAddSingleton<SecsTranscoder>();
+
+    // The spoke.
+    services.TryAddEnumerable(ServiceDescriptor.Singleton<ISecsFormatReader, MyFormatReader>());
+    services.TryAddEnumerable(ServiceDescriptor.Singleton<ISecsFormatWriter, MyFormatWriter>());
+    return services;
+}
+```
+
+Those five lines are what this package not owning a container costs, and they are the honest price
+of it: the alternative was a dependency on
+`Microsoft.Extensions.DependencyInjection.Abstractions` in the one assembly a file converter, an
+analyzer and a WebAssembly tool all have to be able to use.

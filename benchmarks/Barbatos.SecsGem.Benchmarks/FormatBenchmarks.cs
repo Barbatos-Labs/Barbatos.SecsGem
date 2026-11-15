@@ -17,7 +17,7 @@ namespace Barbatos.SecsGem.Benchmarks;
 /// <remarks>
 /// <para>
 /// The registry is built the way an application builds it, through
-/// <c>AddSecsSerialization().AddSecsSml()</c> and the rest, so these numbers come from the same
+/// <c>AddSecsSml()</c> and the rest, so these numbers come from the same
 /// wiring a consumer gets rather than from a reader instantiated by hand.
 /// </para>
 /// <para>
@@ -54,7 +54,6 @@ public class FormatBenchmarks
     public async Task SetupAsync()
     {
         _provider = new ServiceCollection()
-            .AddSecsSerialization()
             .AddSecsSml()
             .AddSecsJson()
             .AddSecsXml()

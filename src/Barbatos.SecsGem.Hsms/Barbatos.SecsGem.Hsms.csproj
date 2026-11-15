@@ -29,4 +29,12 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
   </ItemGroup>
 
+  <!-- Shared source rather than a package reference: AddSecsSml() and friends have to register
+       the hub themselves, because the hub lives in Barbatos.SecsGem.Core and that package is not
+       allowed a dependency on Microsoft.Extensions.DependencyInjection.Abstractions. -->
+  <ItemGroup>
+    <Compile Include="$(RepositoryDirectory)src\Shared\SecsSerializationRegistration.cs"
+             Link="Shared\SecsSerializationRegistration.cs" />
+  </ItemGroup>
+
 </Project>

@@ -12,8 +12,10 @@ the two XML features nobody wants in a fab.
 dotnet add package Barbatos.SecsGem.Serialization.Xml
 ```
 
+One call registers the reader, the writer and the transcoder they plug into:
+
 ```csharp
-services.AddSecsSerialization().AddSecsXml();
+services.AddSecsXml();
 ```
 
 ## What it writes

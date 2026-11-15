@@ -11,12 +11,12 @@ using Barbatos.SecsGem.Serialization.Sml;
 using Microsoft.Extensions.DependencyInjection;
 
 // ---------------------------------------------------------------------------------------------
-// Everything is reached through dependency injection, even in a console tool: one
-// AddSecsSerialization() plus one AddSecsXxx() per format is the whole wiring. Note what is NOT
-// referenced here - the HSMS engine. A tool that converts files has no use for a socket.
+// Everything is reached through dependency injection, even in a console tool: one AddSecsXxx()
+// per format is the whole wiring, and each of them registers the transcoder it plugs into. Note
+// what is NOT referenced here - the HSMS engine. A tool that converts files has no use for a
+// socket.
 // ---------------------------------------------------------------------------------------------
 var services = new ServiceCollection()
-    .AddSecsSerialization()
     .AddSecsSml()
     .AddSecsJson()
     .AddSecsXml()

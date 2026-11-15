@@ -12,20 +12,18 @@ into - for **.NET 8, 9 and 10**. No sockets, no hosting, no `Microsoft.Extension
 dotnet add package Barbatos.SecsGem.Core
 ```
 
-Three dependencies, and the list is short on purpose: this package is what everything else in the
+Two dependencies, and the list is short on purpose: this package is what everything else in the
 stack is built on, so anything it drags in, a fab drags in.
 
 | Dependency | Why |
 | --- | --- |
 | `CommunityToolkit.HighPerformance` | `MemoryOwner<T>` and `ArrayPoolBufferWriter<T>`, which is how the codec avoids the Large Object Heap |
 | `System.IO.Pipelines` | `ISecsFormatReader` and `ISecsFormatWriter` are defined over `PipeReader` and `PipeWriter` |
-| `Microsoft.Extensions.DependencyInjection.Abstractions` | One file: `AddSecsSerialization`, which registers the registry, the transcoder and the binary spoke |
 
-That third one is worth flagging rather than leaving for somebody to find in a dependency graph.
-The repository's own working agreement says Core must not reference `Microsoft.Extensions.*`, and
-today it does - for a single extension method. A file converter that wants the item model and the
-binary codec and no container still gets the package. It is small, dependency-free and already in
-every .NET application, so the cost is low; it is still not what the rule says.
+Nothing from `Microsoft.Extensions.*`, dependency-injection abstractions included. A file
+converter, a Roslyn analyzer and a WebAssembly tool all want the item model and the binary codec,
+and not one of them owns a container - so the `AddSecsXxx()` methods live in the packages that
+already need one, and a test in this repository fails the build if a reference creeps back in here.
 
 ## Two types carry the whole model
 
@@ -123,17 +121,21 @@ public interface ISecsFormatReader
 ```
 
 and an extension method that adds itself to the service collection. The registry is built from
-`IEnumerable<ISecsFormatReader>`, so `AddSecsSml()` knows nothing about the registry and the
-registry knows nothing about SML.
+`IEnumerable<ISecsFormatReader>` whenever it is resolved, so the registry knows nothing about SML
+and a spoke never has to be told about the formats registered beside it.
 
 **If adding a format means editing `Barbatos.SecsGem.Core`, the design is wrong.** That is the test
 the four shipped spokes were written against, and the reason the binary format is itself a
 registered spoke rather than a special case.
 
+A spoke in another repository registers the hub from its own `AddSecsXxx()` in five lines of
+public API - see
+[Registering the hub from a spoke of your own](API-REFERENCE.md#registering-the-hub-from-a-spoke-of-your-own).
+
 ## Converting between formats, with no protocol stack in sight
 
 ```csharp
-services.AddSecsSerialization().AddSecsSml().AddSecsJson();
+services.AddSecsSml().AddSecsJson();
 
 var transcoder = provider.GetRequiredService<SecsTranscoder>();
 var report = await transcoder.TranscodeFileAsync("recipe.sml", "recipe.json");
@@ -144,6 +146,20 @@ foreach (var warning in report.Warnings)
 {
     Console.WriteLine($"{warning.Code}: {warning.Message}");
 }
+```
+
+There is no `AddSecsSerialization()` in this package, and that is the point: each `AddSecsXxx()`
+registers the hub it plugs into, so one call per format is the whole wiring. A tool with no
+container at all builds the same thing by hand:
+
+```csharp
+var registry = new SecsFormatRegistry()
+    .Register(new Secs2BinaryFormatReader())
+    .Register(new Secs2BinaryFormatWriter())
+    .Register(new SmlFormatReader())
+    .Register(new SmlFormatWriter());
+
+var transcoder = new SecsTranscoder(registry);
 ```
 
 A `SecsFormatDescriptor` states what a format can carry, so the transcoder knows what a conversion

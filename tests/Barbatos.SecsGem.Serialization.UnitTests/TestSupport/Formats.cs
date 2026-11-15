@@ -22,7 +22,7 @@ namespace Barbatos.SecsGem.Serialization.UnitTests;
 /// </para>
 /// <para>
 /// The registry is built the way an application builds it, through
-/// <c>AddSecsSerialization().AddSecsSml()</c> and the rest, so a spoke that registers a writer and
+/// <c>AddSecsSml()</c> and the rest, so a spoke that registers a writer and
 /// forgets its reader fails here rather than in somebody's fab.
 /// </para>
 /// </remarks>
@@ -400,7 +400,6 @@ internal static class Formats
         var services = new ServiceCollection();
 
         services
-            .AddSecsSerialization()
             .AddSecsSml()
             .AddSecsJson()
             .AddSecsXml()

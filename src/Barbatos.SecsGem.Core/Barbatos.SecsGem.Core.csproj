@@ -5,7 +5,7 @@
     <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
     <RootNamespace>Barbatos.SecsGem</RootNamespace>
     <PackageTags>secs;secs-ii;ast;item;codec;transcoder;serialization;semi;e5</PackageTags>
-    <Description>SECS-II object model for .NET: the SecsItem/SecsMessage abstract syntax tree, a zero-copy binary codec over ReadOnlySequence and IBufferWriter, and the Hub-and-Spoke serialization contracts (ISecsFormatReader / ISecsFormatWriter / SecsTranscoder). Contains no transport and no sockets, so it is safe to use in tooling, analyzers and WebAssembly.</Description>
+    <Description>SECS-II object model for .NET: the SecsItem/SecsMessage abstract syntax tree, a zero-copy binary codec over ReadOnlySequence and IBufferWriter, and the Hub-and-Spoke serialization contracts (ISecsFormatReader / ISecsFormatWriter / SecsTranscoder). Contains no transport and no sockets, and no dependency on Microsoft.Extensions, so it is safe to use in tooling, analyzers, WebAssembly and anywhere there is no dependency-injection container.</Description>
   </PropertyGroup>
 
   <!-- No platform-specific API: usable from WebAssembly tooling. -->
@@ -16,10 +16,10 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.HighPerformance" />
     <PackageReference Include="System.IO.Pipelines" />
-    <!-- Abstractions only, never a container implementation: this package offers
-         services.AddSecsSerialization() so a tool can resolve the transcoder through the same
-         DI it configures everything else with, but it never builds or owns a container. -->
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <!-- Nothing from Microsoft.Extensions.* belongs here, DependencyInjection.Abstractions
+         included: this package is the foundation, so anything it drags in, a fab drags in. The
+         AddSecsXxx() methods live in the assemblies that already need a container, and
+         CoreDependencyTests fails the build if a reference creeps back in. -->
   </ItemGroup>
 
 </Project>

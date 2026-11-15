@@ -441,8 +441,8 @@ public static ISecsGemBuilder AddSecsGem(
 
 Binds `Barbatos:SecsGem` and *then* applies `configure`, so code wins over file. Registers
 `SecsGemOptionsValidator` with `ValidateOnStart`, `TimeProvider.System` if nothing else has, the
-codec options derived from `SecsGemOptions`, the routing table, `HsmsConnection`, and everything
-`AddSecsSerialization()` registers.
+codec options derived from `SecsGemOptions`, the routing table, `HsmsConnection`, and the
+serialization hub: the format registry, the transcoder and the native binary spoke.
 
 ### `ISecsGemBuilder`
 

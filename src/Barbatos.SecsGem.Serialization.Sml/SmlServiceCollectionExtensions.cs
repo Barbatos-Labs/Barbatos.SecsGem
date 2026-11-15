@@ -25,14 +25,33 @@ public static class SmlServiceCollectionExtensions
     /// conversion to and from every other registered format comes for free.
     /// </para>
     /// <para>
-    /// Registered through <c>TryAddEnumerable</c> keyed on the implementation type, so calling
-    /// this twice is harmless - and an application that wants its own SML dialect can register
-    /// a different implementation type alongside, or replace this one outright.
+    /// It also registers the hub - <see cref="ISecsFormatRegistry"/>,
+    /// <see cref="SecsTranscoder"/> and the native binary spoke - so this call on its own is
+    /// enough to resolve a transcoder. The hub types live in <c>Barbatos.SecsGem.Core</c>, but
+    /// the method that registers them cannot: that package has no dependency on a container, so
+    /// that a file converter, an analyzer or a WebAssembly tool can use the item model without
+    /// one.
     /// </para>
+    /// <para>
+    /// Everything goes in through <c>TryAdd</c>, so calling this twice is harmless, calling it
+    /// beside <c>AddSecsJson()</c> builds one hub rather than two, and an application that wants
+    /// its own SML dialect can register a different implementation type alongside - or replace
+    /// this one outright.
+    /// </para>
+    /// <example>
+    /// <code>
+    /// services.AddSecsSml().AddSecsJson();
+    ///
+    /// var transcoder = provider.GetRequiredService&lt;SecsTranscoder&gt;();
+    /// await transcoder.TranscodeFileAsync("recipe.sml", "recipe.json");
+    /// </code>
+    /// </example>
     /// </remarks>
     public static IServiceCollection AddSecsSml(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+
+        SecsSerializationRegistration.AddHub(services);
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISecsFormatReader, SmlFormatReader>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISecsFormatWriter, SmlFormatWriter>());
