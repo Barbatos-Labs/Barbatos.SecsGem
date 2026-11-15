@@ -82,9 +82,21 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pending!.HandleAsync(transaction, token));
         }
 
+        // And the formatted half of stream 7, declared on its own because it is a capability of its
+        // own - the conversation below sends a structured recipe. Equipment that holds no recipes
+        // leaves these out and answers S9F3 for stream 7, which is the honest answer.
+        foreach (var (stream, function) in GemEquipment.FormattedProcessProgramMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pending!.HandleAsync(transaction, token));
+        }
+
         await using var equipmentLink = new HsmsConnection(options, passive, equipmentRoutes.Build());
         await using var host = new HsmsConnection(options, active, HostRoutes().Build());
-        await using var equipment = new GemEquipment(gemOptions, BuildModel(), equipmentLink);
+        await using var equipment = new GemEquipment(
+            gemOptions,
+            BuildModel(),
+            equipmentLink,
+            formattedProcessPrograms: new GemInMemoryFormattedProcessProgramStore());
         pending = equipment;
 
         equipmentLink.StateChanged += (_, state) => Console.WriteLine($"   [equipment link] {state}");
@@ -333,7 +345,52 @@ internal static class Program
             }
         }
 
-        // Stream 7 is not in the routing table at all, so the equipment answers S9F3 rather than
+        Console.WriteLine();
+        Console.WriteLine("-- and sends a recipe the standard gives a shape to --");
+        Console.WriteLine();
+
+        // S7F23. A formatted process program is PPID, the model and revision it was written for,
+        // and a list of CCODE commands each with its own parameters - structure E5 defines, where
+        // S7F3 carries a block of bytes whose meaning is private between this host and this
+        // machine. The equipment reads it, so it can refuse one it cannot represent instead of
+        // storing something else and reporting success.
+        using (var request = new SecsMessage(7, 23, replyExpected: true)
+        {
+            Name = "FormattedProcessProgramSend",
+            Item = SecsItem.L(
+                SecsItem.A("RECIPE-7").Named("PPID"),
+                SecsItem.A("BRBTOS-1").Named("MDLN"),
+                SecsItem.A("0.1.0").Named("SOFTREV"),
+                SecsItem.L(
+                    SecsItem.L(
+                        SecsItem.U1(12).Named("CCODE"),
+                        SecsItem.L(SecsItem.A("SETPOINT"), SecsItem.A("350.0"))),
+                    SecsItem.L(
+                        SecsItem.U1(13).Named("CCODE"),
+                        SecsItem.L(SecsItem.A("RAMP"), SecsItem.A("5.0"))))),
+        })
+        using (var reply = await host.SendAsync(request, cancellationToken))
+        {
+            var ackc7 = reply.Item?.FirstValueOrDefault<byte>();
+            Console.WriteLine($"   S7F23 -> {reply}: ACKC7={ackc7}");
+            ok &= ackc7 == 0;
+        }
+
+        // S7F25 reads it back, and S7F26 is the same four items again. "No such program" would be
+        // a zero-length list: S7F26 has no acknowledgement code to carry a refusal.
+        using (var request = new SecsMessage(7, 25, replyExpected: true)
+        {
+            Name = "FormattedProcessProgramRequest",
+            Item = SecsItem.A("RECIPE-7").Named("PPID"),
+        })
+        using (var reply = await host.SendAsync(request, cancellationToken))
+        {
+            var commands = reply.Item is { Count: 4 } body ? body[3].Count : 0;
+            Console.WriteLine($"   S7F25 -> {reply}: {commands} command(s)");
+            ok &= commands == 2;
+        }
+
+        // Stream 3 is not in the routing table at all, so the equipment answers S9F3 rather than
         // leaving the host to wait out T3. Posted with W=0, because an S9 is what comes back
         // instead of a secondary.
         Console.WriteLine();

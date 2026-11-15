@@ -89,7 +89,8 @@ internal sealed class GemLink : IAsyncDisposable
         Action<GemEquipmentModelBuilder>? model = null,
         Action<GemOptions>? configure = null,
         IGemProcessProgramStore? programs = null,
-        IGemSpool? spool = null)
+        IGemSpool? spool = null,
+        IGemFormattedProcessProgramStore? formatted = null)
     {
         var linkOptions = new SecsGemOptions
         {
@@ -138,13 +139,26 @@ internal sealed class GemLink : IAsyncDisposable
             declared.AddRange(GemEquipment.SpoolMessages);
         }
 
+        if (formatted is not null)
+        {
+            declared.AddRange(GemEquipment.FormattedProcessProgramMessages);
+        }
+
         foreach (var (stream, function) in declared)
         {
             routes.OnPrimary(stream, function, (transaction, token) => equipment!.HandleAsync(transaction, token));
         }
 
         var connection = new HsmsConnection(linkOptions, transport, routes.Build(), clock);
-        equipment = new GemEquipment(gemOptions, builder.Build(), connection, clock, logger: null, programs, spool);
+        equipment = new GemEquipment(
+            gemOptions,
+            builder.Build(),
+            connection,
+            clock,
+            logger: null,
+            programs,
+            spool,
+            formatted);
 
         return new GemLink(transport, connection, equipment, linkOptions, gemOptions, clock);
     }

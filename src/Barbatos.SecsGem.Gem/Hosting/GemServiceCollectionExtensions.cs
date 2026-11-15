@@ -114,7 +114,12 @@ public static class GemServiceCollectionExtensions
 
             // Also GetService: spooling is opt-in the same way, and null here is what makes
             // IsSpooling false and leaves S6F23 undeclared.
-            provider.GetService<IGemSpool>()));
+            provider.GetService<IGemSpool>(),
+
+            // The other half of stream 7, opt-in independently of the first: a formatted process
+            // program is structure E5 defines where an unformatted one is a block of bytes, so
+            // equipment may offer either, both, or neither.
+            provider.GetService<IGemFormattedProcessProgramStore>()));
 
         // Every GEM message, registered as a factory - and the equipment is resolved inside the
         // handler rather than inside the factory. That distinction is the whole game.
@@ -154,9 +159,11 @@ public static class GemServiceCollectionExtensions
     /// <returns>The builder, for chaining.</returns>
     /// <remarks>
     /// <para>
-    /// This is what declares stream 7. Equipment that does not call it does not answer S7 at all,
-    /// and the connection reports S9F3 for anything in that stream - which is the honest answer
-    /// rather than an acknowledgement code meaning "no".
+    /// This is what declares the unformatted half of stream 7 - S7F1, S7F3 and S7F5 - along with
+    /// the delete and directory messages, S7F17 and S7F19, which both halves share. Equipment that
+    /// does not call it answers none of those, and the connection reports S9F3 - which is the
+    /// honest answer rather than an acknowledgement code meaning "no". For the structured half, see
+    /// <see cref="AddGemFormattedProcessPrograms(ISecsGemBuilder)"/>.
     /// </para>
     /// <para>
     /// Call it once. A second call registers the same stream and function twice, which the routing
@@ -185,6 +192,60 @@ public static class GemServiceCollectionExtensions
 
         builder.Services.TryAddSingleton(store);
         return DeclareProcessPrograms(builder);
+    }
+
+    /// <summary>Adds formatted process program management, backed by the in-memory store.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// The structured half of stream 7: S7F23 and S7F25, where a process program is a PPID, the
+    /// MDLN and SOFTREV it was written for, and a list of CCODE commands rather than a block of
+    /// bytes. Independent of <see cref="AddGemProcessPrograms(ISecsGemBuilder)"/> - equipment may
+    /// offer either half, both, or neither.
+    /// </para>
+    /// <para>
+    /// S7F17 and S7F19 come with the unformatted half, because a pair may be declared only once and
+    /// deleting or listing a program is not per-format. Call both methods to answer them, and the
+    /// delete and directory handlers then cover both stores; a formatted program appears in S7F20
+    /// beside the unformatted ones.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemFormattedProcessPrograms(this ISecsGemBuilder builder)
+        => builder.AddGemFormattedProcessPrograms<GemInMemoryFormattedProcessProgramStore>();
+
+    /// <summary>Adds formatted process program management, backed by a store of your own.</summary>
+    /// <typeparam name="TStore">The store.</typeparam>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// Call it once. A second call registers the same stream and function twice, which the routing
+    /// table refuses.
+    /// </remarks>
+    public static ISecsGemBuilder AddGemFormattedProcessPrograms<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStore>(
+        this ISecsGemBuilder builder)
+        where TStore : class, IGemFormattedProcessProgramStore
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton<IGemFormattedProcessProgramStore, TStore>();
+        return DeclareFormattedProcessPrograms(builder);
+    }
+
+    /// <summary>Adds formatted process program management, backed by a store you have already built.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="store">The store.</param>
+    /// <returns>The builder, for chaining.</returns>
+    public static ISecsGemBuilder AddGemFormattedProcessPrograms(
+        this ISecsGemBuilder builder,
+        IGemFormattedProcessProgramStore store)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(store);
+
+        builder.Services.TryAddSingleton(store);
+        return DeclareFormattedProcessPrograms(builder);
     }
 
     /// <summary>Adds spooling, backed by a bounded in-memory spool sized from the options.</summary>
@@ -250,6 +311,17 @@ public static class GemServiceCollectionExtensions
     private static ISecsGemBuilder DeclareProcessPrograms(ISecsGemBuilder builder)
     {
         foreach (var (stream, function) in GemEquipment.ProcessProgramMessages)
+        {
+            builder.OnPrimary(stream, function, static provider =>
+                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
+        }
+
+        return builder;
+    }
+
+    private static ISecsGemBuilder DeclareFormattedProcessPrograms(ISecsGemBuilder builder)
+    {
+        foreach (var (stream, function) in GemEquipment.FormattedProcessProgramMessages)
         {
             builder.OnPrimary(stream, function, static provider =>
                 (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));

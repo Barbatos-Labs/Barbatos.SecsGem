@@ -280,7 +280,13 @@ internal static class Program
                     .AddStatusVariable(1u, "Pressure", () => SecsItem.F8(1013.25))
                     .AddEvent(1_000u, "ProcessStart")
                     .AddReport(5_000u, 1u),
-                runAsHostedService: false);
+                runAsHostedService: false)
+
+            // Both halves of stream 7, which is also the check that the two opt-in capabilities
+            // can be registered together: they share S7F17 and S7F19, and a stream and function
+            // may be declared only once, so an overlap would throw while the router was built.
+            .AddGemProcessPrograms()
+            .AddGemFormattedProcessPrograms();
 
         await using var provider = services.BuildServiceProvider();
 
@@ -294,5 +300,28 @@ internal static class Program
         Assert(
             router.TryGetHandler(1, 13, out _),
             "the router has no handler for S1F13, so the equipment's handled messages never reached the routing table");
+
+        Assert(
+            router.TryGetHandler(7, 3, out _) && router.TryGetHandler(7, 23, out _),
+            "the router is missing one half of stream 7, so an opt-in capability did not declare its messages");
+
+        var formatted = new GemFormattedProcessProgram(
+            "RECIPE-7",
+            "BRBTOS",
+            "1.0.0",
+            [new GemProcessProgramCommand(12, ["SETPOINT", "350.0"])]);
+
+        var store = provider.GetRequiredService<IGemFormattedProcessProgramStore>();
+
+        Assert(
+            await store.SaveAsync(formatted, CancellationToken.None).ConfigureAwait(false)
+                == GemProcessProgramAcknowledgement.Accepted,
+            "the formatted store refused a program it should have taken");
+
+        var read = await store.LoadAsync("RECIPE-7", CancellationToken.None).ConfigureAwait(false);
+
+        Assert(read is not null, "the formatted store lost the program it had just accepted");
+        Assert(read!.Commands.Count == 1, $"the program came back with {read.Commands.Count} command(s)");
+        Assert(read.Commands[0].Code == 12, $"CCODE came back as {read.Commands[0].Code}");
     }
 }

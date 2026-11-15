@@ -267,11 +267,11 @@ services.AddSecsGem(builder.Configuration)
 | S7F17 | Delete these - or all of them, with an empty list | S7F18 (ACKC7) |
 | S7F19 | What do you have? | S7F20 - the PPID list |
 
-**Equipment that does not call `AddGemProcessPrograms` does not answer stream 7 at all.** The
-routing table is the declaration of what an entity understands, so leaving it out means the
-connection reports S9F3 - "I do not do stream 7" - which is true and useful. Declaring the messages
-and then refusing every one with an acknowledgement code would be neither. That is why
-`ProcessProgramMessages` is a separate list from `HandledMessages`.
+**Equipment that calls neither `AddGemProcessPrograms` nor `AddGemFormattedProcessPrograms` does
+not answer stream 7 at all.** The routing table is the declaration of what an entity understands,
+so leaving both out means the connection reports S9F3 - "I do not do stream 7" - which is true and
+useful. Declaring the messages and then refusing every one with an acknowledgement code would be
+neither. That is why `ProcessProgramMessages` is a separate list from `HandledMessages`.
 
 **S7F1 exists so a refusal is cheap.** A recipe can be megabytes. The host names the identifier and
 the length first, and the equipment answers on the strength of that:
@@ -289,6 +289,67 @@ recipes regenerated at start-up; anything that must survive a restart wants its 
 One thing the interface insists on: **the body you are handed is only valid for the length of the
 call.** It is a window onto the message that arrived, and that message is disposed as soon as the
 handler returns. Copy what you keep - the in-memory store does.
+
+### Formatted recipes, the other half of stream 7
+
+An unformatted process program is a PPBODY: bytes the equipment stores and hands back, whose
+meaning is between the host and the machine. A **formatted** one is structure E5 defines, and S7F23
+carries it as a list of four - PPID, the MDLN and SOFTREV it was written for, and a list of CCODE
+commands each with its own parameters. It is a capability of its own:
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => { /* ... */ })
+    .AddGemProcessPrograms()                     // S7F1, S7F3, S7F5, and S7F17/S7F19 with them
+    .AddGemFormattedProcessPrograms()            // S7F23 and S7F25
+    .RunAsHostedService();
+```
+
+| Message | The host is doing | Answered with |
+| --- | --- | --- |
+| S7F23 | Here is a structured recipe | S7F24 (ACKC7) |
+| S7F25 | Send that one back | S7F26 - the same four items, or a zero-length list |
+
+The two halves are independent: equipment may offer either, both, or neither. **S7F17 and S7F19
+come with the unformatted half**, because a stream and function may be declared only once and
+deleting or listing a program is not per-format. Register both and those two handlers cover both
+stores: a formatted program appears in S7F20 beside the unformatted ones, an identifier that exists
+in both is listed once, and an S7F17 naming a program only one store has is still ACKC7 0 - saying
+"no such program" because the other half had not heard of it would be refusing something that just
+happened.
+
+A formatted program arrives as data rather than as a window onto the message, so
+`IGemFormattedProcessProgramStore` has nothing to say about copying:
+
+```csharp
+public ValueTask<GemProcessProgramAcknowledgement> SaveAsync(
+    GemFormattedProcessProgram program, CancellationToken ct)
+{
+    foreach (var command in program.Commands)
+    {
+        _recipes.Add(program.Id, command.Code, command.Parameters);
+    }
+
+    return ValueTask.FromResult(GemProcessProgramAcknowledgement.Accepted);
+}
+```
+
+**A body this stack cannot represent is refused, not reshaped.** E5 types CCODE `U1[1]`, and a
+PPARM here is text, so a command code that will not fit in a byte or a parameter that arrived as a
+number is answered with ACKC7 5, `ModeUnsupported` - *I do formatted process programs, just not
+that flavour of one*. The alternative is telling a host its recipe landed when what landed was
+something else. A body that is not the shape E5 defines at all is ACKC7 2, the `LengthError` S7F3
+already uses for a body it could not read; a host told "length error" for a numeric PPARM would go
+looking for the wrong thing.
+
+Nothing is trimmed on the way back out except PPID, MDLN and SOFTREV, which are fixed-width fields
+in E5. A PPARM that arrived space-padded is returned padded, because S7F26 has to give back what
+S7F23 sent and a trim is not reversible.
+
+MDLN and SOFTREV arrive as the host sent them, and nothing here compares them against
+`GemOptions.ModelName`. Whether a machine accepts a recipe written for another model is a fab
+decision, and the store gets the whole program and can refuse it.
 
 ## Identifiers are numbers, not U4s
 
@@ -356,7 +417,7 @@ gate, because a host asking for off-line has to be answered with the state its r
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
 | A durable spool | Spooling is here, and the spool that ships with it is in memory. Holding reports across the equipment's own restart means an `IGemSpool` over a file or a database - E30 does not require durability and this one does not pretend to it |
-| The rest of stream 7 | The five unformatted pairs are here. The matrix messages (S7F11 through S7F16), verification (S7F9/F10) and formatted programs (S7F23/F24) are not |
+| The rest of stream 7 | Both halves E30 asks for are here: S7F1-S7F6 and S7F17-S7F20 unformatted, S7F23-S7F26 formatted. What is left - the directory pair S7F7/F8, verification S7F9/F10, the matrix messages S7F11 through S7F16, references S7F21/F22, and everything from S7F27 up - is outside the GEM capability, and every one of them is an entry [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) flags as representative: a starting point for reading E5 rather than a definition to implement against. Implementing one means reading the standard first, not copying a table |
 | A host-side GEM helper | E30 models the *equipment*. A host sends messages and reads replies, which the HSMS layer already does - see the host sample |
 
 ## Documentation

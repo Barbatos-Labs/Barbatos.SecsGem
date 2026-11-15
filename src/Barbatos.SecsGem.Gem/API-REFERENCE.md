@@ -23,12 +23,32 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
   - [`GemRemoteCommandHandler`](#gemremotecommandhandler)
   - [`GemRemoteCommandContext`](#gemremotecommandcontext)
   - [`GemRemoteCommand`](#gemremotecommand)
+- [Spooling](#spooling)
+  - [On `GemEquipment`](#on-gemequipment)
+  - [`GemSpoolState`](#gemspoolstate)
+  - [`GemSpoolOverflowPolicy`](#gemspooloverflowpolicy)
+  - [`GemSpooledDataRequest` / `GemSpooledDataAcknowledgement`](#gemspooleddatarequest--gemspooleddataacknowledgement)
+  - [`GemSpooledMessage`](#gemspooledmessage)
+  - [`IGemSpool`](#igemspool)
+  - [`GemInMemorySpool`](#geminmemoryspool)
+  - [`AddGemSpooling`](#addgemspooling)
+- [Process programs](#process-programs)
+  - [`IGemProcessProgramStore`](#igemprocessprogramstore)
+  - [`GemInMemoryProcessProgramStore`](#geminmemoryprocessprogramstore)
+  - [`IGemFormattedProcessProgramStore`](#igemformattedprocessprogramstore)
+  - [`GemInMemoryFormattedProcessProgramStore`](#geminmemoryformattedprocessprogramstore)
+  - [`GemFormattedProcessProgram`](#gemformattedprocessprogram)
+  - [`GemProcessProgramCommand`](#gemprocessprogramcommand)
+  - [`GemProcessProgramGrant`](#gemprocessprogramgrant)
+  - [`GemProcessProgramAcknowledgement`](#gemprocessprogramacknowledgement)
 - [Acknowledgement codes](#acknowledgement-codes)
 - [Options](#options)
   - [`GemOptions`](#gemoptions)
   - [`GemOptionsValidator`](#gemoptionsvalidator)
 - [Hosting](#hosting)
   - [`AddGemEquipment`](#addgemequipment)
+  - [`AddGemProcessPrograms`](#addgemprocessprograms)
+  - [`AddGemFormattedProcessPrograms`](#addgemformattedprocessprograms)
 
 ---
 
@@ -43,9 +63,11 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 
 | Member | Signature | Notes |
 | --- | --- | --- |
-| ctor | `GemEquipment(GemOptions options, GemEquipmentModel model, HsmsConnection connection, TimeProvider? timeProvider = null, ILogger<GemEquipment>? logger = null)` | `null` provider means `TimeProvider.System`; `null` logger discards diagnostics. |
+| ctor | `GemEquipment(GemOptions options, GemEquipmentModel model, HsmsConnection connection, TimeProvider? timeProvider = null, ILogger<GemEquipment>? logger = null, IGemProcessProgramStore? processPrograms = null, IGemSpool? spool = null, IGemFormattedProcessProgramStore? formattedProcessPrograms = null)` | `null` provider means `TimeProvider.System`; `null` logger discards diagnostics. The last three are the opt-in capabilities, and `null` in each leaves its messages undeclared rather than declared and refused. |
 | `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The twenty core pairs. Registering them is how the equipment declares its capability - see below. |
-| `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The five stream 7 pairs, registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn. |
+| `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The five unformatted stream 7 pairs - S7F1, S7F3, S7F5, and the S7F17/S7F19 both halves share - registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn. |
+| `FormattedProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F23 and S7F25, registered only when a formatted store is configured. Independent of `ProcessProgramMessages`, and disjoint from it: a stream and function may be declared only once. |
+| `SpoolMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S6F23, registered only when a spool is configured. Equipment that does not spool answers S9F5 rather than RSDA 1 - "I do not do that" and "no, not now" are different answers to a host deciding whether to wait. |
 | `RunAsync` | `Task RunAsync(CancellationToken cancellationToken = default)` | Drives the state models. Run it **alongside** `HsmsConnection.RunAsync`, not instead of it. Throws `InvalidOperationException` on a second call. |
 | `HandleAsync` | `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken cancellationToken = default)` | Handles one inbound primary. Wired to every pair in `HandledMessages`. |
 | `Model` | `GemEquipmentModel { get; }` | |
@@ -450,8 +472,9 @@ to use it.
 
 ## Process programs
 
-Everything here is opt-in. Without `AddGemProcessPrograms`, stream 7 is not in the routing table
-and the connection answers S9F3 for it.
+Everything here is opt-in, and in two halves. Without `AddGemProcessPrograms` the unformatted
+messages are not in the routing table; without `AddGemFormattedProcessPrograms` the formatted ones
+are not; without either, stream 7 is unknown and the connection answers S9F3 for all of it.
 
 ### `IGemProcessProgramStore`
 
@@ -487,6 +510,74 @@ message on the link. Write a large program in the background and answer
 
 Copies what it is given. Replacing an existing program is not a new slot, so it still fits at
 capacity. An empty or over-long identifier is `InvalidId`.
+
+### `IGemFormattedProcessProgramStore`
+
+`public interface IGemFormattedProcessProgramStore`
+
+The structured half of stream 7, opt-in separately from the unformatted one.
+
+| Member | Signature | Answers |
+| --- | --- | --- |
+| `SaveAsync` | `ValueTask<GemProcessProgramAcknowledgement> SaveAsync(GemFormattedProcessProgram program, CancellationToken cancellationToken)` | S7F24 (ACKC7) |
+| `LoadAsync` | `ValueTask<GemFormattedProcessProgram?> LoadAsync(string id, CancellationToken cancellationToken)` | S7F26; `null` means no such program, and is answered with a zero-length list |
+| `DeleteAsync` | `ValueTask<GemProcessProgramAcknowledgement> DeleteAsync(string id, CancellationToken cancellationToken)` | S7F18 |
+| `DeleteAllAsync` | `ValueTask<GemProcessProgramAcknowledgement> DeleteAllAsync(CancellationToken cancellationToken)` | S7F18, for an S7F17 carrying an empty list |
+| `ListAsync` | `ValueTask<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken)` | S7F20 |
+
+There is no `InquireAsync`. The formatted load inquire is S7F33, which the catalogue flags as a
+representative entry rather than a definition - so it is not implemented rather than guessed at.
+
+`DeleteAsync`, `DeleteAllAsync` and `ListAsync` are here because S7F17 and S7F19 are not
+per-format. With both stores registered the equipment merges them: one directory with no identifier
+listed twice, and a delete that any store accepted is ACKC7 0. A store that answers anything other
+than `Accepted` or `NotFound` - `Busy`, `PerformedLater` - wins the merge, because telling a host
+`Accepted` while one store is still working would have it believe the identifier is free.
+
+Unlike the unformatted `SaveAsync`, nothing borrows the inbound message: the program was read out
+of it into strings before the call, so there is no copy to remember to make.
+
+### `GemInMemoryFormattedProcessProgramStore`
+
+`public sealed class GemInMemoryFormattedProcessProgramStore : IGemFormattedProcessProgramStore`
+
+| Member | Signature | Default |
+| --- | --- | --- |
+| `Capacity` | `int { get; set; }` | `64` programs |
+| `Count` | `int { get; }` | |
+
+Replacing an existing program is not a new slot, so it still fits at capacity. An empty or
+over-long identifier - over `GemInMemoryProcessProgramStore.MaxIdLength` - is `NotFound`.
+
+### `GemFormattedProcessProgram`
+
+`public sealed class GemFormattedProcessProgram`
+
+S7F23's body as data: the four items E5 defines, in order.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemFormattedProcessProgram(string id, string modelName, string softwareRevision, IReadOnlyList<GemProcessProgramCommand> commands)` | Copies `commands`. Throws `ArgumentNullException` for a null argument or a null command. |
+| `Id` | `string { get; }` | PPID, trimmed. |
+| `ModelName` | `string { get; }` | MDLN **as the host sent it**, trimmed. Not compared against `GemOptions.ModelName` - whether a machine accepts a recipe written for another model is the store's decision. |
+| `SoftwareRevision` | `string { get; }` | SOFTREV as the host sent it, trimmed. |
+| `Commands` | `IReadOnlyList<GemProcessProgramCommand> { get; }` | May be empty: a program with no commands is a program, which is a different answer from no such program. |
+| `ToString` | `override string ToString()` | For example `RECIPE-7 (BRBTOS 1.0.0, 3 commands)`. |
+
+### `GemProcessProgramCommand`
+
+`public sealed class GemProcessProgramCommand`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemProcessProgramCommand(byte code, IReadOnlyList<string> parameters)` | Copies `parameters`. Throws `ArgumentNullException` for a null list or a null parameter. |
+| `Code` | `byte { get; }` | CCODE, which E5 types `U1[1]`. A wider unsigned item is read when the value fits; one that does not is ACKC7 5. |
+| `Parameters` | `IReadOnlyList<string> { get; }` | PPARM, **not trimmed**: S7F26 has to give back what S7F23 sent, and a trim is not reversible. |
+| `ToString` | `override string ToString()` | For example `CCODE 12 (3 parameters)`. |
+
+A PPARM is text here. E5 lets one be any item at all, and a body that is the right shape but
+carries a numeric or binary parameter is answered `ModeUnsupported` rather than reshaped into
+something storable - the equipment does formatted process programs, just not that flavour of one.
 
 ### `GemProcessProgramGrant`
 
@@ -620,14 +711,33 @@ public static ISecsGemBuilder AddGemProcessPrograms<TStore>(this ISecsGemBuilder
 public static ISecsGemBuilder AddGemProcessPrograms(this ISecsGemBuilder builder, IGemProcessProgramStore store)
 ```
 
-Registers the store and, with it, the five stream 7 pairs. The parameterless overload uses
-`GemInMemoryProcessProgramStore`.
+Registers the store and, with it, the five pairs in `GemEquipment.ProcessProgramMessages` - S7F1,
+S7F3 and S7F5, plus the S7F17 and S7F19 both halves of stream 7 share. The parameterless overload
+uses `GemInMemoryProcessProgramStore`.
 
-This is what declares stream 7 - omit it and the connection reports S9F3 for anything in that
-stream. Call it once: a second call registers the same pairs twice, which the routing table refuses.
+Omit it and the connection reports S9F3 for anything in stream 7, unless
+`AddGemFormattedProcessPrograms` declared the other half. Call it once: a second call registers the
+same pairs twice, which the routing table refuses.
 
 Order does not matter relative to `AddGemEquipment`. The equipment resolves its store with
 `GetService`, so it is `null` when nothing registered one.
+
+### `AddGemFormattedProcessPrograms`
+
+```csharp
+public static ISecsGemBuilder AddGemFormattedProcessPrograms(this ISecsGemBuilder builder)
+public static ISecsGemBuilder AddGemFormattedProcessPrograms<TStore>(this ISecsGemBuilder builder)
+    where TStore : class, IGemFormattedProcessProgramStore
+public static ISecsGemBuilder AddGemFormattedProcessPrograms(this ISecsGemBuilder builder, IGemFormattedProcessProgramStore store)
+```
+
+Registers the formatted store and, with it, S7F23 and S7F25. The parameterless overload uses
+`GemInMemoryFormattedProcessProgramStore`.
+
+Independent of `AddGemProcessPrograms` - equipment may call either, both, or neither, and calling
+both is safe because the two message lists are disjoint. **S7F17 and S7F19 come with the
+unformatted half**: a stream and function may be declared only once, so equipment that wants the
+delete and directory messages registers that half as well, and the handlers then cover both stores.
 
 **Two loops, two hosted services.** The connection still needs its own `RunAsHostedService()`. The
 GEM loop is registered here by default because it is what establishes communications: equipment

@@ -33,7 +33,7 @@ Two things set it apart from what came before:
 | `Barbatos.SecsGem.Catalog` | Reference data: 524 stream/function pairs, 375 data items with formats and code values. Optional. |
 | `Barbatos.SecsGem.Mapper` | `SecsSerializer`: C# objects <-> `SecsItem`, convention over configuration. |
 | `Barbatos.SecsGem.SourceGenerators` | Roslyn generator and analyzer BSG001 behind the mapper's exact property order. Optional. |
-| `Barbatos.SecsGem.Gem` | GEM (E30) equipment layer: communication and control state models, host-configured reporting, alarms, remote commands. |
+| `Barbatos.SecsGem.Gem` | GEM (E30) equipment layer: communication and control state models, host-configured reporting, alarms, remote commands, process programs, spooling. |
 
 ## Quick start
 
@@ -151,6 +151,7 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 8 | The deferred E30 messages - namelists, alarm listings, host-requested reports, and opt-in process program management (stream 7) - plus `Barbatos.SecsGem.Catalog`, the 524-message reference table. | Done |
 | 9 | Spooling: holding reports while the host is away, and handing them over - or throwing them away - when it asks with S6F23. | Done |
 | 10 | A consumer that restores the packed `.nupkg` files rather than the projects, on all three runtimes and both CI legs. The first check of `lib/` layout, declared dependencies, embedded resources, and whether the compiler loads the generator out of `analyzers/dotnet/cs`. | Done |
+| 11 | Formatted process programs (S7F23-S7F26): a recipe as the structure E5 defines rather than a block of bytes, refused rather than reshaped when it carries something this stack cannot represent. Completes the stream 7 that E30 asks for - what is left of the stream is outside the GEM capability and is flagged representative in the catalogue. | Done |
 
 ## Licence
 

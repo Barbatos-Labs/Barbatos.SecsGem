@@ -168,6 +168,12 @@ internal static class Program
             // IGemProcessProgramStore over whatever it already persists.
             .AddGemProcessPrograms()
 
+            // The other half of stream 7, opt-in separately: S7F23 carries a recipe as structure
+            // E5 defines - PPID, the model and revision it was written for, and a list of CCODE
+            // commands - where S7F3 carries one as bytes this machine happens to understand.
+            // Equipment may offer either half, both, or neither.
+            .AddGemFormattedProcessPrograms()
+
             // Spooling, bounded in memory. Reports raised while no host is listening are held, and
             // handed over only when the host asks with S6F23 - it may also tell the equipment to
             // throw them away, which is a decision a host that has just come up is entitled to.

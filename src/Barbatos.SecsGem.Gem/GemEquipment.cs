@@ -53,6 +53,7 @@ public sealed class GemEquipment : IAsyncDisposable
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly IGemProcessProgramStore? _programs;
+    private readonly IGemFormattedProcessProgramStore? _formatted;
     private readonly IGemSpool? _spool;
     private readonly Channel<LinkEvent> _events =
         Channel.CreateUnbounded<LinkEvent>(new UnboundedChannelOptions { SingleReader = true });
@@ -93,6 +94,13 @@ public sealed class GemEquipment : IAsyncDisposable
     /// <see cref="GemOptions.SpoolingEnabled"/> left off, means a report that cannot be delivered is
     /// logged and dropped - see <see cref="SpoolMessages"/>.
     /// </param>
+    /// <param name="formattedProcessPrograms">
+    /// Where formatted process programs are kept. <see langword="null"/> means this equipment does
+    /// not manage them, and S7F23 and S7F25 are not answered - see
+    /// <see cref="FormattedProcessProgramMessages"/>. Independent of
+    /// <paramref name="processPrograms"/>: equipment may offer either half of stream 7, both, or
+    /// neither.
+    /// </param>
     public GemEquipment(
         GemOptions options,
         GemEquipmentModel model,
@@ -100,7 +108,8 @@ public sealed class GemEquipment : IAsyncDisposable
         TimeProvider? timeProvider = null,
         ILogger<GemEquipment>? logger = null,
         IGemProcessProgramStore? processPrograms = null,
-        IGemSpool? spool = null)
+        IGemSpool? spool = null,
+        IGemFormattedProcessProgramStore? formattedProcessPrograms = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         Model = model ?? throw new ArgumentNullException(nameof(model));
@@ -108,6 +117,7 @@ public sealed class GemEquipment : IAsyncDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger<GemEquipment>.Instance;
         _programs = processPrograms;
+        _formatted = formattedProcessPrograms;
         _spool = spool;
 
         _communication = options.CommunicationEnabled
@@ -167,6 +177,27 @@ public sealed class GemEquipment : IAsyncDisposable
         (7, 5),    // Process Program Request
         (7, 17),   // Delete Process Program Send
         (7, 19),   // Current EPPD Request
+    ];
+
+    /// <summary>The formatted process program messages, answered only when a formatted store is configured.</summary>
+    /// <remarks>
+    /// <para>
+    /// The other half of stream 7, and opt-in separately: a formatted process program is structure
+    /// E5 defines - PPID, MDLN, SOFTREV and a list of CCODE commands - where an unformatted one is
+    /// a block of bytes whose meaning is between the host and the machine. Equipment may offer
+    /// either, both, or neither.
+    /// </para>
+    /// <para>
+    /// S7F17 and S7F19 are not here, because they are not per-format and a pair may be declared
+    /// only once: they belong to <see cref="ProcessProgramMessages"/>, and their handlers cover
+    /// whichever stores are configured. Equipment that offers only formatted programs and wants the
+    /// delete and directory messages registers both capabilities.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<(byte Stream, byte Function)> FormattedProcessProgramMessages { get; } =
+    [
+        (7, 23),   // Formatted Process Program Send
+        (7, 25),   // Formatted Process Program Request
     ];
 
     /// <summary>The spooling messages, answered only when a spool is configured and enabled.</summary>
@@ -464,6 +495,8 @@ public sealed class GemEquipment : IAsyncDisposable
             (7, 5) => await OnProgramRequestAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 17) => await OnProgramDeleteAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 19) => await OnProgramListAsync(cancellationToken).ConfigureAwait(false),
+            (7, 23) => await OnFormattedProgramSendAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 25) => await OnFormattedProgramRequestAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (6, 23) => await OnRequestSpooledDataAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             _ => null,
         };
@@ -1146,7 +1179,10 @@ public sealed class GemEquipment : IAsyncDisposable
 
     private async ValueTask<SecsMessage?> OnProgramDeleteAsync(SecsMessage request, CancellationToken cancellationToken)
     {
-        if (_programs is null)
+        // Either store is enough. S7F17 is not per-format - a host deleting RECIPE-7 means the
+        // program, not the flavour it was transferred in - so this answers as long as the equipment
+        // keeps process programs at all.
+        if (_programs is null && _formatted is null)
         {
             return null;
         }
@@ -1156,12 +1192,12 @@ public sealed class GemEquipment : IAsyncDisposable
         // An empty list means every program. E5 is explicit about that, and it is the one place
         // where answering the literal request would do far less than the host asked for.
         var acknowledgement = ids.Count == 0
-            ? await _programs.DeleteAllAsync(cancellationToken).ConfigureAwait(false)
+            ? await DeleteEveryProgramAsync(cancellationToken).ConfigureAwait(false)
             : GemProcessProgramAcknowledgement.Accepted;
 
         foreach (var id in ids)
         {
-            var result = await _programs.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+            var result = await DeleteProgramAsync(id, cancellationToken).ConfigureAwait(false);
 
             if (result != GemProcessProgramAcknowledgement.Accepted)
             {
@@ -1178,12 +1214,39 @@ public sealed class GemEquipment : IAsyncDisposable
 
     private async ValueTask<SecsMessage?> OnProgramListAsync(CancellationToken cancellationToken)
     {
-        if (_programs is null)
+        if (_programs is null && _formatted is null)
         {
             return null;
         }
 
-        var ids = await _programs.ListAsync(cancellationToken).ConfigureAwait(false);
+        // One directory covering both halves, in the order the stores gave them and without
+        // repeating an identifier that exists in both: a host asking what is stored is asking about
+        // programs, and the same PPID in both stores is one program as far as S7F20 is concerned.
+        List<string> ids = [];
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        if (_programs is not null)
+        {
+            foreach (var id in await _programs.ListAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (seen.Add(id))
+                {
+                    ids.Add(id);
+                }
+            }
+        }
+
+        if (_formatted is not null)
+        {
+            foreach (var id in await _formatted.ListAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (seen.Add(id))
+                {
+                    ids.Add(id);
+                }
+            }
+        }
+
         var entries = new List<SecsItem>(ids.Count);
 
         foreach (var id in ids)
@@ -1196,6 +1259,215 @@ public sealed class GemEquipment : IAsyncDisposable
             Name = "CurrentEppdData",
             Item = SecsItem.L(entries),
         };
+    }
+
+    private async ValueTask<SecsMessage?> OnFormattedProgramSendAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_formatted is null)
+        {
+            return null;
+        }
+
+        var acknowledgement = TryReadFormattedProgram(request.Item, out var program);
+
+        if (program is not null)
+        {
+            acknowledgement = await _formatted.SaveAsync(program, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new SecsMessage(7, 24, replyExpected: false)
+        {
+            Name = "FormattedProcessProgramAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC7"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnFormattedProgramRequestAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_formatted is null)
+        {
+            return null;
+        }
+
+        var id = request.Item is { } item && item.Format.IsText() ? item.GetString().TrimEnd() : string.Empty;
+        var program = id.Length == 0
+            ? null
+            : await _formatted.LoadAsync(id, cancellationToken).ConfigureAwait(false);
+
+        return new SecsMessage(7, 26, replyExpected: false)
+        {
+            Name = "FormattedProcessProgramData",
+
+            // A zero-length list for "no such program", the refusal S7F6 uses for the same reason:
+            // S7F26 has no acknowledgement code either, so the empty body is the refusal.
+            Item = program is null ? SecsItem.L() : WriteFormattedProgram(program),
+        };
+    }
+
+    /// <summary>Deletes one identifier from every store this equipment has.</summary>
+    /// <remarks>
+    /// <para>
+    /// Two stores, one ACKC7, so the merge rule has to be written down. A store that answered
+    /// anything other than "done" or "no such program" - busy, or performed later - wins, because
+    /// that is the answer the host has to act on and it stays true whatever the other half did:
+    /// telling a host Accepted while one store is still working would have it believe the
+    /// identifier is free.
+    /// </para>
+    /// <para>
+    /// Failing that, deleted by either store is deleted, and <c>NotFound</c> holds only when no
+    /// store had it. Answering NotFound because the other half did not recognise the name would be
+    /// refusing something that just happened.
+    /// </para>
+    /// </remarks>
+    private async ValueTask<GemProcessProgramAcknowledgement> DeleteProgramAsync(
+        string id,
+        CancellationToken cancellationToken)
+    {
+        var unformatted = _programs is null
+            ? GemProcessProgramAcknowledgement.NotFound
+            : await _programs.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+
+        var formatted = _formatted is null
+            ? GemProcessProgramAcknowledgement.NotFound
+            : await _formatted.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+
+        if (unformatted is not (GemProcessProgramAcknowledgement.Accepted or GemProcessProgramAcknowledgement.NotFound))
+        {
+            return unformatted;
+        }
+
+        if (formatted is not (GemProcessProgramAcknowledgement.Accepted or GemProcessProgramAcknowledgement.NotFound))
+        {
+            return formatted;
+        }
+
+        return unformatted == GemProcessProgramAcknowledgement.Accepted
+            || formatted == GemProcessProgramAcknowledgement.Accepted
+            ? GemProcessProgramAcknowledgement.Accepted
+            : GemProcessProgramAcknowledgement.NotFound;
+    }
+
+    private async ValueTask<GemProcessProgramAcknowledgement> DeleteEveryProgramAsync(CancellationToken cancellationToken)
+    {
+        var acknowledgement = GemProcessProgramAcknowledgement.Accepted;
+
+        if (_programs is not null)
+        {
+            acknowledgement = await _programs.DeleteAllAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (_formatted is not null)
+        {
+            var formatted = await _formatted.DeleteAllAsync(cancellationToken).ConfigureAwait(false);
+
+            if (formatted != GemProcessProgramAcknowledgement.Accepted)
+            {
+                acknowledgement = formatted;
+            }
+        }
+
+        return acknowledgement;
+    }
+
+    /// <summary>Reads S7F23's body: PPID, MDLN, SOFTREV and the command list.</summary>
+    /// <param name="body">The inbound body.</param>
+    /// <param name="program">The program, or <see langword="null"/> when the body could not be read.</param>
+    /// <returns>The ACKC7 to answer with when <paramref name="program"/> is <see langword="null"/>.</returns>
+    /// <remarks>
+    /// <para>
+    /// Two different refusals, because they are two different problems for the host to fix. A body
+    /// that is not the shape E5 defines is <c>LengthError</c> - the same code S7F3 uses for a body
+    /// this stack could not read, since ACKC7 has none meaning "that made no sense". A body that is
+    /// the right shape but carries a CCODE or a PPARM in a form this stack does not represent is
+    /// <c>ModeUnsupported</c>: the equipment does formatted process programs, just not that flavour
+    /// of one, and a host told "length error" would go looking for the wrong thing.
+    /// </para>
+    /// <para>
+    /// Nothing is read leniently. Mangling a recipe into something storable would be worse than
+    /// refusing it, because the host would be told its recipe landed.
+    /// </para>
+    /// </remarks>
+    private static GemProcessProgramAcknowledgement TryReadFormattedProgram(
+        SecsItem? body,
+        out GemFormattedProcessProgram? program)
+    {
+        program = null;
+
+        if (body is not { IsList: true, Count: 4 }
+            || !body[0].Format.IsText()
+            || !body[1].Format.IsText()
+            || !body[2].Format.IsText()
+            || !body[3].IsList)
+        {
+            return GemProcessProgramAcknowledgement.LengthError;
+        }
+
+        var commands = new List<GemProcessProgramCommand>(body[3].Count);
+
+        foreach (var entry in body[3].Items)
+        {
+            if (entry is not { IsList: true, Count: 2 } || !entry[1].IsList)
+            {
+                return GemProcessProgramAcknowledgement.LengthError;
+            }
+
+            // CCODE in whatever numeric format the host chose, the way every other identifier in
+            // this layer is read - but E5 types it U1[1], so one that does not fit in a byte is a
+            // different command, not this one.
+            if (!TryReadId(entry[0], out var code) || code > byte.MaxValue)
+            {
+                return GemProcessProgramAcknowledgement.ModeUnsupported;
+            }
+
+            var parameters = new List<string>(entry[1].Count);
+
+            foreach (var parameter in entry[1].Items)
+            {
+                if (!parameter.Format.IsText())
+                {
+                    return GemProcessProgramAcknowledgement.ModeUnsupported;
+                }
+
+                // Not trimmed: S7F26 has to give back what arrived, and a trim is not reversible.
+                parameters.Add(parameter.Count == 0 ? string.Empty : parameter.GetString());
+            }
+
+            commands.Add(new GemProcessProgramCommand((byte)code, parameters));
+        }
+
+        program = new GemFormattedProcessProgram(
+            body[0].GetString().TrimEnd(),
+            body[1].GetString().TrimEnd(),
+            body[2].GetString().TrimEnd(),
+            commands);
+
+        return GemProcessProgramAcknowledgement.Accepted;
+    }
+
+    /// <summary>Writes S7F26's body, which is S7F23's body again.</summary>
+    private static SecsItem WriteFormattedProgram(GemFormattedProcessProgram program)
+    {
+        var commands = new List<SecsItem>(program.Commands.Count);
+
+        foreach (var command in program.Commands)
+        {
+            var parameters = new List<SecsItem>(command.Parameters.Count);
+
+            foreach (var parameter in command.Parameters)
+            {
+                parameters.Add(SecsItem.A(parameter).Named("PPARM"));
+            }
+
+            commands.Add(SecsItem.L(
+                SecsItem.U1(command.Code).Named("CCODE"),
+                SecsItem.L(parameters)));
+        }
+
+        return SecsItem.L(
+            SecsItem.A(program.Id).Named("PPID"),
+            SecsItem.A(program.ModelName).Named("MDLN"),
+            SecsItem.A(program.SoftwareRevision).Named("SOFTREV"),
+            SecsItem.L(commands));
     }
 
     /// <summary>Reads a list of text items, tolerating a bare one where a list was expected.</summary>
