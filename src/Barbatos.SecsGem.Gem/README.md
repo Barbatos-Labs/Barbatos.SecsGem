@@ -242,9 +242,68 @@ than the history.
 `MaxSpoolTransmit` caps one burst. Without it, a thousand transactions land the moment a link
 recovers, which is how equipment knocks over the host that was waiting for it.
 
-Equipment that never calls `AddGemSpooling` does not spool and answers S9F5 for S6F23 - "I do not
-do that", which is a different answer from RSDA 1 and a more useful one for a host deciding whether
-to wait.
+Equipment that calls neither `AddGemSpooling` nor `AddGemFileSpooling` does not spool, and answers
+S9F5 for S6F23 - "I do not do that", which is a different answer from RSDA 1 and a more useful one
+for a host deciding whether to wait.
+
+### A spool that outlives the process
+
+`AddGemSpooling` holds reports in memory, and loses them when the equipment is upgraded, crashes or
+loses power - three of the more likely reasons a host was not there. `AddGemFileSpooling` writes
+each held message to a directory instead:
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => { /* ... */ })
+    .AddGemFileSpooling()                        // Barbatos:Gem:SpoolDirectory
+    .RunAsHostedService();
+```
+
+Same `SpoolCapacity`, same `SpoolOverflow`, same S6F23. The difference is what is there when the
+process comes back: `GemFileSpool` adopts the records still in the directory, and the equipment
+adopts what the spool is holding - so `SpoolCountActual` is right, S6F23 Transmit is accepted rather
+than refused, and **`SpoolStartTime` is the oldest held message's own timestamp rather than the time
+the process started.** A host reads that variable to work out how much history it is being offered,
+and the restart is not when the history began.
+
+**One file per message, not one append-only log.** A log is the obvious shape and the wrong one: the
+head has to be removed, so there is a read cursor that must be as durable as the log; the file grows
+until something compacts it; and a record half written when the power went has to be found with a
+checksum. A file per message replaces all three with a rename. The record is written under
+`.spooling` and `File.Move`d into place, and a move within one directory is atomic - so a message is
+either entirely a record or not a record at all. The price is a directory entry per held message,
+which `SpoolCapacity` bounds.
+
+```
+spool/
+  0000000000000000017.spool     a held message
+  0000000000000000018.spool
+```
+
+The sequence, not a timestamp: three reports raised inside the same millisecond still have an
+order, and a host replaying a spool is reading a sequence of events. A reopened spool carries on
+from the highest number it finds, so a message appended after a restart files behind the ones
+already held rather than in front of them.
+
+**Writes go through to the disk.** `FileOptions.WriteThrough`, which costs a disk round trip per
+held message and is the entire point: a buffered write the operating system has not flushed is
+exactly what a power cut takes, and a spool that lost its contents to the failure it exists for
+would be worse than no spool - the equipment would have reported the message held.
+
+**A record that cannot be read is dropped, and counted.** `GemFileSpool.Unreadable` and
+`Discarded` are both observable. A spool that kept retrying a record it cannot read would never
+deliver the messages behind it: every S6F23 would stop on the same file. The same goes for a record
+whose body is not a decodable item tree - the spool stores bytes and cannot know, so the equipment
+catches that one, drops it and carries on with the next.
+
+**A filesystem fails in ways memory does not.** A full disk, a revoked permission, a volume that
+went away: none of them takes the equipment down. A report that cannot be written is not reported
+as held, and the spool state goes to `Full` - which is what a host needs to know, since from its
+side the difference between "out of room" and "out of disk" is nothing it can act on differently.
+
+One spool per directory. Two over the same one would hand the same host each other's messages and
+fight over the sequence numbers.
 
 ## Recipes, if the machine has any
 
@@ -416,7 +475,7 @@ gate, because a host asking for off-line has to be answered with the state its r
 
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
-| A durable spool | Spooling is here, and the spool that ships with it is in memory. Holding reports across the equipment's own restart means an `IGemSpool` over a file or a database - E30 does not require durability and this one does not pretend to it |
+| A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
 | The rest of stream 7 | Both halves E30 asks for are here: S7F1-S7F6 and S7F17-S7F20 unformatted, S7F23-S7F26 formatted. What is left - the directory pair S7F7/F8, verification S7F9/F10, the matrix messages S7F11 through S7F16, references S7F21/F22, and everything from S7F27 up - is outside the GEM capability, and every one of them is an entry [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) flags as representative: a starting point for reading E5 rather than a definition to implement against. Implementing one means reading the standard first, not copying a table |
 | A host-side GEM helper | E30 models the *equipment*. A host sends messages and reads replies, which the HSMS layer already does - see the host sample |
 

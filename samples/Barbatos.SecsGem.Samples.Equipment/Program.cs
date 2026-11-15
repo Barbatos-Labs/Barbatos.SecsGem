@@ -174,10 +174,19 @@ internal static class Program
             // Equipment may offer either half, both, or neither.
             .AddGemFormattedProcessPrograms()
 
-            // Spooling, bounded in memory. Reports raised while no host is listening are held, and
-            // handed over only when the host asks with S6F23 - it may also tell the equipment to
-            // throw them away, which is a decision a host that has just come up is entitled to.
-            .AddGemSpooling()
+            // Spooling to a directory, bounded by SpoolCapacity. Reports raised while no host is
+            // listening are held, and handed over only when the host asks with S6F23 - it may also
+            // tell the equipment to throw them away, which is a decision a host that has just come
+            // up is entitled to.
+            //
+            // AddGemSpooling() instead would hold them in memory: one word shorter, and it loses
+            // them when this process stops. Worth trying the difference. Start this with no host
+            // and wait a minute or two - the chamber's pressure wanders out of its window on its
+            // own, and the alarm it raises with nobody to tell is what gets held. Then stop it,
+            // look in spool/ beside the binary, and start it again: the log says how many records
+            // it adopted, and SpoolStartTime is when the oldest alarm happened rather than when
+            // this process did.
+            .AddGemFileSpooling(Path.Combine(AppContext.BaseDirectory, "spool"))
             .RunAsHostedService();
 
         builder.Services.AddHostedService<ChamberRunner>();

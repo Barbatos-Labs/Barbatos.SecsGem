@@ -102,6 +102,15 @@ public sealed class GemOptions
     /// <summary>Gets or sets what the default spool does when it is full.</summary>
     public GemSpoolOverflowPolicy SpoolOverflow { get; set; } = GemSpoolOverflowPolicy.DiscardNewest;
 
+    /// <summary>Gets or sets where a durable spool keeps its records.</summary>
+    /// <remarks>
+    /// Used by <c>AddGemFileSpooling</c> when it is called without a directory of its own, so the
+    /// path can come from configuration rather than from the code that wires the equipment up -
+    /// which is where a path belongs when the same binary is deployed to more than one machine.
+    /// Ignored entirely by the in-memory spool.
+    /// </remarks>
+    public string? SpoolDirectory { get; set; }
+
     /// <summary>Gets or sets how many messages one S6F23 transmit will send. Zero means all of them.</summary>
     /// <remarks>
     /// E30's MaxSpoolTransmit. A cap matters because the alternative is a thousand transactions
@@ -168,6 +177,16 @@ public sealed class GemOptionsValidator : IValidateOptions<GemOptions>
         if (options.MaxSpoolTransmit < 0)
         {
             failures.Add($"{nameof(GemOptions.MaxSpoolTransmit)} must not be negative. Zero means all of them.");
+        }
+
+        // Set but blank, rather than not set. The second is how most equipment is configured; the
+        // first is a typo in a configuration file, and it would otherwise surface as a directory
+        // called "" the first time a host went away.
+        if (options.SpoolDirectory is not null && string.IsNullOrWhiteSpace(options.SpoolDirectory))
+        {
+            failures.Add(
+                $"{nameof(GemOptions.SpoolDirectory)} is set to blank. Leave it unset for no durable "
+                + "spool, or give it a path.");
         }
 
         if (options.DefaultControlState is GemControlState.AttemptOnline or GemControlState.HostOffline)

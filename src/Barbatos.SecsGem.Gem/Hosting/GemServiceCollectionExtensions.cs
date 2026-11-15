@@ -269,6 +269,54 @@ public static class GemServiceCollectionExtensions
         return DeclareSpooling(builder);
     }
 
+    /// <summary>Adds spooling that survives the equipment's own restart, backed by a directory.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="directory">
+    /// Where the records live. <see langword="null"/> takes <see cref="GemOptions.SpoolDirectory"/>,
+    /// so the path can come from configuration.
+    /// </param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// Uses <see cref="GemOptions.SpoolCapacity"/> and <see cref="GemOptions.SpoolOverflow"/>, the
+    /// same as the in-memory spool. The difference is where the messages are when the process comes
+    /// back: <see cref="GemFileSpool"/> adopts what is still in the directory, and the equipment
+    /// adopts what the spool is holding, so a host can ask for reports raised before an upgrade or
+    /// a power cut.
+    /// </para>
+    /// <para>
+    /// Throws <see cref="InvalidOperationException"/> when the spool is resolved with no directory
+    /// from either source - at the first resolve rather than at the first held message, because a
+    /// spool that cannot be built is a configuration fault and not a runtime one.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemFileSpooling(this ISecsGemBuilder builder, string? directory = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton<IGemSpool>(provider =>
+        {
+            var options = provider.GetRequiredService<IOptions<GemOptions>>().Value;
+            var path = directory ?? options.SpoolDirectory;
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(AddGemFileSpooling)} needs a directory. Pass one to the call, or set "
+                    + $"{nameof(GemOptions)}.{nameof(GemOptions.SpoolDirectory)} "
+                    + $"({GemOptions.SectionName}:{nameof(GemOptions.SpoolDirectory)} in configuration).");
+            }
+
+            return new GemFileSpool(
+                path,
+                options.SpoolCapacity,
+                options.SpoolOverflow,
+                provider.GetService<ILogger<GemFileSpool>>());
+        });
+
+        return DeclareSpooling(builder);
+    }
+
     /// <summary>Adds spooling, backed by a spool of your own.</summary>
     /// <typeparam name="TSpool">The spool.</typeparam>
     /// <param name="builder">The builder.</param>

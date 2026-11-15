@@ -31,6 +31,9 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
   - [`GemSpooledMessage`](#gemspooledmessage)
   - [`IGemSpool`](#igemspool)
   - [`GemInMemorySpool`](#geminmemoryspool)
+  - [`GemFileSpool`](#gemfilespool)
+  - [`AddGemFileSpooling`](#addgemfilespooling)
+  - [What the equipment does with a durable spool](#what-the-equipment-does-with-a-durable-spool)
   - [`AddGemSpooling`](#addgemspooling)
 - [Process programs](#process-programs)
   - [`IGemProcessProgramStore`](#igemprocessprogramstore)
@@ -364,7 +367,7 @@ handler; do not keep one past the call, and do not dispose one.
 
 ## Spooling
 
-Opt-in. Without `AddGemSpooling`, S6F23 is not in the routing table and the connection answers S9F5
+Opt-in. Without `AddGemSpooling` or `AddGemFileSpooling`, S6F23 is not in the routing table and the connection answers S9F5
 for it.
 
 ### On `GemEquipment`
@@ -453,6 +456,85 @@ the wrong end.
 
 Bounded, and never grows past its capacity - the only honest way to hold data for a host that may
 never come back. Not durable.
+
+### `GemFileSpool`
+
+`public sealed class GemFileSpool : IGemSpool`
+
+A spool that survives the equipment's own restart, by keeping each held message in its own file.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemFileSpool(string directory, int capacity = 1000, GemSpoolOverflowPolicy overflow = DiscardNewest, ILogger<GemFileSpool>? logger = null)` | Creates the directory and adopts the records already in it. Throws `ArgumentOutOfRangeException` below capacity 1, and `IOException` for a directory it cannot create or read. |
+| `Directory` | `string { get; }` | A full path, resolved in the constructor - a relative path that worked at start-up and not after a working-directory change is a fab-only failure. |
+| `Capacity` / `Overflow` | | As `GemInMemorySpool`. |
+| `Discarded` | `int { get; }` | Dropped because the spool was full. |
+| `Unreadable` | `int { get; }` | Dropped because the record could not be read back. |
+| `RecordExtension` | `const string` | `.spool` |
+| `PartialExtension` | `const string` | `.spooling` - a record being written. |
+
+**One file per message, not one append-only log.** Removing the head of a log needs a read cursor
+as durable as the log itself, the log needs compacting, and a record half written when the power
+went needs a checksum to find. A file per message replaces all three with a rename: the record is
+written as `.spooling` and `File.Move`d into place, and a move within one directory is atomic, so a
+message is either entirely a record or not a record at all.
+
+The order is held in memory and the files are the durable copy, so counting, appending and removing
+cost no directory scan. Only `TryPeekAsync` reads a file - once per message transmitted - and the
+scan happens once, in the constructor.
+
+Records are named with a zero-padded sequence rather than a timestamp, because reports raised in
+the same millisecond still have an order. A reopened spool continues from the highest number it
+finds. A leftover `.spooling` file is deleted on open: its write never finished, so `TryAppendAsync`
+never returned and nothing was told the message was held. A file whose name is not a sequence number
+is left alone.
+
+Writes go through `FileOptions.WriteThrough` - a disk round trip per held message, which is the
+point: a buffered write the operating system has not flushed is what a power cut takes.
+
+`TryPeekAsync` drops a record it cannot read and counts it in `Unreadable`, which makes it the one
+method here that both reads a file and changes what is held. Retrying it instead would mean every
+S6F23 stopping on the same file and never delivering the messages behind it. A disk or permission
+error, by contrast, propagates: deleting data on the strength of a transient failure is not a
+repair, and the equipment handles those - see below.
+
+One spool per directory.
+
+### `AddGemFileSpooling`
+
+```csharp
+public static ISecsGemBuilder AddGemFileSpooling(this ISecsGemBuilder builder, string? directory = null)
+```
+
+Registers a `GemFileSpool` over `directory`, or over `GemOptions.SpoolDirectory` when that is
+`null`, and declares `GemEquipment.SpoolMessages` with it. Uses `GemOptions.SpoolCapacity` and
+`GemOptions.SpoolOverflow`, the same as the in-memory spool.
+
+Throws `InvalidOperationException` at the first resolve when neither source gives a directory, not
+at the first held message: a spool that cannot be built is a configuration fault.
+
+### What the equipment does with a durable spool
+
+Two behaviours exist for this spool and are harmless with the in-memory one.
+
+`RunAsync` **adopts whatever the spool is already holding**, before anything else. S6F23 Transmit is
+gated on `SpoolCountActual`, so equipment that started at zero over a spool holding a hundred
+messages would answer RSDA 1 - "there is nothing spooled" - while a hundred reports sat on the disk.
+`SpoolCountActual` and `SpoolCountTotal` are seeded from the count, the state becomes `Active`, and
+`SpoolStartTime` comes from **the oldest held message** rather than from the restart. Spooling
+switched off adopts nothing, and leaves the records where they are.
+
+`IOException` and `UnauthorizedAccessException` from a spool are handled rather than thrown:
+
+| Where | What happens |
+| --- | --- |
+| Holding a message | Logged, counted in `SpoolCountDiscarded`, state `Full`, and `TriggerEventAsync` returns `false`. From the host's side "out of room" and "out of disk" are the same thing. |
+| Reading the spool to transmit | Logged, transmitting stops, everything stays held for the next S6F23. |
+| Removing a message already sent | Logged, transmitting stops. |
+
+A held message whose body is not a decodable item tree is dropped by the transmit loop, separately
+from the `SecsException` that means the link failed - that one leaves the message at the head on
+purpose, and this one can never be sent at all.
 
 ### `AddGemSpooling`
 
@@ -653,8 +735,9 @@ truthiness rather than for zero has it exactly backwards.
 | `AcceptHostClockSet` | `bool { get; set; }` | `true` | Moves an internal offset, never the operating system clock. |
 | `ResetLinkStateOnDisconnect` | `bool { get; set; }` | `true` | Report definitions do not survive a reconnection. |
 | `SpoolingEnabled` | `bool { get; set; }` | `true` | The configuration override, not the switch - registering an `IGemSpool` is what turns spooling on. |
-| `SpoolCapacity` | `int { get; set; }` | `1000` | Sizes the default in-memory spool. Must be at least 1 when spooling is enabled. |
+| `SpoolCapacity` | `int { get; set; }` | `1000` | Sizes either spool that ships here. Must be at least 1 when spooling is enabled. |
 | `SpoolOverflow` | `GemSpoolOverflowPolicy { get; set; }` | `DiscardNewest` | |
+| `SpoolDirectory` | `string? { get; set; }` | `null` | Where `AddGemFileSpooling` keeps its records when the call gives no directory of its own, so the path can come from configuration. Set but blank fails validation: that is a typo, where unset is a deployment with no durable spool. Ignored by the in-memory spool. |
 | `MaxSpoolTransmit` | `int { get; set; }` | `0`, meaning all of them | E30's MaxSpoolTransmit: how many messages one S6F23 transmit sends. |
 
 ### `GemOptionsValidator`

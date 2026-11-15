@@ -307,6 +307,10 @@ public sealed class GemEquipment : IAsyncDisposable
 
         try
         {
+            // Before anything else: a spool that outlived the last process may already be holding
+            // messages, and this is the only place that looks.
+            await AdoptSpooledMessagesAsync(cancellationToken).ConfigureAwait(false);
+
             // The link may already be up: this object can be started after the connection.
             if (_connection.IsSelected)
             {
@@ -1731,14 +1735,39 @@ public sealed class GemEquipment : IAsyncDisposable
         }
 
         var before = SpoolCountActual;
-        var accepted = await _spool!
-            .TryAppendAsync(GemSpooledMessage.From(message, now), cancellationToken)
-            .ConfigureAwait(false);
+        bool accepted;
+        int after;
 
-        // The spool's own count rather than an increment of ours. Under DiscardOldest an append
-        // succeeds while something else is dropped, so counting our own calls would drift from
-        // what is actually held - and SpoolCountActual is a number a host acts on.
-        var after = await _spool.CountAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            accepted = await _spool!
+                .TryAppendAsync(GemSpooledMessage.From(message, now), cancellationToken)
+                .ConfigureAwait(false);
+
+            // The spool's own count rather than an increment of ours. Under DiscardOldest an append
+            // succeeds while something else is dropped, so counting our own calls would drift from
+            // what is actually held - and SpoolCountActual is a number a host acts on.
+            after = await _spool.CountAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A durable spool is a filesystem, and a filesystem fails in ways memory does not: a
+            // full disk, a revoked permission, a volume that went away. None of them is a reason to
+            // take down the equipment, and none is a reason to tell the caller the report was kept.
+            // From the host's point of view the spool cannot take any more, which is what Full
+            // means and what SpoolFullTime records.
+            _logger.LogError(
+                exception,
+                "S{S}F{F} could not be spooled; the spool is not accepting messages.",
+                message.S,
+                message.F);
+
+            Interlocked.Increment(ref _spoolDiscarded);
+            SetSpoolState(GemSpoolState.Full, "the spool could not be written");
+
+            return false;
+        }
+
         Volatile.Write(ref _spoolActual, after);
 
         if (accepted)
@@ -1771,59 +1800,90 @@ public sealed class GemEquipment : IAsyncDisposable
 
         while (sent < budget && IsCommunicating)
         {
-            var held = await _spool.TryPeekAsync(cancellationToken).ConfigureAwait(false);
+            GemSpooledMessage? held;
+
+            try
+            {
+                held = await _spool.TryPeekAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A durable spool reads from a disk, and a disk that cannot be read is no reason to
+                // drop what is on it. Everything stays held and the next S6F23 tries again.
+                _logger.LogError(
+                    exception,
+                    "The spool could not be read after {Sent} message(s); the rest are still held.",
+                    sent);
+
+                return;
+            }
 
             if (held is null)
             {
                 break;
             }
 
-            using var message = held.ToMessage();
+            SecsMessage message;
 
             try
             {
-                if (message.ReplyExpected)
-                {
-                    using var acknowledgement = await _connection
-                        .SendAsync(message, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                else
-                {
-                    await _connection.PostAsync(message, cancellationToken).ConfigureAwait(false);
-                }
+                message = held.ToMessage();
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (SecsException exception)
             {
-                throw;
-            }
-            catch (SecsException ex)
-            {
-                // Peeked, not taken, so it is still at the head and still first. This is the whole
-                // reason IGemSpool separates peeking from removing: a transmit that fails half way
-                // must leave the rest in order, and a dequeue that has to put something back puts
-                // it at the wrong end.
-                _logger.LogWarning(
-                    ex,
-                    "Spool transmit stopped after {Sent} message(s); {Held} still held.",
-                    sent,
-                    SpoolCountActual);
+                // The body is not a decodable item tree. A spool cannot know that - it stores bytes
+                // - so this is the equipment's to catch, and it is caught separately from the send
+                // below on purpose: that one means the link failed and the message must stay, while
+                // this one can never be sent at all. Leaving it at the head would stall every S6F23
+                // from now on against the same record.
+                _logger.LogError(exception, "A spooled {Held} could not be decoded and has been dropped.", held);
 
+                if (!await TakeSpoolHeadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                continue;
+            }
+
+            using (message)
+            {
+                try
+                {
+                    if (message.ReplyExpected)
+                    {
+                        using var acknowledgement = await _connection
+                            .SendAsync(message, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await _connection.PostAsync(message, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (SecsException ex)
+                {
+                    // Peeked, not taken, so it is still at the head and still first. This is the
+                    // whole reason IGemSpool separates peeking from removing: a transmit that fails
+                    // half way must leave the rest in order, and a dequeue that has to put
+                    // something back puts it at the wrong end.
+                    _logger.LogWarning(
+                        ex,
+                        "Spool transmit stopped after {Sent} message(s); {Held} still held.",
+                        sent,
+                        SpoolCountActual);
+
+                    return;
+                }
+            }
+
+            if (!await TakeSpoolHeadAsync(cancellationToken).ConfigureAwait(false))
+            {
                 return;
-            }
-
-            await _spool.RemoveHeadAsync(cancellationToken).ConfigureAwait(false);
-
-            var remaining = await _spool.CountAsync(cancellationToken).ConfigureAwait(false);
-            Volatile.Write(ref _spoolActual, remaining);
-
-            // The state follows the count immediately rather than after the loop. Otherwise the
-            // two disagree for as long as the last send takes - count zero, state Active - and
-            // anything watching both, a host reading status variables included, can see a spool
-            // that is empty and active at the same time.
-            if (remaining == 0)
-            {
-                OnSpoolEmptied("the spool was transmitted");
             }
 
             sent++;
@@ -1838,6 +1898,98 @@ public sealed class GemEquipment : IAsyncDisposable
             "Transmitted {Sent} spooled message(s); {Held} still held.",
             sent,
             SpoolCountActual);
+    }
+
+    /// <summary>Removes the head, having dealt with it, and brings the counters with it.</summary>
+    /// <returns><see langword="false"/> when the spool could not be written and transmitting must stop.</returns>
+    private async ValueTask<bool> TakeSpoolHeadAsync(CancellationToken cancellationToken)
+    {
+        int remaining;
+
+        try
+        {
+            await _spool!.RemoveHeadAsync(cancellationToken).ConfigureAwait(false);
+            remaining = await _spool.CountAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogError(exception, "The spool head could not be removed; transmitting has stopped.");
+            return false;
+        }
+
+        Volatile.Write(ref _spoolActual, remaining);
+
+        // The state follows the count immediately rather than after the loop. Otherwise the two
+        // disagree for as long as the last send takes - count zero, state Active - and anything
+        // watching both, a host reading status variables included, can see a spool that is empty
+        // and active at the same time.
+        if (remaining == 0)
+        {
+            OnSpoolEmptied("the spool was transmitted");
+        }
+
+        return true;
+    }
+
+    /// <summary>Takes on whatever a durable spool was already holding when this object was built.</summary>
+    /// <remarks>
+    /// <para>
+    /// Nothing else would find them. S6F23 Transmit is gated on <see cref="SpoolCountActual"/>, so
+    /// an equipment that started at zero over a spool holding a hundred messages would answer
+    /// RSDA 1 - "there is nothing spooled" - while a hundred reports sat on the disk. That is the
+    /// difference between a spool that is durable and a spool that merely writes files.
+    /// </para>
+    /// <para>
+    /// <see cref="SpoolStartTime"/> comes from the oldest held message rather than from now,
+    /// because E30 has a host read it to work out how much history it is being offered, and the
+    /// restart is not when the history began. The two are the same number only for equipment that
+    /// has never been restarted.
+    /// </para>
+    /// <para>
+    /// Spooling switched off adopts nothing, held messages or not: equipment that is not spooling
+    /// should not report a spool, and the records stay on the disk for a deployment that turns it
+    /// back on.
+    /// </para>
+    /// </remarks>
+    private async ValueTask AdoptSpooledMessagesAsync(CancellationToken cancellationToken)
+    {
+        if (!IsSpooling)
+        {
+            return;
+        }
+
+        GemSpooledMessage? oldest;
+        int held;
+
+        try
+        {
+            // Peeked before counting, because a durable spool may drop a record it cannot read as
+            // it reads, and a count taken first would then be one too many.
+            oldest = await _spool!.TryPeekAsync(cancellationToken).ConfigureAwait(false);
+
+            if (oldest is null)
+            {
+                return;
+            }
+
+            held = await _spool.CountAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogError(exception, "The spool could not be read at start-up; starting with nothing held.");
+            return;
+        }
+
+        if (held == 0)
+        {
+            return;
+        }
+
+        Volatile.Write(ref _spoolActual, held);
+        Volatile.Write(ref _spoolTotal, held);
+        _spoolStart = oldest.SpooledAt;
+
+        SetSpoolState(GemSpoolState.Active, $"{held} message(s) were already held at start-up");
     }
 
     private void OnSpoolEmptied(string reason)

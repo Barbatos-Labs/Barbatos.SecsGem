@@ -152,6 +152,7 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 9 | Spooling: holding reports while the host is away, and handing them over - or throwing them away - when it asks with S6F23. | Done |
 | 10 | A consumer that restores the packed `.nupkg` files rather than the projects, on all three runtimes and both CI legs. The first check of `lib/` layout, declared dependencies, embedded resources, and whether the compiler loads the generator out of `analyzers/dotnet/cs`. | Done |
 | 11 | Formatted process programs (S7F23-S7F26): a recipe as the structure E5 defines rather than a block of bytes, refused rather than reshaped when it carries something this stack cannot represent. Completes the stream 7 that E30 asks for - what is left of the stream is outside the GEM capability and is flagged representative in the catalogue. | Done |
+| 12 | A spool that survives the equipment's own restart: one file per held message, committed with an atomic rename, written through to the disk. The equipment adopts what it finds, reports `SpoolStartTime` from the oldest message rather than from the restart, and stays up when the filesystem does not. | Done |
 
 ## Licence
 
