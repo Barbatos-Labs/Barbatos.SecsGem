@@ -186,6 +186,75 @@ while the chamber was out of range.
 **S6F15 answers a disabled event.** S2F37 governs what the equipment sends on its own; a host
 asking directly has already said it wants this one now.
 
+## A value every second, without asking every second
+
+A trace is the answer to a host that wants a variable sampled on an interval. It names the
+variables, the period, how many samples it wants and how many should travel together; the
+equipment samples on its own clock and sends a group when it has one:
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => { /* ... */ })
+    .AddGemTraces()                              // S2F23, and the S6F1 groups it produces
+    .RunAsHostedService();
+```
+
+```csharp
+// From the host: 600 samples of two variables, one a second, ten to a message.
+await host.StartTraceAsync(new GemTraceRequest(1, TimeSpan.FromSeconds(1), 600, 10, [2, 3]));
+```
+
+Sixty messages rather than six hundred, which is the whole point of REPGSZ.
+
+**The sampling happens on the equipment's own loop.** The timer does nothing but say which trace is
+due; reading the variables and building the report happen where every other message is handled, so
+a sample is never taken while a handler is halfway through changing the thing being sampled.
+
+**Each sample is the value at its own moment.** A trace is not three reads of whatever the variable
+holds when the group goes out - that would make the interval meaningless.
+
+```csharp
+_pressure = 100; // sample 1
+_pressure = 200; // sample 2
+_pressure = 300; // sample 3
+// one S6F1 carrying 100, 200, 300
+```
+
+**SMPLN and STIME describe the last sample in the group**, which is what lets a host put a group
+that arrived late back in order. A trace group goes out through the same path as an event report,
+so one that cannot be delivered is spooled rather than lost.
+
+**The last group goes even when it is short.** A trace of three samples in groups of two sends two
+and then one: the host asked for three, and holding the third back for a group that will never fill
+would lose it.
+
+**TIAACK names the reason.** The five refusals are the five ways an S2F23 can be wrong, and each is
+something a host can fix:
+
+| Code | Means |
+| --- | --- |
+| 1 | More variables than `MaxTraceVariables` |
+| 2 | As many traces already running as `MaxTraces` |
+| 3 | DSPER was not a period this equipment can sample on |
+| 4 | A variable it does not have - or a *data* variable, which only has a value inside the event it belongs to |
+| 5 | REPGSZ does not fit the samples asked for |
+
+One caveat worth knowing: E5's own table for TIAACK is these six codes, while
+[`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) flags S2F24 as a representative
+entry and lists only 0 and 1. Both agree on the only thing a host must get right - zero is accepted
+- so a host that tests for zero is safe against either reading.
+
+**A request for zero samples is a request to stop.** E5 defines S2F23 as *initialising* a trace, so
+re-initialising a running TRID to take none of them and cancelling it are the same request;
+`StopTraceAsync` sends exactly that. The standard leaves room for reading zero as "run for ever"
+instead, and this is the safer of the two: a host that meant "stop" and was understood as "for ever"
+floods, while one that meant "for ever" and was understood as "stop" gets no data and asks again.
+
+A re-initialised TRID needs no new slot, which is how a host changes a running trace's period. And
+a trace does not survive a re-established link: it is host configuration, like a report definition,
+and a host that has forgotten about one has no TRID left to cancel it with.
+
 ## Holding reports for a host that is not there
 
 A machine does not stop while the host is away. Spooling is E30's answer: hold what could not be
@@ -595,7 +664,8 @@ not a wall in front of it.
 | --- | --- |
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
 | The rest of stream 7 | Both halves E30 asks for are here: S7F1-S7F6 and S7F17-S7F20 unformatted, S7F23-S7F26 formatted. What is left - the directory pair S7F7/F8, verification S7F9/F10, the matrix messages S7F11 through S7F16, references S7F21/F22, and everything from S7F27 up - is outside the GEM capability, and every one of them is an entry [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) flags as representative: a starting point for reading E5 rather than a definition to implement against. Implementing one means reading the standard first, not copying a table |
-| Trace data collection, and limits monitoring | The two E30 data-collection capabilities still missing: S2F23 starts a trace and S6F1 reports it on an interval, and S2F45 attaches limits to a variable so the equipment reports crossing one rather than the host polling for it. Both are real fab features and both want a timer on `TimeProvider` and a definition store, which is the shape this layer already has twice |
+| Limits monitoring | The last E30 data-collection capability: S2F45 attaches limits to a variable so the equipment reports crossing one rather than the host polling for it. It wants a definition store and an evaluation on every variable read, which is a different shape from a trace's timer |
+| A trace that outlives a reconnect | Deliberate, and the only part of tracing with no test of its own. Every trace is cancelled where the host's report definitions are reset, on a re-establish - and an in-memory transport pair cannot re-select after a deselect, because the select is driven by the connection's own state machine and nothing public asks it to. The test covers the other side: that a second S1F13 on a live conversation resets nothing |
 | Streams this library does not implement at either end | Stream 3 material status, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |
 
 ## Documentation

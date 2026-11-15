@@ -35,6 +35,10 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
   - [`AddGemFileSpooling`](#addgemfilespooling)
   - [What the equipment does with a durable spool](#what-the-equipment-does-with-a-durable-spool)
   - [`AddGemSpooling`](#addgemspooling)
+- [Trace data collection](#trace-data-collection)
+  - [`GemTraceRequest`](#gemtracerequest)
+  - [`GemTraceAcknowledgement`](#gemtraceacknowledgement)
+  - [`AddGemTraces`](#addgemtraces)
 - [Terminal services](#terminal-services)
   - [`IGemTerminal`](#igemterminal)
   - [`GemTerminalMessage`](#gemterminalmessage)
@@ -570,6 +574,74 @@ to use it.
 
 ---
 
+## Trace data collection
+
+E30's trace capability: the host names variables, a period and a count, and the equipment samples
+on its own clock and reports the samples in groups. Opt-in through `AddGemTraces`, and the one
+capability here that needs nothing registered with it - a trace samples status variables the model
+already has.
+
+### `GemTraceRequest`
+
+`public sealed class GemTraceRequest`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemTraceRequest(uint id, TimeSpan period, int totalSamples, int groupSize, IReadOnlyList<uint> variableIds)` | Copies the identifiers. |
+| `Id` | `uint { get; }` | TRID. |
+| `Period` | `TimeSpan { get; }` | DSPER. Travels as `hhmmss` or `hhmmsscc`, so finer than a hundredth of a second rounds away and a hundred hours does not fit. |
+| `TotalSamples` | `int { get; }` | TOTSMP. **Zero cancels the trace with this identifier.** |
+| `GroupSize` | `int { get; }` | REPGSZ: how many samples travel in one S6F1. |
+| `VariableIds` | `IReadOnlyList<uint> { get; }` | The SVIDs, in the order they are reported. |
+
+A request for zero samples is a request to stop, because E5 defines S2F23 as *initialising* a
+trace. The standard leaves room for reading zero as "run for ever"; this is the safer reading - a
+host that meant "stop" and was understood as "for ever" floods, and the other way round it simply
+asks again.
+
+### `GemTraceAcknowledgement`
+
+`public enum GemTraceAcknowledgement : byte` - TIAACK.
+
+| Member | Value | Means |
+| --- | --- | --- |
+| `Accepted` | 0 | The trace is running. |
+| `TooManyVariables` | 1 | More than `GemOptions.MaxTraceVariables`. |
+| `NoMoreTracesAllowed` | 2 | As many running as `GemOptions.MaxTraces`. |
+| `InvalidPeriod` | 3 | DSPER was not a period this equipment can sample on. |
+| `UnknownVariable` | 4 | Not a variable it has - or a *data* variable, which only has a value inside the event it belongs to. |
+| `InvalidGroupSize` | 5 | REPGSZ does not fit the samples asked for. |
+
+E5's own table is these six codes; `Barbatos.SecsGem.Catalog` flags S2F24 as a representative entry
+and lists only 0 and 1. Both agree that zero is accepted, so a host that tests for zero is safe
+against either reading.
+
+A body that is not the five items E5 defines has no field to blame, and TIAACK has no code for
+"that made no sense", so the code for one is a best effort - what a host must read from it is that
+it is not zero.
+
+### On `GemEquipment`
+
+| Member | Notes |
+| --- | --- |
+| `TraceMessages` | S2F23. S6F1 is the equipment's to send, through the same path as an event report - so a group that cannot be delivered is spooled. |
+
+Sampling happens on the equipment's own loop; the timer only says which trace is due. Each sample
+is the value at its own moment, the last group goes even when it is short of REPGSZ, and SMPLN and
+STIME describe the last sample in the group. A re-initialised TRID needs no new slot, and every
+trace is cancelled where the host's report definitions are reset.
+
+### `AddGemTraces`
+
+```csharp
+public static ISecsGemBuilder AddGemTraces(this ISecsGemBuilder builder)
+```
+
+Declares `GemEquipment.TraceMessages` and nothing else. Equipment that leaves it out answers S9F5
+for S2F23, which is better than accepting a trace it will not run.
+
+---
+
 ## Terminal services
 
 E30's stream 10 capability: text in front of whoever is standing at the machine, and text back
@@ -844,6 +916,8 @@ table claiming it.
 | `ListProcessProgramsAsync` | S7F19 | `IReadOnlyList<string>` |
 | `SendFormattedProcessProgramAsync(program)` | S7F23 | `GemProcessProgramAcknowledgement` |
 | `RequestFormattedProcessProgramAsync(id)` | S7F25 | `GemFormattedProcessProgram?` |
+| `StartTraceAsync(trace)` | S2F23 | `GemTraceAcknowledgement`. Throws `ArgumentOutOfRangeException` for a period the `hhmmsscc` field cannot carry, rather than spending a round trip on arithmetic the host could have done |
+| `StopTraceAsync(traceId)` | S2F23 asking for no samples | `GemTraceAcknowledgement`. Accepted for a trace that was not running |
 | `DisplayTerminalMessageAsync(text, terminalId)` | S10F3 | `GemTerminalAcknowledgement` |
 | `DisplayTerminalMessageAsync(lines, terminalId)` | S10F5 | `GemTerminalAcknowledgement`. A one-entry list still sends the multi-block form |
 | `BroadcastAsync(text)` | S10F9 | `GemTerminalAcknowledgement`. No TID: a broadcast is for every terminal |
@@ -908,6 +982,7 @@ that message is disposed as soon as the event returns. Read what you need, or co
 | --- | --- | --- |
 | `GemEventReportEventArgs` | `DataId`, `EventId`, `Reports` | `Acknowledgement` (ACKC6) |
 | `GemHostAlarmEventArgs` | `Alarm` | `Acknowledgement` (ACKC5) |
+| `GemTraceDataEventArgs` | `TraceId`, `SampleNumber` and `SampledAt` (both describing the **last** sample in the group), `Samples` - each a live view, valid only inside the handler | `Acknowledgement` (ACKC6) |
 | `GemTerminalRequestEventArgs` | `TerminalId`, `Text` (not trimmed - TEXT is variable-length, so its spaces are somebody's) | `Acknowledgement` (ACKC10) |
 | `GemHostErrorEventArgs` | `Function`, `OffendingHeader` (ten bytes, copied; empty for S9F13), `Description` (S9F13's MEXP and EDID, else empty) | - |
 | `GemHostCommunicationStateChangedEventArgs` | `IsCommunicating`, `Reason` | - |
@@ -961,6 +1036,8 @@ truthiness rather than for zero has it exactly backwards.
 | `SpoolingEnabled` | `bool { get; set; }` | `true` | The configuration override, not the switch - registering an `IGemSpool` is what turns spooling on. |
 | `SpoolCapacity` | `int { get; set; }` | `1000` | Sizes either spool that ships here. Must be at least 1 when spooling is enabled. |
 | `SpoolOverflow` | `GemSpoolOverflowPolicy { get; set; }` | `DiscardNewest` | |
+| `MaxTraces` | `int { get; set; }` | `4` | How many traces may run at once; what TIAACK 2 reports. Must be at least 1. |
+| `MaxTraceVariables` | `int { get; set; }` | `64` | How many variables one trace may sample; what TIAACK 1 reports. Must be at least 1. |
 | `SpoolDirectory` | `string? { get; set; }` | `null` | Where `AddGemFileSpooling` keeps its records when the call gives no directory of its own, so the path can come from configuration. Set but blank fails validation: that is a typo, where unset is a deployment with no durable spool. Ignored by the in-memory spool. |
 | `MaxSpoolTransmit` | `int { get; set; }` | `0`, meaning all of them | E30's MaxSpoolTransmit: how many messages one S6F23 transmit sends. |
 

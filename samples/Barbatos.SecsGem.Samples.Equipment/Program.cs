@@ -181,6 +181,11 @@ internal static class Program
             // no screen rather than ACKC10 2 for every message.
             .AddGemTerminal()
 
+            // Trace data collection: the host asks for a variable on an interval and the equipment
+            // samples on its own clock. Nothing to register with it - a trace samples the status
+            // variables declared above - so this line is the whole capability.
+            .AddGemTraces()
+
             // Spooling to a directory, bounded by SpoolCapacity. Reports raised while no host is
             // listening are held, and handed over only when the host asks with S6F23 - it may also
             // tell the equipment to throw them away, which is a decision a host that has just come

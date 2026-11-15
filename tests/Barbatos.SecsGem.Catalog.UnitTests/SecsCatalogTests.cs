@@ -306,6 +306,44 @@ public class SecsCatalogTests
         Assert.Equal(["ACKC6"], acknowledge.DataItems);
     }
 
+    [Fact]
+    public void No_two_messages_in_one_stream_share_a_name()
+    {
+        // 524 rows nobody can read by eye, and an invariant that holds across every one of them:
+        // E5 does not give two functions in the same stream the same name. It found a real fault
+        // in this data - S6F1 and S6F2 carried S6F11's and S6F12's names and item lists, which
+        // also left SMPLN and STIME defined as data items no message referenced. S6F1 is Trace
+        // Data Send.
+        List<string> duplicates = [];
+
+        foreach (var stream in SecsCatalog.Streams)
+        {
+            foreach (var group in stream.Messages.GroupBy(message => message.Name, StringComparer.Ordinal))
+            {
+                if (group.Count() > 1)
+                {
+                    var functions = string.Join(", ", group.Select(message => "F" + message.Function));
+                    duplicates.Add($"S{stream.Number} \"{group.Key}\" is {functions}");
+                }
+            }
+        }
+
+        Assert.Empty(duplicates);
+    }
+
+    [Fact]
+    public void Stream_six_opens_with_trace_data_rather_than_with_an_event_report()
+    {
+        // The two were the same row in this data until a trace needed S6F1, and nothing noticed
+        // because a duplicate reads perfectly well on its own.
+        Assert.Equal("Trace Data Send", SecsCatalog.NameOf(6, 1));
+        Assert.Equal("Trace Data Acknowledge", SecsCatalog.NameOf(6, 2));
+        Assert.Equal("Event Report Send", SecsCatalog.NameOf(6, 11));
+
+        Assert.True(SecsCatalog.TryGetMessage(6, 1, out var trace));
+        Assert.Equal(new[] { "TRID", "SMPLN", "STIME", "SV" }, trace!.DataItems);
+    }
+
     [Theory]
     [InlineData(1, 12, new[] { "SVID", "SVNAME", "UNITS" })]
     [InlineData(2, 30, new[] { "ECID", "ECNAME", "ECMIN", "ECMAX", "ECDEF", "UNITS" })]

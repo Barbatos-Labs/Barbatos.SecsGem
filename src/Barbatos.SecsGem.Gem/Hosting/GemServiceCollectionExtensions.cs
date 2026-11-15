@@ -417,6 +417,34 @@ public static class GemServiceCollectionExtensions
         return DeclareSpooling(builder);
     }
 
+    /// <summary>Adds trace data collection: S2F23, and the S6F1 groups it produces.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// The one capability here that needs nothing registered with it - a trace samples status
+    /// variables the model already has - so this declares <see cref="GemEquipment.TraceMessages"/>
+    /// and nothing else. Equipment that leaves it out answers S9F5 for S2F23, which is better than
+    /// accepting a trace it will not run.
+    /// </para>
+    /// <para>
+    /// Bounded by <see cref="GemOptions.MaxTraces"/> and
+    /// <see cref="GemOptions.MaxTraceVariables"/>, which are what TIAACK 2 and TIAACK 1 report.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemTraces(this ISecsGemBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        foreach (var (stream, function) in GemEquipment.TraceMessages)
+        {
+            builder.OnPrimary(stream, function, static provider =>
+                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
+        }
+
+        return builder;
+    }
+
     /// <summary>Adds terminal services, backed by a terminal that only remembers.</summary>
     /// <param name="builder">The builder.</param>
     /// <returns>The builder, for chaining.</returns>

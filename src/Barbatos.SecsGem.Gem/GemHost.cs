@@ -102,6 +102,7 @@ public sealed class GemHost : IAsyncDisposable
         (1, 1),    // Are You There
         (1, 13),   // Establish Communications Request
         (5, 1),    // Alarm Report Send
+        (6, 1),    // Trace Data Send
         (6, 11),   // Event Report Send
         (6, 13),   // Annotated Event Report Send
         (10, 1),   // Terminal Request
@@ -126,6 +127,14 @@ public sealed class GemHost : IAsyncDisposable
 
     /// <summary>Raised when the equipment reports an error in stream 9.</summary>
     public event EventHandler<GemHostErrorEventArgs>? ErrorReported;
+
+    /// <summary>Raised when a group of trace samples arrives - S6F1.</summary>
+    /// <remarks>
+    /// Everything in <see cref="GemTraceDataEventArgs.Samples"/> is alive only until the handler
+    /// returns. A trace of one variable every second for an hour is 3,600 samples: read what you
+    /// are keeping and keep the value, not the item.
+    /// </remarks>
+    public event EventHandler<GemTraceDataEventArgs>? TraceDataReceived;
 
     /// <summary>Raised when an operator at the machine sends the host something - S10F1.</summary>
     /// <remarks>
@@ -171,6 +180,7 @@ public sealed class GemHost : IAsyncDisposable
             (1, 1) => OnAreYouThere(),
             (1, 13) => OnEstablishCommunications(),
             (5, 1) => OnAlarmReport(transaction.Message),
+            (6, 1) => OnTraceData(transaction.Message),
             (6, 11) => OnEventReport(transaction.Message, 12),
             (6, 13) => OnEventReport(transaction.Message, 14),
             (10, 1) => OnTerminalRequest(transaction.Message),
@@ -391,6 +401,57 @@ public sealed class GemHost : IAsyncDisposable
 
         return (GemEquipmentConstantAcknowledgement)ReadCode(reply);
     }
+
+    /// <summary>Starts a trace - S2F23.</summary>
+    /// <param name="trace">What to sample, how often, and how many samples travel together.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>TIAACK.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="trace"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The period is not positive, or is longer than the <c>hhmmsscc</c> field can carry.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// Refused where it would be refused: DSPER travels as six or eight characters, so a period
+    /// finer than a hundredth of a second rounds away and one of a hundred hours or more does not
+    /// fit at all. Both are caught here rather than sent and denied, because a TIAACK 3 for a
+    /// period the host could have checked is a round trip spent on arithmetic.
+    /// </para>
+    /// <para>
+    /// The samples arrive afterwards as <see cref="TraceDataReceived"/>, in groups of REPGSZ.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemTraceAcknowledgement> StartTraceAsync(
+        GemTraceRequest trace,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(trace.Period, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(trace.Period.TotalHours, 99d);
+
+        return await InitializeTraceAsync(
+            trace.Id,
+            WritePeriod(trace.Period),
+            trace.TotalSamples,
+            trace.GroupSize,
+            trace.VariableIds,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Stops a trace - S2F23 asking for no samples.</summary>
+    /// <param name="traceId">TRID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>TIAACK.</returns>
+    /// <remarks>
+    /// E5 defines S2F23 as <em>initialising</em> a trace, so re-initialising one to take no
+    /// samples and cancelling it are the same request - see <see cref="GemTraceRequest"/> for why
+    /// that reading is the safe one. Accepted for a trace that was not running: the host wanted it
+    /// stopped, and it is stopped.
+    /// </remarks>
+    public ValueTask<GemTraceAcknowledgement> StopTraceAsync(
+        uint traceId,
+        CancellationToken cancellationToken = default)
+        => InitializeTraceAsync(traceId, "000001", 0, 0, [], cancellationToken);
 
     /// <summary>Reads the equipment's clock - S2F17.</summary>
     /// <param name="cancellationToken">Cancels the work.</param>
@@ -1220,6 +1281,90 @@ public sealed class GemHost : IAsyncDisposable
         return new SecsMessage(6, replyFunction, replyExpected: false)
         {
             Name = replyFunction == 12 ? "EventReportAcknowledge" : "AnnotatedEventReportAcknowledge",
+            Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC6"),
+        };
+    }
+
+    private static string WritePeriod(TimeSpan period) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{(int)period.TotalHours:D2}{period.Minutes:D2}{period.Seconds:D2}{period.Milliseconds / 10:D2}");
+
+    private async ValueTask<GemTraceAcknowledgement> InitializeTraceAsync(
+        uint traceId,
+        string period,
+        int totalSamples,
+        int groupSize,
+        IReadOnlyList<uint> variableIds,
+        CancellationToken cancellationToken)
+    {
+        var variables = new SecsItem[variableIds.Count];
+
+        for (var i = 0; i < variableIds.Count; i++)
+        {
+            variables[i] = GemItems.IdItem(variableIds[i]).Named("SVID");
+        }
+
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 23, replyExpected: true)
+            {
+                Name = "TraceInitialize",
+                Item = SecsItem.L(
+                    SecsItem.U4(traceId).Named("TRID"),
+                    SecsItem.A(period).Named("DSPER"),
+                    SecsItem.U4((uint)totalSamples).Named("TOTSMP"),
+                    SecsItem.U4((uint)groupSize).Named("REPGSZ"),
+                    SecsItem.L(variables)),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemTraceAcknowledgement)ReadCode(reply);
+    }
+
+    private SecsMessage OnTraceData(SecsMessage request)
+    {
+        var acknowledgement = GemReportAcknowledgement.Error;
+        var traceId = 0u;
+        var sampleNumber = 0u;
+        DateTimeOffset? sampledAt = null;
+        SecsItem[] samples = [];
+
+        if (request.Item is { IsList: true, Count: 4 } body)
+        {
+            acknowledgement = GemReportAcknowledgement.Accepted;
+
+            if (GemItems.TryReadId(body[0], out var id))
+            {
+                traceId = (uint)Math.Min(id, uint.MaxValue);
+            }
+
+            if (GemItems.TryReadId(body[1], out var number))
+            {
+                sampleNumber = (uint)Math.Min(number, uint.MaxValue);
+            }
+
+            if (body[2].Format.IsText() && GemItems.TryParseTimestamp(body[2].GetString(), out var taken))
+            {
+                sampledAt = new DateTimeOffset(taken, TimeSpan.Zero);
+            }
+
+            if (body[3].IsList)
+            {
+                // The sample items belong to the inbound message, which is why the event arguments
+                // say so: this is a view, and the handler is the whole of its life.
+                samples = body[3].Items.ToArray();
+            }
+        }
+
+        var args = new GemTraceDataEventArgs(traceId, sampleNumber, sampledAt, samples)
+        {
+            Acknowledgement = acknowledgement,
+        };
+
+        TraceDataReceived?.Invoke(this, args);
+
+        return new SecsMessage(6, 2, replyExpected: false)
+        {
+            Name = "TraceDataAcknowledge",
             Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC6"),
         };
     }

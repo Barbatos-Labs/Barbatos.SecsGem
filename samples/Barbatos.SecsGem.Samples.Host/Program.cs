@@ -109,6 +109,12 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
         }
 
+        // And traces, which is the one capability that needs nothing registered with it.
+        foreach (var (stream, function) in GemEquipment.TraceMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
+        }
+
         // The host's side of the same arrangement. S1F13, S1F1, S5F1, S6F11, S6F13 and stream 9 -
         // everything a machine may send a host unprompted.
         var hostRoutes = new SecsMessageRouterBuilder();
@@ -383,6 +389,48 @@ internal static class Program
         var back = await host.RequestFormattedProcessProgramAsync("RECIPE-7", cancellationToken);
         Console.WriteLine($"   S7F25 -> {back?.ToString() ?? "no such program"}");
         ok &= back?.Commands.Count == 2;
+
+        if (equipment is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and asks for a value on an interval rather than asking for it --");
+            Console.WriteLine();
+
+            // Four samples half a second apart, two to a message: the equipment samples on its own
+            // clock and sends a group when it has one. Unlike the tests, this runs on the real
+            // clock, so it takes the two seconds it says it will.
+            var groups = 0;
+            var samples = 0;
+
+            void OnTrace(object? sender, GemTraceDataEventArgs e)
+            {
+                // Read inside the handler: the samples are a view into the message that arrived.
+                Interlocked.Increment(ref groups);
+                Interlocked.Add(ref samples, e.Samples.Count);
+
+                Console.WriteLine($"   S6F1  -> {e}, last value {e.Samples[^1][0].FirstValueOrDefault<double>():F2}");
+            }
+
+            host.TraceDataReceived += OnTrace;
+
+            try
+            {
+                var tiaack = await host.StartTraceAsync(
+                    new GemTraceRequest(1, TimeSpan.FromMilliseconds(500), 4, 2, [PressureVariable]),
+                    cancellationToken);
+
+                Console.WriteLine($"   S2F23 -> TIAACK={tiaack}");
+                ok &= tiaack == GemTraceAcknowledgement.Accepted;
+
+                await WaitUntilAsync(() => Volatile.Read(ref groups) == 2, "both trace groups to arrive");
+
+                ok &= Volatile.Read(ref samples) == 4;
+            }
+            finally
+            {
+                host.TraceDataReceived -= OnTrace;
+            }
+        }
 
         Console.WriteLine();
         Console.WriteLine("-- and has a word with whoever is standing at the machine --");

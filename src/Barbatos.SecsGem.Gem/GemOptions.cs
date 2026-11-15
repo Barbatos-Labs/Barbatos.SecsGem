@@ -102,6 +102,18 @@ public sealed class GemOptions
     /// <summary>Gets or sets what the default spool does when it is full.</summary>
     public GemSpoolOverflowPolicy SpoolOverflow { get; set; } = GemSpoolOverflowPolicy.DiscardNewest;
 
+    /// <summary>Gets or sets how many traces may run at once.</summary>
+    /// <remarks>
+    /// E30 leaves the number to the equipment, and a cap is what TIAACK 2 exists to report. Four is
+    /// a working default: a trace is a timer and a group of samples held in memory, so the cost of
+    /// one is small and the cost of a host starting a hundred is not.
+    /// </remarks>
+    public int MaxTraces { get; set; } = 4;
+
+    /// <summary>Gets or sets how many variables one trace may sample.</summary>
+    /// <remarks>What TIAACK 1 reports. A trace of every variable a machine has is a request worth refusing.</remarks>
+    public int MaxTraceVariables { get; set; } = 64;
+
     /// <summary>Gets or sets where a durable spool keeps its records.</summary>
     /// <remarks>
     /// Used by <c>AddGemFileSpooling</c> when it is called without a directory of its own, so the
@@ -177,6 +189,18 @@ public sealed class GemOptionsValidator : IValidateOptions<GemOptions>
         if (options.MaxSpoolTransmit < 0)
         {
             failures.Add($"{nameof(GemOptions.MaxSpoolTransmit)} must not be negative. Zero means all of them.");
+        }
+
+        if (options.MaxTraces < 1)
+        {
+            failures.Add(
+                $"{nameof(GemOptions.MaxTraces)} must be at least 1; zero would refuse every trace "
+                + "with TIAACK 2, which is a slower way of not declaring the capability.");
+        }
+
+        if (options.MaxTraceVariables < 1)
+        {
+            failures.Add($"{nameof(GemOptions.MaxTraceVariables)} must be at least 1.");
         }
 
         // Set but blank, rather than not set. The second is how most equipment is configured; the

@@ -189,8 +189,8 @@
 5|16|Exception Recover Complete Acknowledge|H|S|15|1|ACKC5
 5|17|Exception Recover Abort Request|H|P|18|1|EXID
 5|18|Exception Recover Abort Acknowledge|E|S|17|1|EXID,ACKA,ERRCODE,ERRTEXT
-6|1|Event Report Send|E|P|2|0|DATAID,CEID,RPTID,V
-6|2|Event Report Acknowledge|H|S|1|0|ACKC6
+6|1|Trace Data Send|E|P|2|0|TRID,SMPLN,STIME,SV
+6|2|Trace Data Acknowledge|H|S|1|0|ACKC6
 6|3|Discrete Variable Data Send|E|P|4|0|DATAID,CEID
 6|4|Discrete Variable Data Acknowledge|H|S|3|0|ACKC6
 6|5|Multi-block Data Send Inquire|E|P|6|0|DATAID,DATALENGTH

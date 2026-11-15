@@ -61,6 +61,12 @@ public sealed class GemEquipment : IAsyncDisposable
 
     private readonly object _gate = new();
 
+    // A trace is a timer and a part-filled group of samples. The timer only nudges the loop - the
+    // sampling itself happens there, so reading a variable is serialised with every other thing
+    // this object does rather than racing it from a timer thread.
+    private readonly ConcurrentDictionary<uint, TraceRun> _traces = new();
+    private readonly ConcurrentQueue<uint> _traceDue = new();
+
     // Which alarms are in alarm right now, as opposed to which are allowed to report. S5F6 has to
     // answer the first question and S5F3 configures the second, so they cannot be the same set.
     private readonly ConcurrentDictionary<ulong, byte> _active = new();
@@ -254,6 +260,30 @@ public sealed class GemEquipment : IAsyncDisposable
         (10, 9),   // Broadcast Message
     ];
 
+    /// <summary>The trace data collection messages, answered only when traces are enabled.</summary>
+    /// <remarks>
+    /// <para>
+    /// E30's trace data collection: the host names some status variables, an interval and a count,
+    /// and the equipment samples on its own clock and reports the samples in groups. It is the
+    /// answer to a host that wants a value every second without asking for it every second.
+    /// </para>
+    /// <para>
+    /// Opt-in like the other capabilities, and the only one that needs nothing from the
+    /// application to work - a trace samples variables the model already has. So the switch is
+    /// <c>AddGemTraces</c> and nothing else: a machine that does not want to offer traces leaves
+    /// it out and answers S9F5 for S2F23, rather than accepting a trace it will not run.
+    /// </para>
+    /// <para>
+    /// S6F1 is the equipment's to send, so it is not here. It goes out through the same path as an
+    /// event report, which means a trace group that cannot be delivered is spooled like any other
+    /// report rather than lost.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<(byte Stream, byte Function)> TraceMessages { get; } =
+    [
+        (2, 23),   // Trace Initialize Send
+    ];
+
     /// <summary>Raised after the communication state changes.</summary>
     public event EventHandler<GemCommunicationStateChangedEventArgs>? CommunicationStateChanged;
 
@@ -378,6 +408,10 @@ public sealed class GemEquipment : IAsyncDisposable
 
                     case LinkEvent.TransmitSpool:
                         await TransmitSpoolAsync(cancellationToken).ConfigureAwait(false);
+                        break;
+
+                    case LinkEvent.TraceDue:
+                        await SampleTracesAsync(cancellationToken).ConfigureAwait(false);
                         break;
 
                     default:
@@ -573,6 +607,7 @@ public sealed class GemEquipment : IAsyncDisposable
             (2, 15) => OnNewConstants(transaction.Message),
             (2, 17) => OnTimeRequest(),
             (2, 29) => OnConstantNamelist(transaction.Message),
+            (2, 23) => OnTraceInitialize(transaction.Message),
             (2, 31) => OnTimeSet(transaction.Message),
             (2, 33) => OnDefineReport(transaction.Message),
             (2, 35) => OnLinkEventReport(transaction.Message),
@@ -632,6 +667,11 @@ public sealed class GemEquipment : IAsyncDisposable
         _disposed = true;
         _connection.StateChanged -= OnConnectionStateChanged;
         StopRetry();
+
+        // Traces hold a timer each and a part-filled group of pooled items, so they are released
+        // rather than left to a finalizer that items do not have.
+        CancelAllTraces("the equipment was disposed");
+
         _events.Writer.TryComplete();
 
         return ValueTask.CompletedTask;
@@ -724,6 +764,11 @@ public sealed class GemEquipment : IAsyncDisposable
             // never promised they survived. Starting from the configured defaults is the only
             // state both sides can agree on without asking.
             Model.Reset();
+
+            // A trace is host configuration too, and the same argument applies with more force: a
+            // trace the host has forgotten about would keep sampling and keep reporting, and the
+            // host would have no TRID to cancel it with.
+            CancelAllTraces("the host re-established communications");
         }
 
         SetCommunication(GemCommunicationState.Communicating, reason);
@@ -1477,6 +1522,268 @@ public sealed class GemEquipment : IAsyncDisposable
         }
 
         return acknowledgement;
+    }
+
+    // ----------------------------------------------------------------- inbound, trace data
+
+    private SecsMessage OnTraceInitialize(SecsMessage request)
+    {
+        var tiaack = ReadTrace(request.Item, out var trace);
+
+        if (trace is not null)
+        {
+            tiaack = trace.TotalSamples == 0
+                ? CancelTrace(trace.Id)
+                : StartTrace(trace);
+        }
+
+        return new SecsMessage(2, 24, replyExpected: false)
+        {
+            Name = "TraceInitializeAcknowledge",
+            Item = SecsItem.B((byte)tiaack).Named("TIAACK"),
+        };
+    }
+
+    /// <summary>Reads S2F23's body: TRID, DSPER, TOTSMP, REPGSZ and the variables.</summary>
+    /// <param name="body">The inbound body.</param>
+    /// <param name="trace">What was asked for, or <see langword="null"/> when the body could not be read.</param>
+    /// <returns>The TIAACK to answer with when <paramref name="trace"/> is <see langword="null"/>.</returns>
+    /// <remarks>
+    /// TIAACK has no code for "that body made no sense" - its five refusals each name a field - so
+    /// the code for an unreadable body is a best effort. What a host must read from it is that it
+    /// is not zero; <see cref="GemTraceAcknowledgement.InvalidPeriod"/> is the one chosen because
+    /// DSPER is the field a host most often gets wrong, and a body this stack cannot read has no
+    /// period in it either.
+    /// </remarks>
+    private static GemTraceAcknowledgement ReadTrace(SecsItem? body, out GemTraceRequest? trace)
+    {
+        trace = null;
+
+        if (body is not { IsList: true, Count: 5 }
+            || !body[4].IsList
+            || !GemItems.TryReadId(body[0], out var id)
+            || id > uint.MaxValue)
+        {
+            return GemTraceAcknowledgement.InvalidPeriod;
+        }
+
+        if (!GemItems.TryReadId(body[2], out var total)
+            || !GemItems.TryReadId(body[3], out var group)
+            || total > int.MaxValue
+            || group > int.MaxValue)
+        {
+            return GemTraceAcknowledgement.InvalidGroupSize;
+        }
+
+        List<uint> variables = [];
+
+        foreach (var entry in body[4].Items)
+        {
+            if (!GemItems.TryReadId(entry, out var variable) || variable > uint.MaxValue)
+            {
+                return GemTraceAcknowledgement.UnknownVariable;
+            }
+
+            variables.Add((uint)variable);
+        }
+
+        // The period last, because it is the one field whose format E5 fixes as text rather than a
+        // number: hhmmss or hhmmsscc, so a tenth of a second is not expressible and neither is a
+        // week.
+        var period = TimeSpan.Zero;
+
+        if (body[1].Format.IsText() && TryReadPeriod(body[1].GetString(), out var parsed))
+        {
+            period = parsed;
+        }
+
+        trace = new GemTraceRequest((uint)id, period, (int)total, (int)group, variables);
+
+        return GemTraceAcknowledgement.Accepted;
+    }
+
+    private static bool TryReadPeriod(string text, out TimeSpan period)
+    {
+        period = TimeSpan.Zero;
+
+        var trimmed = text.Trim();
+
+        if (trimmed.Length is not (6 or 8)
+            || !int.TryParse(trimmed.AsSpan(0, 2), CultureInfo.InvariantCulture, out var hours)
+            || !int.TryParse(trimmed.AsSpan(2, 2), CultureInfo.InvariantCulture, out var minutes)
+            || !int.TryParse(trimmed.AsSpan(4, 2), CultureInfo.InvariantCulture, out var seconds))
+        {
+            return false;
+        }
+
+        var centiseconds = 0;
+
+        if (trimmed.Length == 8
+            && !int.TryParse(trimmed.AsSpan(6, 2), CultureInfo.InvariantCulture, out centiseconds))
+        {
+            return false;
+        }
+
+        period = new TimeSpan(0, hours, minutes, seconds, centiseconds * 10);
+
+        return period > TimeSpan.Zero;
+    }
+
+    private GemTraceAcknowledgement StartTrace(GemTraceRequest trace)
+    {
+        if (trace.VariableIds.Count == 0 || trace.VariableIds.Count > _options.MaxTraceVariables)
+        {
+            return GemTraceAcknowledgement.TooManyVariables;
+        }
+
+        foreach (var variable in trace.VariableIds)
+        {
+            // Status variables only. E30 traces a value a host could have read with S1F3, and a
+            // data variable only has a value inside the event it belongs to - so tracing one would
+            // sample whatever it happened to hold.
+            if (!Model.Variables.TryGetValue(variable, out var known) || known.Kind != GemVariableKind.Status)
+            {
+                return GemTraceAcknowledgement.UnknownVariable;
+            }
+        }
+
+        if (trace.Period <= TimeSpan.Zero)
+        {
+            return GemTraceAcknowledgement.InvalidPeriod;
+        }
+
+        if (trace.GroupSize < 1 || trace.GroupSize > trace.TotalSamples)
+        {
+            return GemTraceAcknowledgement.InvalidGroupSize;
+        }
+
+        // A trace that replaces one already running under the same TRID does not need a slot: E5
+        // defines S2F23 as initialising a trace, and initialising the one that exists is what a
+        // host does to change its period.
+        if (!_traces.ContainsKey(trace.Id) && _traces.Count >= _options.MaxTraces)
+        {
+            return GemTraceAcknowledgement.NoMoreTracesAllowed;
+        }
+
+        CancelTrace(trace.Id);
+
+        var run = new TraceRun(this, trace);
+
+        _traces[trace.Id] = run;
+
+        // Periodic, and only a nudge: the callback runs on a timer thread and does nothing but
+        // tell the loop which trace is due.
+        run.Timer = _timeProvider.CreateTimer(
+            static state =>
+            {
+                var due = (TraceRun)state!;
+
+                due.Owner._traceDue.Enqueue(due.Request.Id);
+                due.Owner._events.Writer.TryWrite(LinkEvent.TraceDue);
+            },
+            run,
+            trace.Period,
+            trace.Period);
+
+        _logger.LogInformation("Trace {Trace} started: {Request}.", trace.Id, trace);
+
+        return GemTraceAcknowledgement.Accepted;
+    }
+
+    private GemTraceAcknowledgement CancelTrace(uint id)
+    {
+        if (_traces.TryRemove(id, out var run))
+        {
+            run.Dispose();
+            _logger.LogInformation("Trace {Trace} cancelled.", id);
+        }
+
+        // Accepted either way. Cancelling a trace that is not running is not a failure - the host
+        // wanted it stopped, and it is stopped.
+        return GemTraceAcknowledgement.Accepted;
+    }
+
+    private void CancelAllTraces(string reason)
+    {
+        foreach (var id in _traces.Keys)
+        {
+            if (_traces.TryRemove(id, out var run))
+            {
+                run.Dispose();
+            }
+        }
+
+        _logger.LogInformation("Every trace was cancelled ({Reason}).", reason);
+    }
+
+    private async ValueTask SampleTracesAsync(CancellationToken cancellationToken)
+    {
+        while (_traceDue.TryDequeue(out var id))
+        {
+            if (!_traces.TryGetValue(id, out var run))
+            {
+                // Cancelled between the timer firing and the loop getting here, which is the one
+                // race a nudge-and-look design has and the one it handles by looking.
+                continue;
+            }
+
+            var values = new SecsItem[run.Request.VariableIds.Count];
+
+            for (var i = 0; i < values.Length; i++)
+            {
+                values[i] = Model.Variables.TryGetValue(run.Request.VariableIds[i], out var variable)
+                    ? variable.Read().Named(variable.Name)
+                    : SecsItem.L();
+            }
+
+            run.Group.Add(SecsItem.L(values));
+            run.Taken++;
+            run.LastSampleAt = _timeProvider.GetUtcNow();
+
+            if (run.Group.Count >= run.Request.GroupSize)
+            {
+                await SendTraceGroupAsync(run, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (run.Taken < run.Request.TotalSamples)
+            {
+                continue;
+            }
+
+            // The last group goes even when it is short of REPGSZ. The host asked for TOTSMP
+            // samples and these are the end of them, so holding them back for a group that will
+            // never fill would lose them.
+            if (run.Group.Count > 0)
+            {
+                await SendTraceGroupAsync(run, cancellationToken).ConfigureAwait(false);
+            }
+
+            CancelTrace(id);
+        }
+    }
+
+    private async ValueTask SendTraceGroupAsync(TraceRun run, CancellationToken cancellationToken)
+    {
+        // The list takes the samples, and the message takes the list: everything in the group is
+        // disposed with the message, which is why the group is cleared rather than emptied.
+        var samples = SecsItem.L(run.Group);
+
+        run.Group.Clear();
+
+        using var message = new SecsMessage(6, 1, replyExpected: _options.EventReportsExpectReply)
+        {
+            Name = "TraceDataSend",
+            Item = SecsItem.L(
+                SecsItem.U4(run.Request.Id).Named("TRID"),
+                SecsItem.U4((uint)run.Taken).Named("SMPLN"),
+                SecsItem.A(run.LastSampleAt.UtcDateTime.ToString("yyyyMMddHHmmssff", CultureInfo.InvariantCulture)).Named("STIME"),
+                samples),
+        };
+
+        // The same path an event report takes, so a group that cannot be delivered is spooled
+        // rather than dropped. SMPLN and STIME describe the last sample in the group, which is
+        // what lets a host put a late group back in order.
+        await SendReportAsync(message, cancellationToken).ConfigureAwait(false);
     }
 
     // ----------------------------------------------------------------- inbound, stream 10
@@ -2370,5 +2677,41 @@ public sealed class GemEquipment : IAsyncDisposable
         RetryDue,
         HostEstablished,
         TransmitSpool,
+        TraceDue,
+    }
+
+    /// <summary>One running trace: its definition, its timer, and the group it is filling.</summary>
+    /// <remarks>
+    /// The samples in <see cref="Group"/> are live items read from the model, so a trace holds
+    /// pooled memory between reports - <see cref="GemTraceRequest.GroupSize"/> samples of it at
+    /// most, which is why the group size is validated rather than trusted. Disposing the run
+    /// returns them.
+    /// </remarks>
+    private sealed class TraceRun(GemEquipment owner, GemTraceRequest request) : IDisposable
+    {
+        internal GemEquipment Owner { get; } = owner;
+
+        internal GemTraceRequest Request { get; } = request;
+
+        internal List<SecsItem> Group { get; } = [];
+
+        internal ITimer? Timer { get; set; }
+
+        internal int Taken { get; set; }
+
+        internal DateTimeOffset LastSampleAt { get; set; }
+
+        public void Dispose()
+        {
+            Timer?.Dispose();
+            Timer = null;
+
+            foreach (var sample in Group)
+            {
+                sample.Dispose();
+            }
+
+            Group.Clear();
+        }
     }
 }

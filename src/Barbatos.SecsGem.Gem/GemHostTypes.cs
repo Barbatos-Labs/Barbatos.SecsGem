@@ -311,6 +311,52 @@ public sealed class GemHostAlarmEventArgs : EventArgs
     public GemAlarmAcknowledgement Acknowledgement { get; set; } = GemAlarmAcknowledgement.Accepted;
 }
 
+/// <summary>A group of trace samples the equipment sent - S6F1.</summary>
+/// <remarks>
+/// <para>
+/// <strong><see cref="Samples"/> is alive only while the handler runs</strong>, like an event
+/// report's values: each entry is a view into the message that arrived, and that message is
+/// disposed as soon as the event returns.
+/// </para>
+/// <para>
+/// <see cref="SampleNumber"/> and <see cref="SampledAt"/> describe the <em>last</em> sample in the
+/// group, which is what lets a host put a group that arrived late back in order.
+/// </para>
+/// </remarks>
+public sealed class GemTraceDataEventArgs : EventArgs
+{
+    internal GemTraceDataEventArgs(
+        uint traceId,
+        uint sampleNumber,
+        DateTimeOffset? sampledAt,
+        IReadOnlyList<SecsItem> samples)
+    {
+        TraceId = traceId;
+        SampleNumber = sampleNumber;
+        SampledAt = sampledAt;
+        Samples = samples;
+    }
+
+    /// <summary>Gets TRID, the trace this group belongs to.</summary>
+    public uint TraceId { get; }
+
+    /// <summary>Gets SMPLN, the number of the last sample in this group.</summary>
+    public uint SampleNumber { get; }
+
+    /// <summary>Gets STIME, when the last sample was taken, or <see langword="null"/> when it was not a time.</summary>
+    public DateTimeOffset? SampledAt { get; }
+
+    /// <summary>Gets the samples, each a list of values in the order the trace asked for them. Valid only inside the handler.</summary>
+    public IReadOnlyList<SecsItem> Samples { get; }
+
+    /// <summary>Gets or sets the ACKC6 to answer with.</summary>
+    public GemReportAcknowledgement Acknowledgement { get; set; } = GemReportAcknowledgement.Accepted;
+
+    /// <summary>Returns the trace, the sample number and how many samples arrived.</summary>
+    /// <returns>For example <c>trace 1 up to sample 20: 10 sample(s)</c>.</returns>
+    public override string ToString() => $"trace {TraceId} up to sample {SampleNumber}: {Samples.Count} sample(s)";
+}
+
 /// <summary>Something an operator at the machine sent the host - S10F1.</summary>
 /// <remarks>
 /// The one inbound message with a person waiting on the other end of it. A handler that cannot

@@ -288,7 +288,8 @@ internal static class Program
             // may be declared only once, so an overlap would throw while the router was built.
             .AddGemProcessPrograms()
             .AddGemFormattedProcessPrograms()
-            .AddGemTerminal();
+            .AddGemTerminal()
+            .AddGemTraces();
 
         await using var provider = services.BuildServiceProvider();
 
@@ -310,6 +311,10 @@ internal static class Program
         Assert(
             router.TryGetHandler(10, 3, out _) && router.TryGetHandler(10, 9, out _),
             "the router is missing terminal services, so AddGemTerminal did not declare its messages");
+
+        Assert(
+            router.TryGetHandler(2, 23, out _),
+            "the router has no handler for S2F23, so AddGemTraces did not declare it");
 
         var terminal = (GemInMemoryTerminal)provider.GetRequiredService<IGemTerminal>();
 

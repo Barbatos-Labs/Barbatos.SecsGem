@@ -99,7 +99,8 @@ internal sealed class GemPair : IAsyncDisposable
         IGemProcessProgramStore? programs = null,
         IGemFormattedProcessProgramStore? formatted = null,
         IGemSpool? spool = null,
-        IGemTerminal? terminal = null)
+        IGemTerminal? terminal = null,
+        bool traces = false)
     {
         var options = new SecsGemOptions
         {
@@ -158,6 +159,11 @@ internal sealed class GemPair : IAsyncDisposable
         if (terminal is not null)
         {
             declared.AddRange(GemEquipment.TerminalMessages);
+        }
+
+        if (traces)
+        {
+            declared.AddRange(GemEquipment.TraceMessages);
         }
 
         foreach (var (stream, function) in declared)
