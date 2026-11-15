@@ -45,8 +45,13 @@ public class SecsException : Exception
 /// Thrown when a byte stream does not decode to a valid SECS-II item tree.
 /// </summary>
 /// <remarks>
-/// The HSMS layer answers this with <c>S9F7 (Illegal Data)</c> when it can identify the
-/// offending transaction.
+/// <para>
+/// The HSMS layer answers this with <c>S9F7 (Illegal Data)</c> when <see cref="Header"/> says
+/// which message was at fault - and <see cref="Header"/> is also what tells it whether the link
+/// is still usable. A failure with a header came from a frame that was read in full and then found
+/// to be malformed, so the next frame starts where it should. A failure without one means the
+/// framing itself was wrong, and the only safe move is to drop the link.
+/// </para>
 /// </remarks>
 public sealed class SecsDecodeException : SecsException
 {
@@ -64,8 +69,27 @@ public sealed class SecsDecodeException : SecsException
         : base($"{message} (at byte offset {offset})")
         => Offset = offset;
 
+    /// <summary>Initialises a new instance for a message whose header is known.</summary>
+    /// <param name="message">What was wrong with the data.</param>
+    /// <param name="header">The header of the frame that failed to decode.</param>
+    /// <remarks>
+    /// Used by the HSMS decoder, which knows the header by the time it reaches the body. It is
+    /// what makes a compliant S9F7 possible: that message has to carry MHEAD, and MHEAD is
+    /// exactly these ten bytes.
+    /// </remarks>
+    public SecsDecodeException(string message, MessageHeader header)
+        : base(message)
+        => Header = header;
+
     /// <summary>Gets the offset within the message body where decoding failed, or <c>-1</c> when unknown.</summary>
     public long Offset { get; } = -1;
+
+    /// <summary>Gets the header of the frame that failed, when the failure happened inside a framed message.</summary>
+    /// <remarks>
+    /// <see langword="null"/> when a bare item tree was being decoded, or when the framing broke
+    /// before a header could be read. See the type's remarks for why that distinction matters.
+    /// </remarks>
+    public MessageHeader? Header { get; }
 }
 
 /// <summary>

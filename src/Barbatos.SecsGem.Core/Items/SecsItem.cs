@@ -179,10 +179,20 @@ public abstract partial class SecsItem : IEquatable<SecsItem>, IDisposable
     }
 
     /// <summary>Releases the pooled memory this item borrowed, and that of its children.</summary>
-    /// <remarks>Safe to call more than once.</remarks>
+    /// <remarks>
+    /// <para>Safe to call more than once.</para>
+    /// <para>
+    /// Also safe to call on one of the shared empty items that <see cref="Empty(SecsFormat)"/>
+    /// returns, where it does nothing at all. Those are process-wide singletons, and a caller who
+    /// merely received one - from <c>SecsItem.L()</c>, from <c>SecsItem.A(null)</c>, or by
+    /// decoding an empty item off the wire - has no way of knowing it is not theirs to release.
+    /// Letting such a call mark the singleton spent would be a trap: one disposed message would
+    /// quietly poison every empty item in the process.
+    /// </para>
+    /// </remarks>
     public void Dispose()
     {
-        if (_disposed)
+        if (_disposed || IsSharedEmpty(this))
         {
             return;
         }

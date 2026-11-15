@@ -14,6 +14,10 @@
 
   <ItemGroup>
     <PackageReference Include="System.IO.Pipelines" />
+    <!-- MemoryOwner<T> for the decoder's staging buffer and ArrayPoolBufferWriter<T> for the
+         encoder's. Referenced here explicitly rather than leaning on the transitive reference
+         through Barbatos.SecsGem.Core: this project uses the types directly. -->
+    <PackageReference Include="CommunityToolkit.HighPerformance" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />

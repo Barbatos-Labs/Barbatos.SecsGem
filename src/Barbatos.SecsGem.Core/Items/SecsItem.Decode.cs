@@ -25,11 +25,19 @@ public partial class SecsItem
     /// <see cref="SecsCodecOptions.MaxPayloadLength"/>, or nesting past <see cref="MaxDepth"/>.
     /// </exception>
     /// <remarks>
-    /// This is the <em>fast path</em> of the two-path decode strategy: every byte of the message
-    /// is already in <paramref name="source"/>, so the whole tree is built with no state machine
-    /// and no suspension. The HSMS layer uses it whenever a complete message arrived in one read,
-    /// which on a healthy link is almost always, and falls back to its resumable chunked decoder
-    /// only when a message is split across TCP segments.
+    /// <para>
+    /// Every byte of the item is already in <paramref name="source"/>, so the whole tree is built
+    /// with no state machine and no suspension. <paramref name="source"/> may be segmented in any
+    /// way - a value that straddles two segments reads correctly - because the decoder never
+    /// assumes the first span holds what it needs.
+    /// </para>
+    /// <para>
+    /// The HSMS layer calls this on both of its decode paths. What differs between them is where
+    /// the bytes came from and whether T8 was running while they arrived, not how the tree is
+    /// built: on the fast path this reads straight out of the reader's buffer, and on the slow
+    /// path out of a staging buffer that the frame was gathered into first. An HSMS frame
+    /// announces its own length, so there is never a need to suspend part way through an item.
+    /// </para>
     /// </remarks>
     public static SecsItem Decode(ref ReadOnlySequence<byte> source, SecsCodecOptions? options = null)
         => DecodeCore(ref source, options ?? SecsCodecOptions.Default, depth: 0);
@@ -50,7 +58,12 @@ public partial class SecsItem
     /// <param name="format">The item format.</param>
     /// <param name="lengthByteCount">How many bytes the length field occupies: 1, 2 or 3.</param>
     /// <returns><see langword="true"/> when both fields are valid.</returns>
-    /// <remarks>Public because the HSMS chunked decoder needs exactly this, byte by byte.</remarks>
+    /// <remarks>
+    /// Public because inspecting a capture one byte at a time needs exactly this, and because a
+    /// framing that carries no length up front - SECS-I over a serial line - has to resume an item
+    /// header across reads. The HSMS decoder does not: an HSMS frame announces its own length, so
+    /// it gathers the whole frame and then calls <see cref="Decode(ReadOnlyMemory{byte}, SecsCodecOptions?)"/>.
+    /// </remarks>
     public static bool TryReadItemHeaderByte(byte headerByte, out SecsFormat format, out byte lengthByteCount)
     {
         format = (SecsFormat)(headerByte >> 2);
@@ -61,7 +74,7 @@ public partial class SecsItem
     /// <summary>Reads a big-endian item length from its 1, 2 or 3 length bytes.</summary>
     /// <param name="lengthBytes">The length bytes, in wire order.</param>
     /// <returns>The length.</returns>
-    /// <remarks>Public because the HSMS chunked decoder needs exactly this.</remarks>
+    /// <remarks>Public for the same reason as <see cref="TryReadItemHeaderByte"/>.</remarks>
     public static int ReadItemLength(in ReadOnlySequence<byte> lengthBytes)
     {
         var count = (int)lengthBytes.Length;
@@ -100,7 +113,11 @@ public partial class SecsItem
     /// <param name="options">Text encodings and limits.</param>
     /// <returns>The decoded item.</returns>
     /// <exception cref="SecsDecodeException">The payload is not a whole number of elements, or the format is a list.</exception>
-    /// <remarks>Public because the HSMS chunked decoder assembles payloads itself and then calls this.</remarks>
+    /// <remarks>
+    /// Public so that a decoder which assembles a payload itself - see
+    /// <see cref="TryReadItemHeaderByte"/> for which ones do - can turn it into an item without
+    /// re-synthesising the item header in front of it.
+    /// </remarks>
     public static SecsItem DecodeValue(SecsFormat format, in ReadOnlySequence<byte> payload, SecsCodecOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
