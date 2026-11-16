@@ -139,7 +139,7 @@ services.AddSecsGem(builder.Configuration)
     .RunAsHostedService();
 ```
 
-One call registers both halves of E87: the five carrier primaries **and** the seven of object
+One call registers both halves of E87: the five carrier primaries **and** the eleven of object
 services, because the attributes are stream 14's business. A machine that registered only the
 first five would answer every action and never give up a slot map.
 
@@ -212,8 +212,11 @@ Queue the work.
 
 - **The E87 messages that need an undefined item**: S3F19/F20, S3F21/F22, S3F27/F28, S3F31/F32.
   Their content is on stream 14 instead, which is where E87 puts it.
-- **E90 substrate tracking** and **E94 control jobs**. Both are object models over the stream 14
-  this package already uses, which is the right order to build them in.
+- **E40 process jobs**, the last of the material-flow standards still missing here. E90 substrate
+  tracking and E94 control jobs now have packages of their own -
+  [`Barbatos.SecsGem.Substrates`](../Barbatos.SecsGem.Substrates/README.md) and
+  [`Barbatos.SecsGem.ControlJobs`](../Barbatos.SecsGem.ControlJobs/README.md) - and a machine can
+  register all three, which was the point of building them in this order.
 - A manager that outlives the process. The states are in memory; a machine that reboots with a
   carrier on a port re-reads the label, which is also what E87 expects.
 - `ContentMap`, as distinct from `SlotMap`. One byte per slot covers what a machine knows; naming

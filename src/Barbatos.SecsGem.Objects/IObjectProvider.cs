@@ -73,6 +73,52 @@ public interface IObjectProvider
     ValueTask<IReadOnlyList<ObjectSetResult>> SetAttributesAsync(
         ObjectAttributeWrite write,
         CancellationToken cancellationToken);
+
+    /// <summary>Tells objects to do something - S14F9 and S14F27.</summary>
+    /// <param name="request">Which objects, what to do, and what to do it with.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>One result per object this provider has. An empty list means none of them are its.</returns>
+    /// <remarks>
+    /// <para>
+    /// The method that makes stream 14 more than a property bag: an object with a state machine -
+    /// a control job, a carrier - is driven by actions rather than by having its state assigned.
+    /// <c>RCMD</c> is text, so a provider decides its own vocabulary and refuses what it does not
+    /// know with <see cref="ObjectAcknowledgement.Error"/>.
+    /// </para>
+    /// <para>
+    /// The default answers nothing, which the library reads as "no object of mine", because most
+    /// object types have no actions at all. A provider with actions overrides it; one without is
+    /// not obliged to write a method saying so.
+    /// </para>
+    /// </remarks>
+    ValueTask<IReadOnlyList<ObjectActionResult>> ActAsync(
+        ObjectActionRequest request,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult<IReadOnlyList<ObjectActionResult>>([]);
+
+    /// <summary>Makes an object - S14F5.</summary>
+    /// <param name="request">What kind, and what it should start out as.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>What was made, or why not.</returns>
+    /// <remarks>
+    /// The default refuses with <see cref="ObjectAcknowledgement.InvalidObjectType"/>, which is
+    /// the honest answer from a provider whose objects are the machine's own hardware: a host
+    /// cannot create a load port by asking.
+    /// </remarks>
+    ValueTask<ObjectCreateResult> CreateAsync(
+        ObjectCreateRequest request,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult(new ObjectCreateResult { Acknowledgement = ObjectAcknowledgement.InvalidObjectType });
+
+    /// <summary>Removes an object - S14F7.</summary>
+    /// <param name="request">Which one.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it is gone.</returns>
+    /// <remarks>The default refuses with <see cref="ObjectAcknowledgement.InvalidObjectType"/>, for the same reason as <see cref="CreateAsync"/>.</remarks>
+    ValueTask<ObjectAcknowledgement> DeleteAsync(
+        ObjectDeleteRequest request,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult(ObjectAcknowledgement.InvalidObjectType);
 }
 
 /// <summary>
@@ -95,6 +141,7 @@ public interface IObjectProvider
 public sealed class ObjectInMemoryProvider : IObjectProvider
 {
     private readonly ConcurrentDictionary<string, ObjectEntry> _objects = new(StringComparer.Ordinal);
+    private int _created;
 
     private sealed class ObjectEntry
     {
@@ -274,6 +321,94 @@ public sealed class ObjectInMemoryProvider : IObjectProvider
         }
 
         return ValueTask.FromResult<IReadOnlyList<ObjectSetResult>>(results);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A generic store can honestly make an object, which is why this one overrides the default
+    /// refusal. The name comes from an attribute called <c>ObjectID</c> or <c>ObjID</c> when the
+    /// asker supplied one - a host that wants a particular name says so - and otherwise the type
+    /// and a number, because S14F6 has the machine name the object.
+    /// </remarks>
+    public ValueTask<ObjectCreateResult> CreateAsync(ObjectCreateRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (request.ObjectType.Length == 0)
+        {
+            return ValueTask.FromResult(new ObjectCreateResult
+            {
+                Acknowledgement = ObjectAcknowledgement.InvalidObjectType,
+            });
+        }
+
+        var name = Named(request.Attributes) ?? $"{request.ObjectType}{Interlocked.Increment(ref _created)}";
+
+        if (_objects.ContainsKey(name))
+        {
+            return ValueTask.FromResult(new ObjectCreateResult
+            {
+                Acknowledgement = ObjectAcknowledgement.InvalidObjectInstance,
+            });
+        }
+
+        Add(name, request.ObjectType);
+
+        foreach (var attribute in request.Attributes)
+        {
+            Set(name, attribute.Name, attribute.Value);
+        }
+
+        return ValueTask.FromResult(new ObjectCreateResult
+        {
+            Acknowledgement = ObjectAcknowledgement.Successful,
+            ObjectId = name,
+        });
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<ObjectAcknowledgement> DeleteAsync(ObjectDeleteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!_objects.TryGetValue(request.ObjectSpecification, out var entry))
+        {
+            return ValueTask.FromResult(ObjectAcknowledgement.InvalidObjectInstance);
+        }
+
+        if (request.ObjectType.Length > 0
+            && !string.Equals(entry.ObjectType, request.ObjectType, StringComparison.Ordinal))
+        {
+            return ValueTask.FromResult(ObjectAcknowledgement.InvalidObjectType);
+        }
+
+        _objects.TryRemove(request.ObjectSpecification, out _);
+
+        return ValueTask.FromResult(ObjectAcknowledgement.Successful);
+    }
+
+    private static string? Named(IReadOnlyList<ObjectAttribute> attributes)
+    {
+        foreach (var attribute in attributes)
+        {
+            if (attribute.Name is not ("ObjectID" or "ObjID"))
+            {
+                continue;
+            }
+
+            var text = attribute.Value.Format.IsText() && attribute.Value.Count > 0
+                ? attribute.Value.GetString().TrimEnd()
+                : string.Empty;
+
+            if (text.Length > 0)
+            {
+                return text;
+            }
+        }
+
+        return null;
     }
 
     private ObjectAcknowledgement Apply(string specification, ObjectAttributeWrite write)

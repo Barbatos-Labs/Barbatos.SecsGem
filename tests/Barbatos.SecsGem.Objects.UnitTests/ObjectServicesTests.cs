@@ -441,8 +441,27 @@ public class ObjectServicesTests
             [new ObjectAttribute { Name = "LotId", Value = SecsItem.A("LOT-B") }],
             ObjectPair.Token);
 
-        // The claim this test exists for: the seven primaries declared are the seven the methods
-        // here can send. A method added without its pair in the list shows up as a gap.
+        // The actionable half: make an object, tell it to do something, tell several objects to do
+        // something, and unmake it. The in-memory provider has no actions, so those two come back
+        // refused - which is an answer and is what this test needs from them.
+        var made = await pair.Asker.CreateAsync(
+            "ControlJob",
+            [new ObjectAttribute { Name = "ObjectID", Value = SecsItem.A("JOB-1") }],
+            ObjectPair.Token);
+
+        Assert.Equal(ObjectAcknowledgement.Successful, made.Acknowledgement);
+        Assert.Equal("JOB-1", made.ObjectId);
+
+        await pair.Asker.ActAsync("JOB-1", "ControlJob", "Start", parameters: null, ObjectPair.Token);
+        await pair.Asker.ActAsync(["JOB-1"], "Stop", parameters: null, ObjectPair.Token);
+
+        Assert.Equal(
+            ObjectAcknowledgement.Successful,
+            await pair.Asker.DeleteAsync("JOB-1", "ControlJob", ObjectPair.Token));
+
+        // The claim this test exists for: the primaries declared are the ones the methods here can
+        // send. A method added without its pair in the list - or a pair added without a method -
+        // shows up as a gap.
         foreach (var message in ObjectServices.HandledMessages)
         {
             Assert.Contains(message, pair.Asked);

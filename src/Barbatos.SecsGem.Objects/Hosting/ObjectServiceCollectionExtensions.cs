@@ -14,7 +14,7 @@ namespace Microsoft.Extensions.DependencyInjection;
 /// <summary>Adds object services - SECS-II stream 14 - to a connection built by <c>AddSecsGem</c>.</summary>
 /// <remarks>
 /// Two registrations, and the difference is whether this end answers. Both give the application an
-/// <see cref="ObjectServices"/> it can ask with; only the one with a provider declares the seven
+/// <see cref="ObjectServices"/> it can ask with; only the one with a provider declares the eleven
 /// primaries. That is the right default: an entity with no objects should answer S9F5 rather than
 /// answer every <c>GetAttr</c> with an empty list.
 /// </remarks>

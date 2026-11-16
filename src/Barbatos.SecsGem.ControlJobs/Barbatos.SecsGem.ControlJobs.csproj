@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.ControlJobs</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.ControlJobs</RootNamespace>
+    <PackageTags>secs;e94;controljob;job;queue;fab300;e87;stream14</PackageTags>
+    <Description>Control job management (SEMI E94) for .NET: the control job object, the state machine E94 gives it, and the commands that drive it - select, start, pause, resume, stop, abort, cancel - with every transition enforced and a refusal that names the state that refused it. E94 has no message set of its own: a control job is created with S14F5, commanded with S14F9 and read with S14F1, so this package rides on SECS-II stream 14 object services. Depends on Barbatos.SecsGem.Objects and Barbatos.SecsGem.Hsms, not on GEM, E87 or E90: a machine can run control jobs over whatever material model it already has.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+    <!-- A control job is created, commanded and read entirely through stream 14, so this is the
+         one dependency that is not optional - the same shape E90 has. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Objects\Barbatos.SecsGem.Objects.csproj" />
+  </ItemGroup>
+
+</Project>

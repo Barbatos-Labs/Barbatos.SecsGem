@@ -183,8 +183,10 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBui
 
 | Method | What it adds |
 | --- | --- |
-| `AddCarrierEquipment(Action<CarrierManager>? configure = null)` | `CarrierManager` (ports declared in `configure`), `CarrierEquipment`, `CarrierObjectProvider` as the `IObjectProvider`, and handlers for the five carrier primaries **and** the seven of object services. |
+| `AddCarrierEquipment(Action<CarrierManager>? configure = null)` | `CarrierManager` (ports declared in `configure`), `CarrierEquipment`, `CarrierObjectProvider` as an `IObjectProvider`, and handlers for the five carrier primaries **and** the eleven of object services. |
 | `AddCarrierHost()` | `CarrierHost`, plus `AddObjectServices` so a host can read carrier attributes. Declares nothing. |
 
-The provider is registered with `TryAdd`, so an application with objects beyond carriers and ports
-registers one that handles both and still calls this for the routing.
+The provider **composes**: an application with objects beyond carriers and ports registers its own
+as well, and both answer through `CompositeObjectProvider`. The same goes for `AddSubstrateTracking`
+and `AddControlJobs` on the same machine - three packages, one stream, and the primaries declared
+once.

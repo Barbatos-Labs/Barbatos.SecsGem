@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using Barbatos.SecsGem;
 using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.Catalog;
+using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Mapping;
@@ -85,6 +86,7 @@ internal static class Program
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
         await Run("carriers + substrates: E87 and E90 in one machine, both answering stream 14", CarriersAndSubstratesComposeAsync).ConfigureAwait(false);
+        await Run("controljobs: E94 drives its state machine through stream 14, beside E87 and E90", ControlJobsResolveAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -617,7 +619,9 @@ internal static class Program
 
         var router = objectProvider.GetRequiredService<ISecsMessageRouter>();
 
-        Assert(ObjectServices.HandledMessages.Count == 7, $"the stream declares {ObjectServices.HandledMessages.Count} primaries, not seven");
+        // Eleven since E94: the seven reading primaries plus create, delete and the two actions,
+        // which the control job package is the first standard here to need.
+        Assert(ObjectServices.HandledMessages.Count == 11, $"the stream declares {ObjectServices.HandledMessages.Count} primaries, not eleven");
 
         foreach (var (stream, function) in ObjectServices.HandledMessages)
         {
@@ -792,5 +796,64 @@ internal static class Program
 
             attribute.Value.Dispose();
         }
+    }
+
+    private static async Task ControlJobsResolveAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddCarrierEquipment(manager => manager.AddPort(1))
+            .AddSubstrateTracking(tracker => tracker.AddLocation("SLOT-1"))
+            .AddControlJobs();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var manager = provider.GetRequiredService<ControlJobManager>();
+
+        Assert(manager.Create("CJ-1", ["CAR-001"]).IsAccepted, "the manager refused a new control job");
+
+        var tooEarly = manager.Start("CJ-1");
+
+        Assert(!tooEarly.IsAccepted, "a queued control job was started");
+        Assert(tooEarly.Reason.Contains("Queued", StringComparison.Ordinal), $"the refusal said '{tooEarly.Reason}'");
+
+        // Three packages, one stream, five object types. A packaging mistake that left one of them
+        // out of the composite would show up here and nowhere in the test suite.
+        var objects = provider.GetRequiredService<ObjectServices>().Provider;
+
+        Assert(objects is CompositeObjectProvider composite && composite.Providers.Count == 3,
+            "stream 14 is not answered by all three packages");
+
+        var types = await objects!.GetObjectTypesAsync(CancellationToken.None).ConfigureAwait(false);
+
+        foreach (var expected in new[] { "Carrier", "LoadPort", "Substrate", "SubstrateLocation", "ControlJob" })
+        {
+            Assert(types.Contains(expected, StringComparer.Ordinal), $"stream 14 does not answer for {expected}");
+        }
+
+        // And the actionable half, which is what E94 needed built: an action has to find the one
+        // provider of three that owns the object.
+        var acted = await objects.ActAsync(
+            new ObjectActionRequest { Objects = ["CJ-1"], Command = ControlJobCommands.Select },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(acted.Count == 1, $"the action came back {acted.Count} time(s)");
+        Assert(acted[0].Acknowledgement == ObjectAcknowledgement.Successful, $"the action answered {acted[0].Acknowledgement}");
+        Assert(manager.Find("CJ-1")?.State == ControlJobState.Selected, "the command did not reach the state machine");
+
+        var created = await objects.CreateAsync(
+            new ObjectCreateRequest
+            {
+                ObjectType = ControlJobObjectProvider.ControlJobType,
+                Attributes = [new ObjectAttribute { Name = "ObjID", Value = SecsItem.A("CJ-2") }],
+            },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(created.Acknowledgement == ObjectAcknowledgement.Successful, $"the create answered {created.Acknowledgement}");
+        Assert(created.ObjectId == "CJ-2", $"the machine named the job '{created.ObjectId}'");
+        Assert(manager.Find("CJ-2") is not null, "the created job is not in the manager");
     }
 }

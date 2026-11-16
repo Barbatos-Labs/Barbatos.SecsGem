@@ -60,7 +60,7 @@ public sealed class ObjectServices
         _logger = logger ?? NullLogger<ObjectServices>.Instance;
     }
 
-    /// <summary>Every primary this class can answer - the seven in the implemented subset.</summary>
+    /// <summary>Every primary this class can answer - the eleven in the implemented subset.</summary>
     /// <remarks>
     /// Declare these only on an entity that has a provider. An entity that only asks and declares
     /// them answers every <c>GetAttr</c> with an empty list, which is worse than the S9F5 it would
@@ -70,11 +70,15 @@ public sealed class ObjectServices
     [
         (14, 1),    // GetAttr Request
         (14, 3),    // SetAttr Request
+        (14, 5),    // Create Object Request
+        (14, 7),    // Delete Object Request
+        (14, 9),    // Object Action Request
         (14, 13),   // Object Type Namelist Request
         (14, 15),   // Object Instance Namelist Request
         (14, 17),   // Object Attribute Namelist Request
         (14, 19),   // Multi-Object GetAttr Request
         (14, 21),   // Multi-Object SetAttr Request
+        (14, 27),   // Object Multi-Action Request
     ];
 
     /// <summary>Gets a value indicating whether this end can answer as well as ask.</summary>
@@ -395,6 +399,166 @@ public sealed class ObjectServices
         return results;
     }
 
+    // ------------------------------------------------------------------ actions
+
+    /// <summary>Tells one object to do something - S14F9, answered by S14F10.</summary>
+    /// <param name="objectSpecification">Which object.</param>
+    /// <param name="objectType">Its type.</param>
+    /// <param name="command">What to do - <c>RCMD</c>.</param>
+    /// <param name="parameters">What to do it with.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it was done, and if not, which part was wrong.</returns>
+    /// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no acknowledgement code.</exception>
+    /// <remarks>
+    /// The message that makes stream 14 more than a property bag. An object with a state machine
+    /// behind it - a control job, a carrier - is driven with this rather than by having its state
+    /// assigned, which is why the providers in this stack refuse a write of a state attribute.
+    /// </remarks>
+    public async ValueTask<ObjectAcknowledgement> ActAsync(
+        string objectSpecification,
+        string objectType,
+        string command,
+        IReadOnlyList<ObjectParameter>? parameters = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(objectSpecification);
+        ArgumentNullException.ThrowIfNull(objectType);
+        ArgumentNullException.ThrowIfNull(command);
+
+        var request = new ObjectActionRequest
+        {
+            Objects = [objectSpecification],
+            ObjectType = objectType,
+            Command = command,
+            Parameters = parameters ?? [],
+        };
+
+        using var reply = await RequestAsync(
+            new SecsMessage(14, 9, replyExpected: true)
+            {
+                Name = "ObjectActionRequest",
+                Item = ObjectCodec.ActionBody(request),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!ObjectCodec.TryReadActionResults(reply.Item, out var results) || results.Count == 0)
+        {
+            throw new SecsException("S14F10 carried no OBJACK.");
+        }
+
+        return results[0].Acknowledgement;
+    }
+
+    /// <summary>Tells several objects to do the same thing - S14F27, answered by S14F28.</summary>
+    /// <param name="objectSpecifications">Which objects.</param>
+    /// <param name="command">What to do - <c>RCMD</c>.</param>
+    /// <param name="parameters">What to do it with.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>One result per object the other end reported on.</returns>
+    /// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply was not a list of acknowledgements.</exception>
+    public async ValueTask<IReadOnlyList<ObjectActionResult>> ActAsync(
+        IReadOnlyList<string> objectSpecifications,
+        string command,
+        IReadOnlyList<ObjectParameter>? parameters = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(objectSpecifications);
+        ArgumentNullException.ThrowIfNull(command);
+
+        var request = new ObjectActionRequest
+        {
+            Objects = objectSpecifications,
+            Command = command,
+            Parameters = parameters ?? [],
+        };
+
+        using var reply = await RequestAsync(
+            new SecsMessage(14, 27, replyExpected: true)
+            {
+                Name = "ObjectMultiActionRequest",
+                Item = ObjectCodec.MultiActionBody(request),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!ObjectCodec.TryReadActionResults(reply.Item, out var results))
+        {
+            throw new SecsException("S14F28 did not carry a list of acknowledgements.");
+        }
+
+        return results;
+    }
+
+    // ------------------------------------------------------- making and unmaking
+
+    /// <summary>Asks for an object to exist - S14F5, answered by S14F6.</summary>
+    /// <param name="objectType">What kind.</param>
+    /// <param name="attributes">What it should start out as. These become this library's and are disposed with the message.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>What was made, or why not.</returns>
+    /// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no acknowledgement code.</exception>
+    /// <remarks>
+    /// The object is named by the other end: S14F6 carries an <c>OBJID</c> back, and
+    /// <see cref="ObjectCreateResult.ObjectId"/> is what to use afterwards. A caller that wants a
+    /// particular name passes it as an attribute and leaves the machine to agree or refuse -
+    /// which is also how E94 gives a control job its identifier.
+    /// </remarks>
+    public async ValueTask<ObjectCreateResult> CreateAsync(
+        string objectType,
+        IReadOnlyList<ObjectAttribute>? attributes = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(objectType);
+
+        var request = new ObjectCreateRequest { ObjectType = objectType, Attributes = attributes ?? [] };
+
+        using var reply = await RequestAsync(
+            new SecsMessage(14, 5, replyExpected: true)
+            {
+                Name = "CreateObjectRequest",
+                Item = ObjectCodec.CreateBody(request),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return ObjectCodec.TryReadCreateResult(reply.Item)
+            ?? throw new SecsException("S14F6 carried no OBJACK.");
+    }
+
+    /// <summary>Asks for an object to stop existing - S14F7, answered by S14F8.</summary>
+    /// <param name="objectSpecification">Which one.</param>
+    /// <param name="objectType">Its type, or an empty string to leave it unsaid.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it is gone.</returns>
+    /// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no acknowledgement code.</exception>
+    public async ValueTask<ObjectAcknowledgement> DeleteAsync(
+        string objectSpecification,
+        string objectType = "",
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(objectSpecification);
+        ArgumentNullException.ThrowIfNull(objectType);
+
+        var request = new ObjectDeleteRequest
+        {
+            ObjectType = objectType,
+            ObjectSpecification = objectSpecification,
+        };
+
+        using var reply = await RequestAsync(
+            new SecsMessage(14, 7, replyExpected: true)
+            {
+                Name = "DeleteObjectRequest",
+                Item = ObjectCodec.DeleteBody(request),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return ObjectCodec.TryReadDeleteResult(reply.Item)
+            ?? throw new SecsException("S14F8 carried no OBJACK.");
+    }
+
     // --------------------------------------------------------------- the pieces
 
     private async ValueTask<SecsMessage?> BuildReplyAsync(
@@ -433,6 +597,66 @@ public sealed class ObjectServices
                     ObjectCodec.SetDataBody(
                         write.Attributes,
                         results.Count > 0 ? results[0].Acknowledgement : ObjectAcknowledgement.Error));
+            }
+
+            case 5:
+            {
+                if (!ObjectCodec.TryReadCreate(transaction.Message.Item, out var create) || create is null)
+                {
+                    return Reply(
+                        6,
+                        "CreateObjectAcknowledge",
+                        ObjectCodec.CreateResultBody(new ObjectCreateResult
+                        {
+                            Acknowledgement = ObjectAcknowledgement.InvalidObjectType,
+                        }));
+                }
+
+                var made = await provider.CreateAsync(create, cancellationToken).ConfigureAwait(false);
+
+                return Reply(6, "CreateObjectAcknowledge", ObjectCodec.CreateResultBody(made));
+            }
+
+            case 7:
+            {
+                if (!ObjectCodec.TryReadDelete(transaction.Message.Item, out var delete) || delete is null)
+                {
+                    return Reply(
+                        8,
+                        "DeleteObjectAcknowledge",
+                        ObjectCodec.DeleteResultBody(string.Empty, ObjectAcknowledgement.InvalidObjectInstance));
+                }
+
+                var gone = await provider.DeleteAsync(delete, cancellationToken).ConfigureAwait(false);
+
+                return Reply(8, "DeleteObjectAcknowledge", ObjectCodec.DeleteResultBody(delete.ObjectSpecification, gone));
+            }
+
+            case 9:
+            {
+                if (!ObjectCodec.TryReadAction(transaction.Message.Item, out var action) || action is null)
+                {
+                    return Reply(10, "ObjectActionAcknowledge", ObjectCodec.ActionResultBody(
+                    [
+                        new ObjectActionResult
+                        {
+                            ObjectSpecification = string.Empty,
+                            Acknowledgement = ObjectAcknowledgement.Error,
+                        },
+                    ]));
+                }
+
+                return Reply(10, "ObjectActionAcknowledge", await ActedAsync(provider, action, cancellationToken).ConfigureAwait(false));
+            }
+
+            case 27:
+            {
+                if (!ObjectCodec.TryReadMultiAction(transaction.Message.Item, out var action) || action is null)
+                {
+                    return Empty(28, "ObjectMultiActionAcknowledge", "S14F27");
+                }
+
+                return Reply(28, "ObjectMultiActionAcknowledge", await ActedAsync(provider, action, cancellationToken).ConfigureAwait(false));
             }
 
             case 13:
@@ -503,6 +727,50 @@ public sealed class ObjectServices
             default:
                 return null;
         }
+    }
+
+    /// <summary>Asks the provider to act, and makes sure every object named gets an answer.</summary>
+    /// <remarks>
+    /// A provider answers only for the objects it has, so an object nobody owns would otherwise
+    /// come back with no result at all - and a host reading a shorter list than it sent has to
+    /// work out which one is missing. Filling the gaps with
+    /// <see cref="ObjectAcknowledgement.InvalidObjectInstance"/> says it directly.
+    /// </remarks>
+    private static async ValueTask<SecsItem> ActedAsync(
+        IObjectProvider provider,
+        ObjectActionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var results = await provider.ActAsync(request, cancellationToken).ConfigureAwait(false) ?? [];
+
+        List<ObjectActionResult> answered = [];
+
+        foreach (var specification in request.Objects)
+        {
+            var found = false;
+
+            foreach (var result in results)
+            {
+                if (string.Equals(result.ObjectSpecification, specification, StringComparison.Ordinal))
+                {
+                    answered.Add(result);
+                    found = true;
+
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                answered.Add(new ObjectActionResult
+                {
+                    ObjectSpecification = specification,
+                    Acknowledgement = ObjectAcknowledgement.InvalidObjectInstance,
+                });
+            }
+        }
+
+        return ObjectCodec.ActionResultBody(answered);
     }
 
     private async ValueTask<SecsMessage> RequestAsync(SecsMessage primary, CancellationToken cancellationToken)

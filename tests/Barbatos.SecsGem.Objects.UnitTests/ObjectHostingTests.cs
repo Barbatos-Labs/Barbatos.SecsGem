@@ -74,14 +74,14 @@ public class ObjectHostingTests
     }
 
     [Fact]
-    public async Task An_end_with_a_provider_declares_all_seven_primaries_and_can_answer()
+    public async Task An_end_with_a_provider_declares_every_primary_and_can_answer()
     {
         await using var provider = Build(withProvider: true);
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
         Assert.True(provider.GetRequiredService<ObjectServices>().CanAnswer);
-        Assert.Equal(7, ObjectServices.HandledMessages.Count);
+        Assert.Equal(11, ObjectServices.HandledMessages.Count);
 
         foreach (var (stream, function) in ObjectServices.HandledMessages)
         {

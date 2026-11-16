@@ -25,7 +25,7 @@ public static class SubstrateServiceCollectionExtensions
     /// <remarks>
     /// <para>
     /// Registers <see cref="SubstrateTracker"/>, <see cref="SubstrateObjectProvider"/> as an
-    /// <see cref="Barbatos.SecsGem.Objects.IObjectProvider"/>, and the seven primaries of object
+    /// <see cref="Barbatos.SecsGem.Objects.IObjectProvider"/>, and the eleven primaries of object
     /// services - which are the only messages E90 has, because they are stream 14's.
     /// </para>
     /// <para>

@@ -102,7 +102,7 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extension on `ISecsGemBuil
 
 | Method | What it adds |
 | --- | --- |
-| `AddSubstrateTracking(Action<SubstrateTracker>? configure = null)` | `SubstrateTracker` (locations declared in `configure`), `SubstrateObjectProvider` as an `IObjectProvider`, and the seven primaries of object services. |
+| `AddSubstrateTracking(Action<SubstrateTracker>? configure = null)` | `SubstrateTracker` (locations declared in `configure`), `SubstrateObjectProvider` as an `IObjectProvider`, and the eleven primaries of object services. |
 
-One method, because E90 has one side. It composes with `AddCarrierEquipment`: both providers
-answer, through `CompositeObjectProvider`.
+One method, because E90 has one side. It composes with `AddCarrierEquipment` and `AddControlJobs`:
+every provider answers, through `CompositeObjectProvider`.

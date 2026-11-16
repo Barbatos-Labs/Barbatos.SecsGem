@@ -431,7 +431,391 @@ internal static class ObjectCodec
         return true;
     }
 
+    // --------------------------------------------------------------- an action
+
+    /// <summary>S14F9 - Object Action Request, one object.</summary>
+    internal static SecsItem ActionBody(ObjectActionRequest request)
+        => SecsItem.L(
+            SecsItem.A(request.Objects.Count > 0 ? request.Objects[0] : string.Empty).Named("OBJSPEC"),
+            SecsItem.A(request.ObjectType).Named("OBJTYPE"),
+            SecsItem.A(request.Command).Named("RCMD"),
+            ParameterListBody(request.Parameters));
+
+    /// <summary>Reads S14F9.</summary>
+    internal static bool TryReadAction(SecsItem? body, out ObjectActionRequest? request)
+    {
+        request = null;
+
+        if (body is null || !body.IsList || body.Count < 3)
+        {
+            return false;
+        }
+
+        var command = Text(body.Items[2]);
+
+        if (command.Length == 0)
+        {
+            return false;
+        }
+
+        if (!TryReadParameterList(body.Count > 3 ? body.Items[3] : null, out var parameters))
+        {
+            return false;
+        }
+
+        request = new ObjectActionRequest
+        {
+            Objects = [Text(body.Items[0])],
+            ObjectType = Text(body.Items[1]),
+            Command = command,
+            Parameters = parameters,
+        };
+
+        return true;
+    }
+
+    /// <summary>S14F27 - Object Multi-Action Request. No <c>OBJTYPE</c>: several objects need not share one.</summary>
+    internal static SecsItem MultiActionBody(ObjectActionRequest request)
+        => SecsItem.L(
+            NameListBody(request.Objects, "OBJSPEC"),
+            SecsItem.A(request.Command).Named("RCMD"),
+            ParameterListBody(request.Parameters));
+
+    /// <summary>Reads S14F27.</summary>
+    internal static bool TryReadMultiAction(SecsItem? body, out ObjectActionRequest? request)
+    {
+        request = null;
+
+        if (body is null || !body.IsList || body.Count < 2)
+        {
+            return false;
+        }
+
+        if (!TryReadNameList(body.Items[0], out var objects))
+        {
+            return false;
+        }
+
+        var command = Text(body.Items[1]);
+
+        if (command.Length == 0)
+        {
+            return false;
+        }
+
+        if (!TryReadParameterList(body.Count > 2 ? body.Items[2] : null, out var parameters))
+        {
+            return false;
+        }
+
+        request = new ObjectActionRequest { Objects = objects, Command = command, Parameters = parameters };
+
+        return true;
+    }
+
+    /// <summary>S14F10 and S14F28 - what happened to each object.</summary>
+    internal static SecsItem ActionResultBody(IReadOnlyList<ObjectActionResult> results)
+    {
+        // One result is written as the pair S14F10 describes; several as a list of them, which is
+        // what S14F28 needs. A reader takes either, so the one-object case stays the simple shape
+        // a machine expecting S14F10 will recognise.
+        if (results.Count == 1)
+        {
+            return SecsItem.L(
+                SecsItem.A(results[0].ObjectSpecification).Named("OBJSPEC"),
+                SecsItem.B((byte)results[0].Acknowledgement).Named("OBJACK"));
+        }
+
+        var entries = new SecsItem[results.Count];
+
+        for (var i = 0; i < results.Count; i++)
+        {
+            entries[i] = SecsItem.L(
+                SecsItem.A(results[i].ObjectSpecification).Named("OBJSPEC"),
+                SecsItem.B((byte)results[i].Acknowledgement).Named("OBJACK"));
+        }
+
+        return SecsItem.L(entries);
+    }
+
+    /// <summary>Reads S14F10 and S14F28, in either shape.</summary>
+    internal static bool TryReadActionResults(SecsItem? body, out List<ObjectActionResult> results)
+    {
+        results = [];
+
+        if (body is null || !body.IsList || body.Count == 0)
+        {
+            return false;
+        }
+
+        // A pair: one object specification and one code.
+        if (!body.Items[0].IsList)
+        {
+            if (body.Count < 2 || ReadCode(body.Items[1]) is not { } single)
+            {
+                return false;
+            }
+
+            results.Add(new ObjectActionResult
+            {
+                ObjectSpecification = Text(body.Items[0]),
+                Acknowledgement = Acknowledgement(single),
+            });
+
+            return true;
+        }
+
+        foreach (var entry in body.Items)
+        {
+            if (!entry.IsList || entry.Count < 2 || ReadCode(entry.Items[1]) is not { } code)
+            {
+                return false;
+            }
+
+            results.Add(new ObjectActionResult
+            {
+                ObjectSpecification = Text(entry.Items[0]),
+                Acknowledgement = Acknowledgement(code),
+            });
+        }
+
+        return true;
+    }
+
+    // ---------------------------------------------------- making and unmaking
+
+    /// <summary>S14F5 - Create Object Request.</summary>
+    internal static SecsItem CreateBody(ObjectCreateRequest request)
+        => SecsItem.L(
+            SecsItem.A(request.ObjectType).Named("OBJTYPE"),
+            AttributeListBody(request.Attributes));
+
+    /// <summary>Reads S14F5.</summary>
+    internal static bool TryReadCreate(SecsItem? body, out ObjectCreateRequest? request)
+    {
+        request = null;
+
+        if (body is null || !body.IsList || body.Count < 1)
+        {
+            return false;
+        }
+
+        var objectType = Text(body.Items[0]);
+
+        if (objectType.Length == 0)
+        {
+            return false;
+        }
+
+        List<ObjectAttribute> attributes = [];
+
+        if (body.Count > 1 && !TryReadAttributeList(body.Items[1], out attributes))
+        {
+            return false;
+        }
+
+        request = new ObjectCreateRequest { ObjectType = objectType, Attributes = attributes };
+
+        return true;
+    }
+
+    /// <summary>S14F6 - Create Object Acknowledge.</summary>
+    internal static SecsItem CreateResultBody(ObjectCreateResult result)
+        => SecsItem.L(
+            SecsItem.B((byte)result.Acknowledgement).Named("OBJACK"),
+            SecsItem.A(result.ObjectId).Named("OBJID"));
+
+    /// <summary>Reads S14F6.</summary>
+    internal static ObjectCreateResult? TryReadCreateResult(SecsItem? body)
+    {
+        if (body is null)
+        {
+            return null;
+        }
+
+        if (!body.IsList)
+        {
+            return ReadCode(body) is { } bare
+                ? new ObjectCreateResult { Acknowledgement = Acknowledgement(bare) }
+                : null;
+        }
+
+        if (body.Count == 0 || ReadCode(body.Items[0]) is not { } code)
+        {
+            return null;
+        }
+
+        return new ObjectCreateResult
+        {
+            Acknowledgement = Acknowledgement(code),
+            ObjectId = body.Count > 1 ? Text(body.Items[1]) : string.Empty,
+        };
+    }
+
+    /// <summary>S14F7 - Delete Object Request.</summary>
+    internal static SecsItem DeleteBody(ObjectDeleteRequest request)
+        => SecsItem.L(
+            SecsItem.A(request.ObjectType).Named("OBJTYPE"),
+            SecsItem.A(request.ObjectSpecification).Named("OBJSPEC"));
+
+    /// <summary>Reads S14F7.</summary>
+    internal static bool TryReadDelete(SecsItem? body, out ObjectDeleteRequest? request)
+    {
+        request = null;
+
+        if (body is null || !body.IsList || body.Count < 2)
+        {
+            return false;
+        }
+
+        var specification = Text(body.Items[1]);
+
+        if (specification.Length == 0)
+        {
+            return false;
+        }
+
+        request = new ObjectDeleteRequest
+        {
+            ObjectType = Text(body.Items[0]),
+            ObjectSpecification = specification,
+        };
+
+        return true;
+    }
+
+    /// <summary>S14F8 - Delete Object Acknowledge.</summary>
+    internal static SecsItem DeleteResultBody(string objectSpecification, ObjectAcknowledgement acknowledgement)
+        => SecsItem.L(
+            SecsItem.A(objectSpecification).Named("OBJSPEC"),
+            SecsItem.B((byte)acknowledgement).Named("OBJACK"));
+
+    /// <summary>Reads S14F8.</summary>
+    /// <remarks>The code is the last item, so a machine that sends only the code still reads.</remarks>
+    internal static ObjectAcknowledgement? TryReadDeleteResult(SecsItem? body)
+    {
+        if (body is null)
+        {
+            return null;
+        }
+
+        if (!body.IsList)
+        {
+            return ReadCode(body) is { } bare ? Acknowledgement(bare) : null;
+        }
+
+        return body.Count switch
+        {
+            0 => null,
+            1 => ReadCode(body.Items[0]) is { } only ? Acknowledgement(only) : null,
+            _ => ReadCode(body.Items[body.Count - 1]) is { } last ? Acknowledgement(last) : null,
+        };
+    }
+
     // ------------------------------------------------------------- the pieces
+
+    /// <summary>Writes an action's parameters as two-element entries.</summary>
+    private static SecsItem ParameterListBody(IReadOnlyList<ObjectParameter> parameters)
+    {
+        var entries = new SecsItem[parameters.Count];
+
+        for (var i = 0; i < parameters.Count; i++)
+        {
+            entries[i] = SecsItem.L(
+                SecsItem.A(parameters[i].Name).Named("CPNAME"),
+                SecsItem.A(parameters[i].Value).Named("CPVAL"));
+        }
+
+        return SecsItem.L(entries);
+    }
+
+    /// <summary>Reads an action's parameters, nested or flat.</summary>
+    /// <remarks>
+    /// The same two shapes an attribute list is read in, and one more tolerance besides: a value
+    /// that is not text is read as its digits, because <c>CPVAL</c> is an <c>A</c> item in the
+    /// catalogue and a machine that sends a number has still said what it meant.
+    /// </remarks>
+    private static bool TryReadParameterList(SecsItem? item, out List<ObjectParameter> parameters)
+    {
+        parameters = [];
+
+        if (item is null)
+        {
+            return true;
+        }
+
+        if (!item.IsList)
+        {
+            return false;
+        }
+
+        if (item.Count == 0)
+        {
+            return true;
+        }
+
+        if (item.Items[0].IsList)
+        {
+            foreach (var entry in item.Items)
+            {
+                if (!entry.IsList || entry.Count < 2 || !entry.Items[0].Format.IsText())
+                {
+                    return false;
+                }
+
+                parameters.Add(new ObjectParameter { Name = Text(entry.Items[0]), Value = Value(entry.Items[1]) });
+            }
+
+            return true;
+        }
+
+        if (item.Count % 2 != 0)
+        {
+            return false;
+        }
+
+        for (var i = 0; i + 1 < item.Count; i += 2)
+        {
+            if (!item.Items[i].Format.IsText())
+            {
+                return false;
+            }
+
+            parameters.Add(new ObjectParameter { Name = Text(item.Items[i]), Value = Value(item.Items[i + 1]) });
+        }
+
+        return true;
+    }
+
+    /// <summary>Reads a parameter value, which the catalogue says is text and a machine may not send as text.</summary>
+    private static string Value(SecsItem item)
+    {
+        if (item.Format.IsText())
+        {
+            return Text(item);
+        }
+
+        if (item.IsList || item.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return item.Format switch
+        {
+            SecsFormat.Binary or SecsFormat.U1 => item.FirstValueOrDefault<byte>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.U2 => item.FirstValueOrDefault<ushort>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.U4 => item.FirstValueOrDefault<uint>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.U8 => item.FirstValueOrDefault<ulong>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.I1 => item.FirstValueOrDefault<sbyte>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.I2 => item.FirstValueOrDefault<short>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.I4 => item.FirstValueOrDefault<int>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.I8 => item.FirstValueOrDefault<long>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.F4 => item.FirstValueOrDefault<float>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.F8 => item.FirstValueOrDefault<double>().ToString(CultureInfo.InvariantCulture),
+            SecsFormat.Boolean => item.FirstValueOrDefault<bool>().ToString(),
+            _ => string.Empty,
+        };
+    }
 
     /// <summary>Writes a list of attributes as two-element entries.</summary>
     /// <remarks>

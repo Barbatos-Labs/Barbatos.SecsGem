@@ -136,3 +136,88 @@ public sealed class ObjectSetResult
     /// <summary>Whether it took - <c>OBJACK</c>.</summary>
     public required ObjectAcknowledgement Acknowledgement { get; init; }
 }
+
+/// <summary>A parameter of an action - <c>CPNAME</c> and <c>CPVAL</c>.</summary>
+/// <remarks>
+/// Both are <c>A</c> items in the catalogue, so a parameter is a pair of strings rather than a
+/// name and an item of any format. That is narrower than <c>ATTRDATA</c> deliberately: the
+/// catalogue says <c>A</c>, and a machine that sends a number sends its digits. The reader takes
+/// any format and reads its text form, so a <c>U4</c> arriving where text was expected is still
+/// understood.
+/// </remarks>
+public sealed class ObjectParameter
+{
+    /// <summary>What the parameter is called - <c>CPNAME</c>.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Its value - <c>CPVAL</c>.</summary>
+    public string Value { get; init; } = string.Empty;
+}
+
+/// <summary>Telling an object to do something - S14F9 and S14F27.</summary>
+/// <remarks>
+/// One type for both, as with a get: the only difference is how many objects are named. An action
+/// is a string because <c>RCMD</c> is an <c>A</c> item, which is the same reason the carrier
+/// actions in the E87 package are strings - the vocabulary belongs to whatever standard defines
+/// the object, and a library that made an enum of it would cap what its users can say.
+/// </remarks>
+public sealed class ObjectActionRequest
+{
+    /// <summary>Which objects - <c>OBJSPEC</c>.</summary>
+    public required IReadOnlyList<string> Objects { get; init; }
+
+    /// <summary>What type they are - <c>OBJTYPE</c>. Empty for a multi-object action, which does not carry one.</summary>
+    public string ObjectType { get; init; } = string.Empty;
+
+    /// <summary>What to do - <c>RCMD</c>.</summary>
+    public required string Command { get; init; }
+
+    /// <summary>What to do it with - <c>CPNAME</c> and <c>CPVAL</c>.</summary>
+    public IReadOnlyList<ObjectParameter> Parameters { get; init; } = [];
+}
+
+/// <summary>What happened to one object in an action - S14F10 and S14F28.</summary>
+public sealed class ObjectActionResult
+{
+    /// <summary>Which object - <c>OBJSPEC</c>.</summary>
+    public required string ObjectSpecification { get; init; }
+
+    /// <summary>Whether it was done - <c>OBJACK</c>.</summary>
+    public required ObjectAcknowledgement Acknowledgement { get; init; }
+}
+
+/// <summary>Asking for an object to exist - S14F5.</summary>
+/// <remarks>
+/// The object is named by the equipment rather than by the asker: S14F6 carries an <c>OBJID</c>
+/// back. A host that wants a particular name sets it as an attribute and leaves the machine to
+/// agree or refuse.
+/// </remarks>
+public sealed class ObjectCreateRequest
+{
+    /// <summary>What kind of object - <c>OBJTYPE</c>.</summary>
+    public required string ObjectType { get; init; }
+
+    /// <summary>What it should start out as.</summary>
+    /// <remarks>Inside a provider these are live views into the message; see <see cref="ObjectAttribute"/>.</remarks>
+    public IReadOnlyList<ObjectAttribute> Attributes { get; init; } = [];
+}
+
+/// <summary>What the machine made, or why it did not - S14F6.</summary>
+public sealed class ObjectCreateResult
+{
+    /// <summary>Whether it was made - <c>OBJACK</c>.</summary>
+    public required ObjectAcknowledgement Acknowledgement { get; init; }
+
+    /// <summary>What it is called - <c>OBJID</c>. Empty when nothing was made.</summary>
+    public string ObjectId { get; init; } = string.Empty;
+}
+
+/// <summary>Asking for an object to stop existing - S14F7.</summary>
+public sealed class ObjectDeleteRequest
+{
+    /// <summary>What kind of object - <c>OBJTYPE</c>.</summary>
+    public string ObjectType { get; init; } = string.Empty;
+
+    /// <summary>Which one - <c>OBJSPEC</c>.</summary>
+    public required string ObjectSpecification { get; init; }
+}

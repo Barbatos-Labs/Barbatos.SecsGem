@@ -26,7 +26,7 @@ public static class CarrierServiceCollectionExtensions
     /// <para>
     /// Registers <see cref="CarrierManager"/>, <see cref="CarrierEquipment"/>, and
     /// <see cref="CarrierObjectProvider"/> as the <see cref="IObjectProvider"/> that stream 14
-    /// answers out of - then declares both the five carrier primaries and the seven of object
+    /// answers out of - then declares both the five carrier primaries and the eleven of object
     /// services. E87 needs both halves: the actions move the state machines, and the attributes,
     /// the slot map among them, are read over stream 14.
     /// </para>

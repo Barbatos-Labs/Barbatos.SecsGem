@@ -1,8 +1,9 @@
 # Barbatos.SecsGem.Objects
 
 Object services - SECS-II stream 14 - for **.NET 8, 9 and 10**: `GetAttr` and `SetAttr` for one
-object or many, and the three namelists that say which object types exist, which instances of a
-type exist, and which attributes an object has.
+object or many, the three namelists that say which object types exist, which instances of a type
+exist and which attributes an object has, and the actionable half - create an object, delete one,
+tell one to do something.
 
 > Part of **[Barbatos.SecsGem](https://github.com/Barbatos-Labs/Barbatos.SecsGem)** - a modern, allocation-conscious SECS-II / HSMS-SS / GEM stack
 > for .NET 8, 9 and 10.
@@ -20,7 +21,7 @@ Depends on `Barbatos.SecsGem.Hsms` and not on `Barbatos.SecsGem.Gem`.
 Stream 14 is a protocol over an object model it does not own. The objects belong to other
 standards - E87 names a carrier, E90 a substrate, E94 a control job - and to the application that
 implements them. So the library carries the messages and **your application supplies the objects**,
-through one five-method interface.
+through one interface: five methods to implement and three with defaults.
 
 A library that shipped its own carrier type would be shipping a guess at somebody else's standard,
 and the day you implement E87 properly you would have to delete it.
@@ -130,6 +131,50 @@ foreach (var result in await objects.SetAttributesAsync(                // S14F2
 }
 ```
 
+## Acting, creating, deleting
+
+The half that makes stream 14 more than a property bag. An object with a state machine - a control
+job, a carrier - is driven by *actions* rather than by having its state assigned:
+
+```csharp
+var acknowledgement = await objects.ActAsync(                           // S14F9
+    "CJ-1",
+    "ControlJob",
+    "Start");
+
+// Several objects, one command. S14F27 carries no object type at all.
+foreach (var result in await objects.ActAsync(["CJ-1", "CJ-2"], "Stop"))  // S14F27
+{
+    Console.WriteLine($"{result.ObjectSpecification}: {result.Acknowledgement}");
+}
+```
+
+`RCMD` is an `A` item, so a command is a string and the vocabulary belongs to whatever standard
+defines the object. A provider refuses what it does not know; nothing here keeps a fab from asking.
+
+An object can also be brought into being and taken out of it:
+
+```csharp
+var created = await objects.CreateAsync("ControlJob",                   // S14F5
+[
+    new ObjectAttribute { Name = "ObjID", Value = SecsItem.A("CJ-1") },
+    new ObjectAttribute { Name = "CarrierInputSpec", Value = SecsItem.L(SecsItem.A("CAR-001")) },
+]);
+
+Console.WriteLine(created.ObjectId);                                    // the machine names it
+
+await objects.DeleteAsync("CJ-1", "ControlJob");                        // S14F7
+```
+
+**The equipment names the object**, not the asker: S14F6 carries an `OBJID` back. A host that wants
+a particular name sets it as an attribute and leaves the machine to agree or refuse - which is also
+how it learns the name of a job it did not name.
+
+These three are **default interface methods** on `IObjectProvider`: acting answers an empty list,
+and creating and deleting refuse with `InvalidObjectType`. That is the honest answer from a provider
+whose objects are the machine's own hardware - a host cannot create a load port by asking - and it
+means a provider written before this half existed still compiles.
+
 ## Who owns an attribute value
 
 `ATTRDATA` is the one item in E5 with no format of its own - an attribute is whatever the object
@@ -176,7 +221,8 @@ public sealed class MyObjects : IObjectProvider
         return ValueTask.FromResult<IReadOnlyList<ObjectAttributeValues>>(values);
     }
 
-    // ... four more: the three namelists and the set
+    // ... four more: the three namelists and the set. Acting, creating and deleting have
+    // defaults, so a provider with no behaviour to drive writes nothing for them.
 }
 ```
 
@@ -188,6 +234,16 @@ values as encoded bytes (an item belongs to its message, and a store outlives ev
 sees). It is strict by default: a set cannot invent an attribute an object does not already have,
 which `AllowNewAttributes` turns off.
 
+**Providers compose.** A machine implementing E87, E90 and E94 calls three registrations, one per
+package, and each of them adds a provider; `CompositeObjectProvider` makes them one. Reads and sets
+concatenate, so every provider answers for its own objects; a create or a delete goes to the first
+one that does not say "not mine". The eleven primaries are declared once however many providers
+there are, and an object nobody owns comes back as `InvalidObjectInstance` rather than as silence.
+
+This was the one real fault these chapters turned up: the registration used to keep the first
+provider and drop the rest, so a machine doing E87 and E90 answered carrier attributes and no
+substrate attributes at all, with nothing anywhere saying so.
+
 ## What came from the standard and what did not
 
 Of stream 14's twenty-eight catalogue rows, exactly **one** - S14F1 - is marked as a definition
@@ -196,7 +252,10 @@ formats of the items, and they are a careful reading rather than a quotation; th
 `Internal/ObjectCodec.cs`, which is the only file to change if a machine disagrees.
 
 One thing that subset got right: it touches **no undefined item**. `ENABLE`, the one name in stream
-14 with no dictionary entry, appears only in S14F23, which is not implemented here.
+14 with no dictionary entry, appears only in S14F23, which is not implemented here. That holds for
+the actionable half as well: `OBJSPEC`, `OBJTYPE`, `RCMD`, `CPNAME`, `CPVAL`, `OBJID`, `OBJACK`,
+`ATTRID` and `ATTRDATA` are all defined, which is why the E94 package on top of this one can say
+its *wire* is checked even though its state machine is not.
 
 Reading is looser than writing. An attribute list is accepted whether its entries are two-element
 lists or a flat run of name-and-value pairs; a namelist is accepted whether it is a list or one bare
@@ -206,12 +265,17 @@ attribute fields, for one, where pairing them would attach a name to the wrong v
 
 ## What is not here yet
 
-- **S14F5 to S14F12** (create and delete an object, object actions, attribute relations) and
-  **S14F23 to S14F28** (attribute enable, error reports, multi-actions). All representative in the
-  catalogue, and `ENABLE` among them has no definition at all.
+- **S14F11 and S14F12** (attribute relations) and **S14F23 to S14F26** (attribute enable, object
+  error reports). All representative in the catalogue, and `ENABLE` among them has no definition at
+  all - which is reason enough to leave S14F23 alone until a machine needs it.
 - A provider that outlives the process. `ObjectInMemoryProvider` is in memory, as it says.
-- E87, E90 and E94 object models. This package is the protocol they would travel over, which is
-  the right order to build the two in.
+
+The object models themselves live in their own packages, which is the right order to have built
+them in: [`Barbatos.SecsGem.Carriers`](../Barbatos.SecsGem.Carriers/README.md) for E87,
+[`Barbatos.SecsGem.Substrates`](../Barbatos.SecsGem.Substrates/README.md) for E90 and
+[`Barbatos.SecsGem.ControlJobs`](../Barbatos.SecsGem.ControlJobs/README.md) for E94. The first two
+only read; E94 is the one that needed create, delete and act, and it is worth knowing that the
+actionable half of this package exists because a standard asked for it rather than for completeness.
 
 ## Documentation
 

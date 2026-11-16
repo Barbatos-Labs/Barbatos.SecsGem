@@ -166,6 +166,70 @@ public sealed class CompositeObjectProvider : IObjectProvider
         return results;
     }
 
+    /// <inheritdoc/>
+    public async ValueTask<IReadOnlyList<ObjectActionResult>> ActAsync(
+        ObjectActionRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        List<ObjectActionResult> results = [];
+
+        // Concatenated, because a provider answers only for the objects it has - the same contract
+        // that makes a get concatenate. An object nobody owns gets its answer from the caller of
+        // this, which fills the gaps.
+        foreach (var provider in _providers)
+        {
+            results.AddRange(await provider.ActAsync(request, cancellationToken).ConfigureAwait(false) ?? []);
+        }
+
+        return results;
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<ObjectCreateResult> CreateAsync(
+        ObjectCreateRequest request,
+        CancellationToken cancellationToken)
+    {
+        ObjectCreateResult? last = null;
+
+        // The first provider that makes objects of that type wins. InvalidObjectType is how a
+        // provider says the type is not its, which is also the default for one that makes nothing.
+        foreach (var provider in _providers)
+        {
+            last = await provider.CreateAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (last.Acknowledgement is not ObjectAcknowledgement.InvalidObjectType)
+            {
+                return last;
+            }
+        }
+
+        return last ?? new ObjectCreateResult { Acknowledgement = ObjectAcknowledgement.InvalidObjectType };
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<ObjectAcknowledgement> DeleteAsync(
+        ObjectDeleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        var last = ObjectAcknowledgement.InvalidObjectInstance;
+
+        foreach (var provider in _providers)
+        {
+            last = await provider.DeleteAsync(request, cancellationToken).ConfigureAwait(false);
+
+            // Anything but "not mine" is an answer, and for a delete there are two ways to say
+            // that: the type is not this provider's, or the instance is not.
+            if (last is not (ObjectAcknowledgement.InvalidObjectType or ObjectAcknowledgement.InvalidObjectInstance))
+            {
+                return last;
+            }
+        }
+
+        return last;
+    }
+
     private async ValueTask<ObjectSetResult> SetOneAsync(
         string specification,
         ObjectAttributeWrite write,

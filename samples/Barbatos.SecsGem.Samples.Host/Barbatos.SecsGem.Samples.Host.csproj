@@ -28,6 +28,9 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Substrates\Barbatos.SecsGem.Substrates.csproj" />
     <!-- And E87, whose attributes travel over that stream 14 and whose states do not. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Carriers\Barbatos.SecsGem.Carriers.csproj" />
+    <!-- E94, which is E87's and E90's material turned into a lot somebody asked for - and the one
+         standard here that uses the actionable half of stream 14. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.ControlJobs\Barbatos.SecsGem.ControlJobs.csproj" />
     <!-- So an S9F3 can say which message the equipment refused, by name. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />

@@ -7,6 +7,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using Barbatos.SecsGem;
 using Barbatos.SecsGem.Carriers;
+using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
@@ -55,11 +56,16 @@ internal static class Program
     private static readonly ConcurrentQueue<string> ErrorReports = new();
     private static readonly ConcurrentQueue<string> Reports = new();
 
-    /// <summary>What this sample needs to walk E87 and E90, bundled into one parameter.</summary>
+    /// <summary>What this sample needs to walk E87, E90 and E94, bundled into one parameter.</summary>
     /// <param name="Host">The host side of E87, which decides.</param>
     /// <param name="Machine">The carrier state machines, which in this mode are in the same process.</param>
     /// <param name="Substrates">The substrate tracker, which has no host side at all: E90 has no messages.</param>
-    private sealed record CarrierDemo(CarrierHost Host, CarrierManager Machine, SubstrateTracker Substrates);
+    /// <param name="Jobs">The control jobs, which have no host side either: E94's commands are stream 14's.</param>
+    private sealed record CarrierDemo(
+        CarrierHost Host,
+        CarrierManager Machine,
+        SubstrateTracker Substrates,
+        ControlJobManager Jobs);
 
     /// <summary>The carrier this sample walks through E87.</summary>
     private const string CarrierName = "CAR-001";
@@ -87,6 +93,13 @@ internal static class Program
     [
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1,
     ];
+
+    /// <summary>The control job the host queues for this carrier.</summary>
+    /// <remarks>
+    /// A host may name a job or leave the machine to; this one asks, because a sample that printed
+    /// a generated name would not show that S14F6 carries the name back either way.
+    /// </remarks>
+    private const string JobName = "CJ-1";
 
     /// <summary>The chamber, as stream 14 names it.</summary>
     private const string ChamberObject = "CH-1";
@@ -282,14 +295,20 @@ internal static class Program
             substrateTracker.AddLocation(SlotLocation(slot));
         }
 
-        // One provider per connection, three things to answer for - carriers and load ports,
-        // substrates and their locations, and this machine's own chamber. The composite is the
-        // library's, which is the whole point of it existing: this sample used to carry its own.
+        // E94's state machine. Empty, because a control job is a host's instruction: this one
+        // arrives as an S14F5 further down.
+        var controlJobs = new ControlJobManager();
+
+        // One provider per connection, four things to answer for - carriers and load ports,
+        // substrates and their locations, control jobs, and this machine's own chamber. The
+        // composite is the library's, which is the whole point of it existing: this sample used to
+        // carry its own.
         var equipmentObjects = new ObjectServices(
             equipmentLink,
             new CompositeObjectProvider(
                 new CarrierObjectProvider(carrierManager),
                 new SubstrateObjectProvider(substrateTracker),
+                new ControlJobObjectProvider(controlJobs),
                 machineObjects));
 
         var hostObjects = new ObjectServices(hostLink);
@@ -337,7 +356,7 @@ internal static class Program
                 materialEquipment,
                 materialHost,
                 hostObjects,
-                new CarrierDemo(carrierHost, carrierManager, substrateTracker),
+                new CarrierDemo(carrierHost, carrierManager, substrateTracker, controlJobs),
                 cts.Token);
 
             Console.WriteLine();
@@ -1081,6 +1100,65 @@ internal static class Program
             Console.WriteLine($"   [machine] {loaded} substrates from the slot map, all AtSource and NeedsProcessing");
             ok &= loaded == 23;
 
+            if (objects is not null)
+            {
+                Console.WriteLine();
+                Console.WriteLine("-- the host asks for the lot to run: E94 --");
+                Console.WriteLine();
+
+                // A control job is *created* rather than commanded into being, which is what the
+                // actionable half of stream 14 is for - and the only reason this library has it.
+                // E94 defines no message of its own, so this is the whole of how a lot is asked
+                // for: an object, a command, an attribute read.
+                var queued = await objects.CreateAsync(
+                    "ControlJob",
+                    [
+                        new ObjectAttribute { Name = "ObjID", Value = SecsItem.A(JobName) },
+                        new ObjectAttribute { Name = "CarrierInputSpec", Value = SecsItem.L(SecsItem.A(CarrierName)) },
+                        new ObjectAttribute { Name = "ProcessingCtrlSpec", Value = SecsItem.A("RECIPE-7") },
+                    ],
+                    cancellationToken);
+
+                Console.WriteLine($"   S14F5  -> OBJACK={queued.Acknowledgement}, the machine calls it {queued.ObjectId}");
+                ok &= queued.Acknowledgement == ObjectAcknowledgement.Successful && queued.ObjectId == JobName;
+
+                // RCMD is an A item, so a command is a string and the vocabulary is E94's.
+                var selected = await objects.ActAsync(
+                    JobName,
+                    "ControlJob",
+                    ControlJobCommands.Select,
+                    cancellationToken: cancellationToken);
+
+                Console.WriteLine($"   S14F9  -> Select OBJACK={selected}");
+                ok &= selected == ObjectAcknowledgement.Successful;
+
+                // And then the one transition no host command can stand in for: the carriers are
+                // in and the wafers are mapped. This job starts itself, because nobody asked for a
+                // host-initiated one - which is the only thing StartMethod decides.
+                ok &= carriers.Jobs.MaterialReady(JobName).IsAccepted;
+
+                await objects.GetAttributesAsync(
+                    JobName,
+                    "ControlJob",
+                    ["State", "Completion", "CarrierInputSpec", "ProcessingCtrlSpec"],
+                    values => Console.WriteLine($"   S14F1  -> {Describe(values)}"),
+                    cancellationToken);
+
+                ok &= carriers.Jobs.Find(JobName)?.State == ControlJobState.Executing;
+
+                // A command the state machine will not have. OBJACK has five codes and none of
+                // them means "not from that state", so a refusal arrives as Error and the reason
+                // stays on the machine - which is what E94 gives up by having no messages.
+                var refused = await objects.ActAsync(
+                    JobName,
+                    "ControlJob",
+                    ControlJobCommands.Start,
+                    cancellationToken: cancellationToken);
+
+                Console.WriteLine($"   S14F9  -> Start OBJACK={refused}, because it is already running");
+                ok &= refused == ObjectAcknowledgement.Error;
+            }
+
             // One wafer through, with the gate E90 exists for shown on the way.
             const string Wafer = CarrierName + "-03";
 
@@ -1121,6 +1199,31 @@ internal static class Program
 
             ok &= wafer?.ProcessingState == SubstrateProcessingState.Processed
                 && wafer.TransportState == SubstrateTransportState.AtSource;
+
+            if (objects is not null)
+            {
+                Console.WriteLine();
+                Console.WriteLine("-- the lot is done, so the job ends --");
+                Console.WriteLine();
+
+                // The machine's own ending, as against the three a host can ask for: every piece
+                // of material was dealt with. A host reads which one it was.
+                ok &= carriers.Jobs.MaterialFinished(JobName).IsAccepted;
+
+                await objects.GetAttributesAsync(
+                    JobName,
+                    "ControlJob",
+                    ["State", "Completion"],
+                    values => Console.WriteLine($"   S14F1  -> {Describe(values)}"),
+                    cancellationToken);
+
+                // And only now can it be forgotten: deleting a live job would leave its material
+                // with nothing accounting for it.
+                var gone = await objects.DeleteAsync(JobName, "ControlJob", cancellationToken);
+
+                Console.WriteLine($"   S14F7  -> OBJACK={gone}, {carriers.Jobs.Jobs.Count} job(s) left on the machine");
+                ok &= gone == ObjectAcknowledgement.Successful && carriers.Jobs.Jobs.Count == 0;
+            }
 
             Console.WriteLine();
             Console.WriteLine("-- and then the carrier leaves --");
@@ -1234,7 +1337,10 @@ internal static class Program
             {
                 SecsFormat.F8 => value.FirstValueOrDefault<double>().ToString("0.##", CultureInfo.InvariantCulture),
                 SecsFormat.F4 => value.FirstValueOrDefault<float>().ToString("0.##", CultureInfo.InvariantCulture),
-                SecsFormat.ASCII => value.GetString(),
+                // "(none)" rather than nothing at all, because a zero-length item is how this
+                // stack says a value is absent - E94's Completion while a job is still running,
+                // for one - and a blank after an equals sign reads like a bug.
+                SecsFormat.ASCII => value.Count == 0 ? "(none)" : value.GetString(),
                 SecsFormat.U1 or SecsFormat.Binary => value.Count == 0
                     ? "(none)"
                     : value.FirstValueOrDefault<byte>().ToString(CultureInfo.InvariantCulture),

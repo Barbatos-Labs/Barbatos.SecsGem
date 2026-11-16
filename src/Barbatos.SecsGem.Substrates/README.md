@@ -105,8 +105,8 @@ services.AddSecsGem(builder.Configuration)
     .RunAsHostedService();
 ```
 
-That registers the tracker, the object provider, and the seven primaries of object services - which
-are the only messages E90 has, because they are stream 14's.
+That registers the tracker, the object provider, and the eleven primaries of object services -
+which are the only messages E90 has, because they are stream 14's.
 
 A host reads a substrate the way it reads anything else on stream 14:
 
@@ -183,8 +183,9 @@ work.
 - **Substrate history.** E90 defines one; this package keeps the current state and raises an event
   per transition, which is what an application needs to build a history in whatever it already
   stores.
-- **E40 process jobs** and **E94 control jobs**, which are what give a substrate its recipe and its
-  place in a lot. Both are object models over the same stream 14.
+- **E40 process jobs**, which is what gives a substrate its recipe. Another object model over the
+  same stream 14. E94 control jobs - a substrate's place in a lot - now have a package of their
+  own: [`Barbatos.SecsGem.ControlJobs`](../Barbatos.SecsGem.ControlJobs/README.md).
 - A tracker that outlives the process. The states are in memory; a machine that reboots re-reads
   its carriers, which is what E87 and E90 both expect.
 
