@@ -35,6 +35,7 @@ Two things set it apart from what came before:
 | `Barbatos.SecsGem.SourceGenerators` | Roslyn generator and analyzer BSG001 behind the mapper's exact property order. Optional. |
 | `Barbatos.SecsGem.Gem` | GEM (E30), both ends: the equipment's state models, host-configured reporting, alarms, remote commands, process programs, spooling - and `GemHost`, which drives all of it from the other side. |
 | `Barbatos.SecsGem.WaferMap` | Wafer mapping (E5 stream 12), both ends: map setup, the three map data formats, the transmit handshake, maps in either direction. Depends on Hsms, not on Gem. Optional. |
+| `Barbatos.SecsGem.Material` | Material status (E5 stream 3), both ends - and here both ends send: what the machine holds, time to completion, found and lost, location and transfer, status changes and movements. The carrier half of the stream is E87's and is not here. Optional. |
 
 ## Quick start
 
@@ -159,6 +160,7 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 | 15 | Trace data collection (S2F23/S6F1), both ends: variables sampled on the equipment's own loop, reported in groups, every sample carrying the value at its own moment. It also corrected the catalogue - S6F1 and S6F2 carried S6F11's name and items - and added the invariant that found it. | Done |
 | 16 | Limits monitoring (S2F45-S2F48), both ends, which completes E30's data collection: a band per variable, a crossing reported as a collection event, and a deadband rather than a threshold so a wobble is silent. Three of its four message rows are representative in the catalogue, and the implementation says where to check. | Done |
 | 17 | Wafer mapping, stream 12, as its own package: all nineteen functions at both ends, the three map data formats, and the directions inverted - here the *equipment* sends every odd function and the host answers. E5 rather than E30, so it depends on Hsms and not on Gem, and a prober that maps wafers without implementing GEM can use it alone. The one thing a flat item list cannot pin down is nesting, so the four repeating bodies are written one way and read three. | Done |
+| 18 | Material status, stream 3, as its own package - the first stream here where *both* ends send primaries: the host asks five questions and the equipment reports four things unasked. It also comes with a warning the other chapters did not need. Not one of stream 3's thirty-six catalogue rows is a definition rather than a representative subset, and five of its item names have no dictionary entry at all, so two fields are inferred outright and the package says which. S3F17-S3F34, the carrier half, is E87's and is left out rather than guessed at. | Done |
 
 ## Licence
 

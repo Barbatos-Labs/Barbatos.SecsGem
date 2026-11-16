@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.Material</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Material</RootNamespace>
+    <PackageTags>secs;e5;stream3;material;materialstatus;location;transfer;mes</PackageTags>
+    <Description>Material status (SECS-II stream 3) for .NET, both ends: what material the machine holds and where, time to completion, material found and lost, location and transfer requests, status changes and movement events. The host asks and the equipment reports, so each end sends primaries and answers them. Depends on Barbatos.SecsGem.Hsms, not on GEM. The carrier half of stream 3, S3F17 to S3F34, belongs to SEMI E87 and is not here.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+</Project>

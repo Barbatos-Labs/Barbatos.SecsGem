@@ -4,10 +4,12 @@
 // All Rights Reserved.
 
 using System.Collections.Concurrent;
+using System.Globalization;
 using Barbatos.SecsGem;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
+using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -139,6 +141,16 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingMapper!.HandleAsync(transaction, token));
         }
 
+        // And material status, which is the one stream here where both ends send: the machine
+        // answers the host's five questions and reports four things of its own.
+        MaterialEquipment? pendingMaterial = null;
+        MaterialHost? pendingMaterialHost = null;
+
+        foreach (var (stream, function) in MaterialEquipment.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingMaterial!.HandleAsync(transaction, token));
+        }
+
         // The host's side of the same arrangement. S1F13, S1F1, S5F1, S6F11, S6F13 and stream 9 -
         // everything a machine may send a host unprompted.
         var hostRoutes = new SecsMessageRouterBuilder();
@@ -155,6 +167,11 @@ internal static class Program
             hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingMapHost!.HandleAsync(transaction, token));
         }
 
+        foreach (var (stream, function) in MaterialHost.HandledMessages)
+        {
+            hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingMaterialHost!.HandleAsync(transaction, token));
+        }
+
         await using var equipmentLink = new HsmsConnection(options, passive, equipmentRoutes.Build());
         await using var hostLink = new HsmsConnection(options, active, hostRoutes.Build());
         await using var equipment = new GemEquipment(
@@ -165,15 +182,25 @@ internal static class Program
             terminal: new GemInMemoryTerminal());
         await using var host = new GemHost(hostOptions, hostLink);
 
-        // Neither end of stream 12 is disposable: no state, no timer, nothing to release.
+        // Neither end of stream 12 is disposable, and neither end of stream 3: no state, no timer,
+        // nothing to release.
         var mapper = new WaferMapEquipment(equipmentLink);
         var maps = new WaferMapInMemoryStore();
         var mapHost = new WaferMapHost(maps, hostLink);
+
+        // The machine is holding the lot the remote command below will start, at load port 1.
+        var inventory = new MaterialInMemorySource();
+        inventory.Load(StartedLot, location: 1, quantity: 25, timeToCompletion: 1_517);
+
+        var materialEquipment = new MaterialEquipment(inventory, equipmentLink);
+        var materialHost = new MaterialHost(hostLink);
 
         pendingEquipment = equipment;
         pendingHost = host;
         pendingMapper = mapper;
         pendingMapHost = mapHost;
+        pendingMaterial = materialEquipment;
+        pendingMaterialHost = materialHost;
 
         Subscribe(host);
 
@@ -198,7 +225,7 @@ internal static class Program
             // conversation, and nothing may be reported before it.
             await WaitUntilAsync(() => equipment.IsCommunicating, "the equipment to establish communications");
 
-            var ok = await ConversationAsync(host, hostLink, equipment, mapper, mapHost, cts.Token);
+            var ok = await ConversationAsync(host, hostLink, equipment, mapper, mapHost, materialEquipment, materialHost, cts.Token);
 
             Console.WriteLine();
             Console.WriteLine("-- decode paths --");
@@ -277,7 +304,11 @@ internal static class Program
             // So a prober on the other end of the socket gets an answer in stream 12. This mode
             // cannot drive that exchange - the equipment is the active party there, and it is in
             // another process - but it can answer it.
-            .AddWaferMapHost();
+            .AddWaferMapHost()
+
+            // And the four things a machine says about its material without being asked. The five
+            // questions in the other direction are this end sending, which needs nothing declared.
+            .AddMaterialHost();
 
         await using var provider = services.BuildServiceProvider();
         var link = provider.GetRequiredService<HsmsConnection>();
@@ -292,7 +323,7 @@ internal static class Program
         {
             await WaitUntilAsync(() => link.IsSelected, "the equipment to select");
 
-            var ok = await ConversationAsync(host, link, equipment: null, mapper: null, mapHost: null, cts.Token);
+            var ok = await ConversationAsync(host, link, equipment: null, mapper: null, mapHost: null, materialEquipment: null, materialHost: null, cts.Token);
 
             // And then wait for the prober to send a map, which is the half of stream 12 this mode
             // can take part in. The equipment sample sends one when a lot finishes, and the lot the
@@ -341,6 +372,8 @@ internal static class Program
         GemEquipment? equipment,
         WaferMapEquipment? mapper,
         WaferMapHost? mapHost,
+        MaterialEquipment? materialEquipment,
+        MaterialHost? materialHost,
         CancellationToken cancellationToken)
     {
         var ok = true;
@@ -687,19 +720,75 @@ internal static class Program
             ok &= reported == WaferMapError.ReceivedCorrectly;
         }
 
+        if (materialEquipment is not null && materialHost is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and asks the machine what material it is holding --");
+            Console.WriteLine();
+
+            // Stream 3, where both ends send. These three are the host asking.
+            foreach (var piece in await materialHost.RequestStatusAsync(cancellationToken))
+            {
+                Console.WriteLine($"   S3F1  -> {piece.MaterialId} at location {piece.Location}, quantity {piece.Quantity}");
+            }
+
+            foreach (var piece in await materialHost.RequestTimeToCompletionAsync(cancellationToken))
+            {
+                // A number, in whatever unit the machine counts in: TTC has no unit in the
+                // catalogue, so nothing here turns it into a duration.
+                Console.WriteLine($"   S3F3  -> {piece.MaterialId} has {piece.TimeToCompletion} left");
+            }
+
+            var where = await materialHost.FindMaterialAsync(StartedLot, cancellationToken);
+
+            Console.WriteLine($"   S3F9  -> {StartedLot} is at {where?.Location.ToString(CultureInfo.InvariantCulture) ?? "nowhere this machine knows"}");
+            ok &= where is not null;
+
+            // Then the two-step that stream 3 is built around: the transfer is agreed to, and the
+            // movement is it actually happening. A host that treated S3F12 as the arrival would
+            // report material in a place no robot has reached yet.
+            MaterialMovementEventArgs? moved = null;
+            materialHost.MaterialMoved += (_, args) => moved = args;
+
+            var taken = await materialHost.RequestTransferAsync(
+                new MaterialTransfer { MaterialId = StartedLot, Destination = 9 },
+                cancellationToken);
+
+            Console.WriteLine($"   S3F11 -> ACKC3={taken}");
+            ok &= taken == MaterialAcknowledgement.Accepted;
+
+            var acknowledged = await materialEquipment.ReportMovementAsync(
+                new MaterialMovement { MaterialId = StartedLot, Location = 1, Destination = 9 },
+                cancellationToken);
+
+            await WaitUntilAsync(() => moved is not null, "the movement event to arrive");
+
+            Console.WriteLine($"   S3F35 <- {moved!.Movement.MaterialId}: {moved.Movement.Location} -> {moved.Movement.Destination} (ACKC3={acknowledged})");
+            ok &= acknowledged == MaterialAcknowledgement.Accepted && moved.Movement.Destination == 9;
+
+            // And the machine agrees with itself: the accepted transfer moved it.
+            var after = await materialHost.FindMaterialAsync(StartedLot, cancellationToken);
+
+            Console.WriteLine($"   S3F9  -> {StartedLot} is now at {after?.Location.ToString(CultureInfo.InvariantCulture) ?? "nowhere"}");
+            ok &= after?.Location == 9;
+        }
+
         Console.WriteLine();
         Console.WriteLine("-- and asks for a stream that is not there --");
         Console.WriteLine();
 
         // The one message here that goes to the connection rather than through GemHost, because
-        // GemHost covers what the equipment side of this library implements and stream 3 is not
+        // GemHost covers what the equipment side of this library implements and stream 18 is not
         // part of that. A host that needs a message outside the set still has the link: the helper
         // is a layer over it, not a wall in front of it.
         //
-        // Material status, not stream 7: the equipment sample answers stream 7 now, and this probe
-        // stopped working the day it started. Stream 3 is one neither mode implements. Posted with
-        // W=0, because an S9 is what comes back instead of a secondary.
-        using (var absent = new SecsMessage(3, 1, replyExpected: false) { Item = SecsItem.U4(1u) })
+        // Subsystem control, which is the third stream this probe has used: it was stream 7 until
+        // the equipment answered stream 7, and stream 3 until the material package answered that.
+        // So the rule, for whoever adds the next stream: this has to point at a stream nothing in
+        // this repository implements, and the set of those keeps shrinking. If the sample stops
+        // printing an S9F3 here, that is why. Posted with W=0, because an S9 is what comes back
+        // instead of a secondary.
+        using (var absent = new SecsMessage(18, 1, replyExpected: false) { Item = SecsItem.U4(1u) })
         {
             await link.PostAsync(absent, cancellationToken);
         }

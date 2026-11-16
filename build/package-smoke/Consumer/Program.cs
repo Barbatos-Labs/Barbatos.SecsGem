@@ -11,6 +11,7 @@ using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Mapping;
 using Barbatos.SecsGem.Serialization;
+using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -77,6 +78,7 @@ internal static class Program
         await Run("gem + hsms: the container resolves the equipment", GemResolvesAsync).ConfigureAwait(false);
         await Run("gem: the host side resolves on a builder of its own", GemHostResolvesAsync).ConfigureAwait(false);
         await Run("wafermap: stream 12 resolves at both ends without the gem package", WaferMapResolvesAsync).ConfigureAwait(false);
+        await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -490,5 +492,81 @@ internal static class Program
         Assert(filtered is not null, "the store lost the map it had just accepted");
         Assert(filtered!.Points.Count == 2, $"the null bin was not filtered out: {filtered.Points.Count} point(s) came back");
         Assert(filtered.Points[1].Position.X == 2, $"the split run lost its coordinate: X came back as {filtered.Points[1].Position.X}");
+    }
+
+    /// <summary>
+    /// The material package, whose two ends declare different messages.
+    /// </summary>
+    /// <remarks>
+    /// Stream 3 is the one where both ends send primaries, so the two registrations declare
+    /// disjoint sets - five and four - and the routing table could not catch the two being mixed
+    /// up. Two containers, as a fab has two processes.
+    /// </remarks>
+    private static async Task MaterialResolvesAsync()
+    {
+        var equipmentServices = new ServiceCollection();
+
+        equipmentServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddMaterialEquipment();
+
+        await using var equipmentProvider = equipmentServices.BuildServiceProvider();
+
+        _ = equipmentProvider.GetRequiredService<MaterialEquipment>();
+
+        var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            equipmentRouter.TryGetHandler(3, 1, out _) && equipmentRouter.TryGetHandler(3, 11, out _),
+            "the router is missing one of the host's questions, so AddMaterialEquipment did not declare them");
+
+        Assert(
+            !equipmentRouter.TryGetHandler(3, 5, out _),
+            "the equipment claimed S3F5, which is a message it is the one that sends");
+
+        var hostServices = new ServiceCollection();
+
+        hostServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddMaterialHost();
+
+        await using var hostProvider = hostServices.BuildServiceProvider();
+
+        _ = hostProvider.GetRequiredService<MaterialHost>();
+
+        var hostRouter = hostProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            hostRouter.TryGetHandler(3, 5, out _) && hostRouter.TryGetHandler(3, 35, out _),
+            "the router is missing one of the equipment's reports, so AddMaterialHost did not declare them");
+
+        Assert(
+            !hostRouter.TryGetHandler(3, 1, out _),
+            "the host claimed S3F1, which is a message it is the one that sends");
+
+        // And the inventory out of the packaged assembly: a transfer it accepts moves the material,
+        // which is the one piece of behaviour in that class worth checking from outside.
+        var inventory = (MaterialInMemorySource)equipmentProvider.GetRequiredService<IMaterialSource>();
+
+        Assert(inventory.Load("LOT-SMOKE", location: 1, quantity: 25), "the inventory refused material it had room for");
+
+        Assert(
+            await inventory.TransferAsync(
+                new MaterialTransfer { MaterialId = "LOT-SMOKE", Destination = 9 },
+                CancellationToken.None).ConfigureAwait(false) == MaterialAcknowledgement.Accepted,
+            "the inventory denied a transfer of material it holds");
+
+        var moved = await inventory.FindAsync("LOT-SMOKE", CancellationToken.None).ConfigureAwait(false);
+
+        Assert(moved is not null, "the inventory lost material it had just moved");
+        Assert(moved!.Location == 9, $"the transfer did not move it: location is {moved.Location}");
+
+        Assert(
+            await inventory.TransferAsync(
+                new MaterialTransfer { MaterialId = "nobody", Destination = 9 },
+                CancellationToken.None).ConfigureAwait(false) == MaterialAcknowledgement.Denied,
+            "the inventory accepted a transfer of material it does not hold");
     }
 }

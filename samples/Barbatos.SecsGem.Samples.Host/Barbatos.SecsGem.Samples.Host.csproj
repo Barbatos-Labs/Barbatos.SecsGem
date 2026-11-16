@@ -20,6 +20,8 @@
     <!-- Wafer mapping is its own package and depends on Hsms rather than on Gem, which is why it
          is a reference of its own rather than something the GEM layer brings. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.WaferMap\Barbatos.SecsGem.WaferMap.csproj" />
+    <!-- Material status, for the same reason: E5 stream 3, its own package, on Hsms. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Material\Barbatos.SecsGem.Material.csproj" />
     <!-- So an S9F3 can say which message the equipment refused, by name. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />

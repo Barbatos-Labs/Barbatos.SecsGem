@@ -6,6 +6,7 @@
 using Barbatos.SecsGem;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
+using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -241,6 +242,11 @@ internal static class Program
             // message in the stream is one this end sends. The runner below sends a map when a lot
             // finishes.
             .AddWaferMapEquipment()
+
+            // And material status, the other stream a machine answers that GEM does not cover:
+            // five questions about what it is holding, and four reports of its own. The runner
+            // below loads the lot into the inventory while it processes and reports it moving out.
+            .AddMaterialEquipment()
             .RunAsHostedService();
 
         builder.Services.AddHostedService<ChamberRunner>();
@@ -312,9 +318,17 @@ internal sealed class Chamber
 internal sealed class ChamberRunner(
     GemEquipment equipment,
     WaferMapEquipment mapping,
+    MaterialEquipment material,
+    IMaterialSource inventory,
     Chamber chamber,
     ILogger<ChamberRunner> logger) : BackgroundService
 {
+    /// <summary>Where a lot sits while it is being processed, in this machine's own numbering.</summary>
+    private const uint ProcessLocation = 1;
+
+    /// <summary>And where it goes when it is done.</summary>
+    private const uint UnloadLocation = 2;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var alarmRaised = false;
@@ -357,6 +371,13 @@ internal sealed class ChamberRunner(
                 continue;
             }
 
+            // The lot is in the chamber, so it is in the inventory: a host that asks S3F1 while
+            // this one is running should see it rather than an empty machine.
+            if (inventory is MaterialInMemorySource holdings)
+            {
+                holdings.Load(chamber.LotId, ProcessLocation, quantity: 25);
+            }
+
             if (await equipment.TriggerEventAsync(Program.ProcessEndEvent, stoppingToken).ConfigureAwait(false))
             {
                 logger.LogInformation("Reported ProcessEnd for {LotId}.", chamber.LotId);
@@ -383,6 +404,34 @@ internal sealed class ChamberRunner(
                     // not worth stopping over: the wafers keep coming either way.
                     logger.LogWarning("The host did not take the wafer map: {Reason}", exception.Message);
                 }
+
+                // And the lot leaving the chamber, which in stream 3 is a movement rather than a
+                // status change: it has gone from one location to another, and a host tracking
+                // where material is needs both numbers.
+                try
+                {
+                    var taken = await material
+                        .ReportMovementAsync(
+                            new MaterialMovement
+                            {
+                                MaterialId = chamber.LotId,
+                                Location = ProcessLocation,
+                                Destination = UnloadLocation,
+                            },
+                            stoppingToken)
+                        .ConfigureAwait(false);
+
+                    logger.LogInformation("Reported {LotId} moving to the unload port (ACKC3: {Taken}).", chamber.LotId, taken);
+                }
+                catch (SecsException exception)
+                {
+                    logger.LogWarning("The host did not take the movement report: {Reason}", exception.Message);
+                }
+            }
+
+            if (inventory is MaterialInMemorySource emptying)
+            {
+                emptying.Unload(chamber.LotId);
             }
 
             chamber.Stop();
