@@ -112,8 +112,18 @@ public class ObjectHostingTests
         }
     }
 
+    /// <summary>
+    /// A provider already registered is composed with, not replaced.
+    /// </summary>
+    /// <remarks>
+    /// This asserted the opposite until stream 14 had to answer for two packages at once. Keeping
+    /// "the first one wins" would have meant a machine doing E87 and E90 answering for carriers
+    /// and silently not for substrates, so the rule is now that every registered provider
+    /// contributes - and an application that wants only its own simply does not call the other
+    /// registration.
+    /// </remarks>
     [Fact]
-    public async Task A_provider_already_registered_wins_over_the_in_memory_one()
+    public async Task A_provider_already_registered_is_composed_with_rather_than_replaced()
     {
         var services = new ServiceCollection();
         var mine = new EmptyProvider();
@@ -127,8 +137,38 @@ public class ObjectHostingTests
 
         await using var provider = services.BuildServiceProvider();
 
-        Assert.Same(mine, provider.GetRequiredService<IObjectProvider>());
-        Assert.True(provider.GetRequiredService<ObjectServices>().CanAnswer);
+        var objects = provider.GetRequiredService<ObjectServices>();
+
+        Assert.True(objects.CanAnswer);
+
+        // Through ObjectServices, because that is the path the library uses: resolving
+        // IObjectProvider from a container gives whichever was registered last.
+        var composite = Assert.IsType<CompositeObjectProvider>(objects.Provider);
+
+        Assert.Equal(2, composite.Providers.Count);
+        Assert.Contains(mine, composite.Providers);
+        Assert.Contains(composite.Providers, candidate => candidate is ObjectInMemoryProvider);
+    }
+
+    [Fact]
+    public async Task Registering_the_same_provider_twice_adds_it_once()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddObjectProvider()
+            .AddObjectProvider();
+
+        await using var provider = services.BuildServiceProvider();
+
+        // And the routing table survives it, which is the other half: the stream 14 primaries are
+        // declared once however many times a provider is added.
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert.True(router.TryGetHandler(14, 1, out _));
+        Assert.IsType<ObjectInMemoryProvider>(provider.GetRequiredService<ObjectServices>().Provider);
     }
 
     [Fact]

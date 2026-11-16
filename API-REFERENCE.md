@@ -16,6 +16,7 @@ One page per package, generated per release:
 - [`Barbatos.SecsGem.Material`](src/Barbatos.SecsGem.Material/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Objects`](src/Barbatos.SecsGem.Objects/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Carriers`](src/Barbatos.SecsGem.Carriers/API-REFERENCE.md)
+- [`Barbatos.SecsGem.Substrates`](src/Barbatos.SecsGem.Substrates/API-REFERENCE.md)
 - [`Barbatos.SecsGem`](src/Barbatos.SecsGem/API-REFERENCE.md) (metapackage - no API of its own)
 
 ## Namespaces
@@ -32,5 +33,6 @@ One page per package, generated per release:
 | `Barbatos.SecsGem.Material` | Material | stream 3: material status, location, transfer, movement, both ends |
 | `Barbatos.SecsGem.Objects` | Objects | stream 14: GetAttr, SetAttr and the three namelists, either direction |
 | `Barbatos.SecsGem.Carriers` | Carriers | SEMI E87: the carrier and load port objects, their seven state machines, the actions |
+| `Barbatos.SecsGem.Substrates` | Substrates | SEMI E90: the substrate and location objects and their state machines; no messages of its own |
 | `Barbatos.SecsGem.Serialization.Sml` / `.Json` / `.Xml` / `.Ini` | the four spokes | format readers and writers |
-| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Objects, Carriers, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddSecsSml`, ... |
+| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Objects, Carriers, Substrates, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddSecsSml`, ... |

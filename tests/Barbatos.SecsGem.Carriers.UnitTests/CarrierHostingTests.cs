@@ -152,10 +152,12 @@ public class CarrierHostingTests
     }
 
     [Fact]
-    public async Task A_provider_already_registered_wins_over_the_carrier_one()
+    public async Task A_provider_already_registered_is_composed_with_the_carrier_one()
     {
         var services = new ServiceCollection();
         var mine = new ObjectInMemoryProvider();
+
+        mine.Add("JOB-7", "ControlJob");
 
         services.AddSingleton<IObjectProvider>(mine);
 
@@ -166,8 +168,17 @@ public class CarrierHostingTests
 
         await using var provider = services.BuildServiceProvider();
 
-        // An application whose objects go beyond carriers and ports registers one that handles
-        // both and still calls AddCarrierEquipment for the rest.
-        Assert.Same(mine, provider.GetRequiredService<IObjectProvider>());
+        // An application whose objects go beyond carriers and ports keeps them: stream 14 answers
+        // for both, because the providers compose rather than replacing each other.
+        var composite = Assert.IsType<CompositeObjectProvider>(
+            provider.GetRequiredService<ObjectServices>().Provider);
+
+        Assert.Contains(mine, composite.Providers);
+        Assert.Contains(composite.Providers, candidate => candidate is CarrierObjectProvider);
+
+        var types = await composite.GetObjectTypesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Contains("ControlJob", types);
+        Assert.Contains(CarrierObjectProvider.CarrierType, types);
     }
 }

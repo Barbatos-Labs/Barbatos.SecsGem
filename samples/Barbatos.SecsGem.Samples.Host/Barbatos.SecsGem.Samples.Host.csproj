@@ -24,6 +24,8 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Material\Barbatos.SecsGem.Material.csproj" />
     <!-- And object services, stream 14. The loopback machine has the objects; this host only asks. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Objects\Barbatos.SecsGem.Objects.csproj" />
+    <!-- And E90, which has no messages at all: its substrates are stream 14 objects. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Substrates\Barbatos.SecsGem.Substrates.csproj" />
     <!-- And E87, whose attributes travel over that stream 14 and whose states do not. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Carriers\Barbatos.SecsGem.Carriers.csproj" />
     <!-- So an S9F3 can say which message the equipment refused, by name. -->

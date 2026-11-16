@@ -12,6 +12,7 @@ using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.Objects;
+using Barbatos.SecsGem.Substrates;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -54,81 +55,27 @@ internal static class Program
     private static readonly ConcurrentQueue<string> ErrorReports = new();
     private static readonly ConcurrentQueue<string> Reports = new();
 
-    /// <summary>
-    /// Two object providers, tried in order: the carriers, and everything else this machine has.
-    /// </summary>
-    /// <remarks>
-    /// The extension point the carrier package documents, written out. E87 gives a machine carriers
-    /// and load ports; this machine also has a chamber, and stream 14 has one provider per
-    /// connection - so an application with objects of its own composes them. Each provider already
-    /// leaves out objects it does not have, which is what makes concatenating the answers correct
-    /// rather than merely convenient.
-    /// </remarks>
-    private sealed class CombinedObjects(IObjectProvider carriers, IObjectProvider others) : IObjectProvider
-    {
-        public async ValueTask<IReadOnlyList<string>> GetObjectTypesAsync(CancellationToken cancellationToken)
-            =>
-            [
-                .. await carriers.GetObjectTypesAsync(cancellationToken),
-                .. await others.GetObjectTypesAsync(cancellationToken),
-            ];
-
-        public async ValueTask<IReadOnlyList<string>> GetInstancesAsync(string objectType, CancellationToken cancellationToken)
-            =>
-            [
-                .. await carriers.GetInstancesAsync(objectType, cancellationToken),
-                .. await others.GetInstancesAsync(objectType, cancellationToken),
-            ];
-
-        public async ValueTask<IReadOnlyList<string>> GetAttributeNamesAsync(
-            string objectSpecification,
-            string objectType,
-            CancellationToken cancellationToken)
-        {
-            // Whichever has the object: a namelist that advertises attributes nothing answers is
-            // worse than a short one.
-            var held = await carriers.GetAttributesAsync(
-                new ObjectAttributeRequest { Objects = [objectSpecification], Attributes = [] },
-                cancellationToken);
-
-            return held.Count > 0
-                ? await carriers.GetAttributeNamesAsync(objectSpecification, objectType, cancellationToken)
-                : await others.GetAttributeNamesAsync(objectSpecification, objectType, cancellationToken);
-        }
-
-        public async ValueTask<IReadOnlyList<ObjectAttributeValues>> GetAttributesAsync(
-            ObjectAttributeRequest request,
-            CancellationToken cancellationToken)
-            =>
-            [
-                .. await carriers.GetAttributesAsync(request, cancellationToken),
-                .. await others.GetAttributesAsync(request, cancellationToken),
-            ];
-
-        public async ValueTask<IReadOnlyList<ObjectSetResult>> SetAttributesAsync(
-            ObjectAttributeWrite write,
-            CancellationToken cancellationToken)
-        {
-            var mine = await carriers.SetAttributesAsync(write, cancellationToken);
-
-            // An object the carriers do not have gets the same write offered to the other
-            // provider, rather than a refusal that only means "not mine".
-            if (mine.Count > 0 && mine[0].Acknowledgement is not ObjectAcknowledgement.InvalidObjectInstance)
-            {
-                return mine;
-            }
-
-            return await others.SetAttributesAsync(write, cancellationToken);
-        }
-    }
-
-    /// <summary>The two ends of E87 this sample drives, bundled so the conversation takes one parameter rather than two.</summary>
-    /// <param name="Host">The host side, which decides.</param>
-    /// <param name="Machine">The machine's state machines, which in this mode are in the same process.</param>
-    private sealed record CarrierDemo(CarrierHost Host, CarrierManager Machine);
+    /// <summary>What this sample needs to walk E87 and E90, bundled into one parameter.</summary>
+    /// <param name="Host">The host side of E87, which decides.</param>
+    /// <param name="Machine">The carrier state machines, which in this mode are in the same process.</param>
+    /// <param name="Substrates">The substrate tracker, which has no host side at all: E90 has no messages.</param>
+    private sealed record CarrierDemo(CarrierHost Host, CarrierManager Machine, SubstrateTracker Substrates);
 
     /// <summary>The carrier this sample walks through E87.</summary>
     private const string CarrierName = "CAR-001";
+
+    /// <summary>Where this machine processes a wafer, as E90 names the place.</summary>
+    private const string ChuckLocation = "CHUCK";
+
+    /// <summary>What a slot of the carrier is called as a substrate location.</summary>
+    /// <param name="slot">The slot, counting from one.</param>
+    /// <returns>Its location name.</returns>
+    /// <remarks>
+    /// E90 leaves the naming to the equipment, which is why this is a method in the sample rather
+    /// than something the package decides: a fab that names its slots differently changes this and
+    /// nothing else.
+    /// </remarks>
+    private static string SlotLocation(int slot) => $"{CarrierName}-SLOT-{slot:00}";
 
     /// <summary>Twenty-five slots with two of them empty, as one byte each.</summary>
     /// <remarks>
@@ -324,11 +271,26 @@ internal static class Program
         carrierManager.AddPort(1);
         carrierManager.SetServiceStatus(1, inService: true);
 
-        // One provider per connection, so the machine's own objects and E87's are composed - which
-        // is the arrangement the carrier package documents for an application that has both.
+        // E90's state machines. The slots are locations, and so is the chuck the wafers are
+        // processed on: anything that holds one substrate at a time is a location.
+        var substrateTracker = new SubstrateTracker();
+
+        substrateTracker.AddLocation(ChuckLocation);
+
+        for (var slot = 1; slot <= SlotMap.Length; slot++)
+        {
+            substrateTracker.AddLocation(SlotLocation(slot));
+        }
+
+        // One provider per connection, three things to answer for - carriers and load ports,
+        // substrates and their locations, and this machine's own chamber. The composite is the
+        // library's, which is the whole point of it existing: this sample used to carry its own.
         var equipmentObjects = new ObjectServices(
             equipmentLink,
-            new CombinedObjects(new CarrierObjectProvider(carrierManager), machineObjects));
+            new CompositeObjectProvider(
+                new CarrierObjectProvider(carrierManager),
+                new SubstrateObjectProvider(substrateTracker),
+                machineObjects));
 
         var hostObjects = new ObjectServices(hostLink);
         var carrierEquipment = new CarrierEquipment(carrierManager);
@@ -375,7 +337,7 @@ internal static class Program
                 materialEquipment,
                 materialHost,
                 hostObjects,
-                new CarrierDemo(carrierHost, carrierManager),
+                new CarrierDemo(carrierHost, carrierManager, substrateTracker),
                 cts.Token);
 
             Console.WriteLine();
@@ -957,11 +919,21 @@ internal static class Program
 
             foreach (var type in types)
             {
-                foreach (var instance in await objects.GetInstancesAsync(type, cancellationToken))
+                var instances = await objects.GetInstancesAsync(type, cancellationToken);
+
+                // Two per type is enough to show the shape. This machine has twenty-six substrate
+                // locations once the carrier is mapped, and a sample that printed them all would
+                // bury everything after it.
+                foreach (var instance in instances.Take(2))
                 {
                     var names = await objects.GetAttributeNamesAsync(instance, type, cancellationToken);
 
                     Console.WriteLine($"   S14F15 -> {type} {instance}: {string.Join(", ", names)}");
+                }
+
+                if (instances.Count > 2)
+                {
+                    Console.WriteLine($"   S14F15 -> {type}: and {instances.Count - 2} more");
                 }
             }
 
@@ -1083,6 +1055,77 @@ internal static class Program
                     cancellationToken);
             }
 
+            Console.WriteLine();
+            Console.WriteLine("-- and the wafers inside it, one at a time --");
+            Console.WriteLine();
+
+            // What a mapped carrier turns into: one substrate per occupied slot, each at the slot
+            // it came out of. This is the join between E87 and E90, and it is the application's to
+            // make - a library doing it would be guessing which slot map a wafer belongs to.
+            var substrates = carriers.Substrates;
+            var loaded = 0;
+
+            for (var slot = 1; slot <= SlotMap.Length; slot++)
+            {
+                if (SlotMap[slot - 1] == 0)
+                {
+                    continue;
+                }
+
+                if (substrates.Add($"{CarrierName}-{slot:00}", SlotLocation(slot), (byte)slot).IsAccepted)
+                {
+                    loaded++;
+                }
+            }
+
+            Console.WriteLine($"   [machine] {loaded} substrates from the slot map, all AtSource and NeedsProcessing");
+            ok &= loaded == 23;
+
+            // One wafer through, with the gate E90 exists for shown on the way.
+            const string Wafer = CarrierName + "-03";
+
+            var early = substrates.BeginProcessing(Wafer);
+
+            Console.WriteLine($"   [machine] work refused: {early.Reason}");
+            ok &= !early.IsAccepted;
+
+            substrates.Describe(Wafer, lotId: StartedLot, substrateType: "Wafer");
+
+            ok &= substrates.MoveTo(Wafer, ChuckLocation).IsAccepted;
+            ok &= substrates.BeginProcessing(Wafer).IsAccepted;
+
+            if (objects is not null)
+            {
+                await objects.GetAttributesAsync(
+                    Wafer,
+                    "Substrate",
+                    ["SubstrateState", "SubstrateProcessingState", "SlotID", "LotID"],
+                    values => Console.WriteLine($"   S14F1  -> {Describe(values)}"),
+                    cancellationToken);
+            }
+
+            ok &= substrates.EndProcessing(Wafer, SubstrateProcessingState.Processed).IsAccepted;
+            ok &= substrates.MoveTo(Wafer, SlotLocation(3)).IsAccepted;
+
+            if (objects is not null)
+            {
+                await objects.GetAttributesAsync(
+                    Wafer,
+                    "Substrate",
+                    ["SubstrateState", "SubstrateProcessingState"],
+                    values => Console.WriteLine($"   S14F1  -> {Describe(values)}"),
+                    cancellationToken);
+            }
+
+            var wafer = substrates.FindSubstrate(Wafer);
+
+            ok &= wafer?.ProcessingState == SubstrateProcessingState.Processed
+                && wafer.TransportState == SubstrateTransportState.AtSource;
+
+            Console.WriteLine();
+            Console.WriteLine("-- and then the carrier leaves --");
+            Console.WriteLine();
+
             // The lot is done, so the carrier leaves - and the port says so rather than the
             // application having to remember.
             machine.EndAccess(CarrierName);
@@ -1192,6 +1235,11 @@ internal static class Program
                 SecsFormat.F8 => value.FirstValueOrDefault<double>().ToString("0.##", CultureInfo.InvariantCulture),
                 SecsFormat.F4 => value.FirstValueOrDefault<float>().ToString("0.##", CultureInfo.InvariantCulture),
                 SecsFormat.ASCII => value.GetString(),
+                SecsFormat.U1 or SecsFormat.Binary => value.Count == 0
+                    ? "(none)"
+                    : value.FirstValueOrDefault<byte>().ToString(CultureInfo.InvariantCulture),
+                SecsFormat.U2 => value.FirstValueOrDefault<ushort>().ToString(CultureInfo.InvariantCulture),
+                SecsFormat.U4 => value.FirstValueOrDefault<uint>().ToString(CultureInfo.InvariantCulture),
                 _ when value.IsList => $"a list of {value.Count}",
                 _ => $"{value.Format}[{value.Count}]",
             }));

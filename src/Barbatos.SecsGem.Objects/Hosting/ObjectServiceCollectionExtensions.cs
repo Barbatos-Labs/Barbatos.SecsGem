@@ -30,10 +30,37 @@ public static class ObjectServiceCollectionExtensions
 
         builder.Services.TryAddSingleton(provider => new ObjectServices(
             provider.GetRequiredService<HsmsConnection>(),
-            provider.GetService<IObjectProvider>(),
+            Compose(provider.GetServices<IObjectProvider>()),
             provider.GetService<ILogger<ObjectServices>>()));
 
         return builder;
+    }
+
+    /// <summary>Puts every registered provider behind one, which is what stream 14 asks for.</summary>
+    /// <param name="providers">Everything registered as an <see cref="IObjectProvider"/>.</param>
+    /// <returns>The one to use, or <see langword="null"/> for an end that only asks.</returns>
+    /// <remarks>
+    /// <para>
+    /// Composing rather than picking is the whole point. A machine that does E87 and E90 calls two
+    /// registrations from two packages that know nothing about each other, and stream 14 has one
+    /// provider per connection - so before this, the second registration quietly did nothing and
+    /// the machine answered no substrate attributes at all with nothing anywhere saying so.
+    /// </para>
+    /// <para>
+    /// One provider is used as it is: a composite of one would be a layer of indirection for
+    /// nothing, and the common case is one.
+    /// </para>
+    /// </remarks>
+    private static IObjectProvider? Compose(IEnumerable<IObjectProvider> providers)
+    {
+        IObjectProvider[] all = [.. providers];
+
+        return all.Length switch
+        {
+            0 => null,
+            1 => all[0],
+            _ => new CompositeObjectProvider(all),
+        };
     }
 
     /// <summary>Adds object services backed by the in-memory provider, for an end that also answers.</summary>
@@ -53,9 +80,12 @@ public static class ObjectServiceCollectionExtensions
     /// <see cref="ObjectServices.HandledMessages"/> - S14F1, F3, F13, F15, F17, F19 and F21.
     /// </para>
     /// <para>
-    /// The provider is registered with <c>TryAdd</c>, so an <see cref="IObjectProvider"/> already
-    /// in the container wins - which is how an application registers one with its own
-    /// dependencies and still calls this for the routing.
+    /// <strong>Providers compose; they do not replace each other.</strong> This registers
+    /// <typeparamref name="TProvider"/> alongside whatever is already there, and
+    /// <see cref="ObjectServices"/> gets all of them behind a
+    /// <see cref="CompositeObjectProvider"/>. That is what lets a machine call two registrations
+    /// from two packages - carrier management and substrate tracking, say - and have stream 14
+    /// answer for both. Registering the same type twice adds it once.
     /// </para>
     /// </remarks>
     public static ISecsGemBuilder AddObjectProvider<
@@ -65,17 +95,37 @@ public static class ObjectServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.Services.TryAddSingleton<IObjectProvider, TProvider>();
+        // Enumerable rather than TryAdd: every provider registered contributes, and the factory
+        // above puts them behind one composite. TryAddEnumerable keys on the implementation type,
+        // so calling this twice for the same provider adds it once.
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IObjectProvider, TProvider>());
         builder.AddObjectServices();
 
-        // Resolved inside the handler rather than inside the factory, the same cycle every other
-        // registration here solves the same way.
-        foreach (var (stream, function) in ObjectServices.HandledMessages)
+        // Declared once however many providers there are. The routing table refuses a pair twice -
+        // correctly - so a machine calling this for carriers and again for substrates would
+        // otherwise fail at start-up with "S14F1 already has a handler", which is true and
+        // unhelpful: both registrations are right and there is only one stream 14.
+        if (!builder.Services.Any(service => service.ServiceType == typeof(ObjectRoutesDeclared)))
         {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<ObjectServices>().HandleAsync(transaction, token));
+            builder.Services.AddSingleton<ObjectRoutesDeclared>();
+
+            // Resolved inside the handler rather than inside the factory, the same cycle every
+            // other registration here solves the same way.
+            foreach (var (stream, function) in ObjectServices.HandledMessages)
+            {
+                builder.OnPrimary(stream, function, static provider =>
+                    (transaction, token) => provider.GetRequiredService<ObjectServices>().HandleAsync(transaction, token));
+            }
         }
 
         return builder;
     }
 }
+
+/// <summary>Marks that the stream 14 primaries have been declared, so they are declared once.</summary>
+/// <remarks>
+/// A registration cannot ask the routing table what it already holds - the table is built later -
+/// so the fact has to live in the service collection beside everything else. Internal and empty:
+/// nothing resolves it, and its presence is the whole of what it says.
+/// </remarks>
+internal sealed class ObjectRoutesDeclared;

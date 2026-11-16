@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Substrates.UnitTests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- E90 has no timer of its own, but the connection underneath it does - T3 above all -
+         and a test that lets a wall clock drive those is a test that fails on a busy agent. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <!-- The hosting test resolves the whole graph, which is the only way to prove that a router
+         whose handlers depend on the connection it belongs to actually resolves. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3.mtp-off" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Substrates\Barbatos.SecsGem.Substrates.csproj" />
+    <!-- E90 and E87 are separate standards in separate packages, and a machine doing both is the
+         normal case in a 300 mm fab. One test here registers both and asserts that stream 14
+         answers for carriers and substrates together - a claim neither package can make on its
+         own, and one that was false until the object services package learned to compose. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Carriers\Barbatos.SecsGem.Carriers.csproj" />
+  </ItemGroup>
+
+</Project>

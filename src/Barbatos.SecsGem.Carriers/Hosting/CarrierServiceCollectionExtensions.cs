@@ -36,9 +36,9 @@ public static class CarrierServiceCollectionExtensions
     /// action naming one that does not exist is answered <c>CAACK</c> 3.
     /// </para>
     /// <para>
-    /// The provider is registered with <c>TryAdd</c>, so an <see cref="IObjectProvider"/> already
-    /// in the container wins. An application with objects of its own beyond carriers and ports
-    /// registers one that handles both and calls this for the rest.
+    /// The provider composes rather than replaces: an application with objects of its own, or a
+    /// machine that also calls <c>AddSubstrateTracking</c> for E90, gets stream 14 answering for
+    /// all of them. See <c>AddObjectProvider</c>.
     /// </para>
     /// </remarks>
     public static ISecsGemBuilder AddCarrierEquipment(
@@ -59,11 +59,6 @@ public static class CarrierServiceCollectionExtensions
         builder.Services.TryAddSingleton(provider => new CarrierEquipment(
             provider.GetRequiredService<CarrierManager>(),
             provider.GetService<ILogger<CarrierEquipment>>()));
-
-        // E87's attributes are stream 14's business, so the object provider is not an optional
-        // extra here: without it a host can move a carrier and never read its slot map.
-        builder.Services.TryAddSingleton<IObjectProvider>(provider =>
-            new CarrierObjectProvider(provider.GetRequiredService<CarrierManager>()));
 
         foreach (var (stream, function) in CarrierEquipment.HandledMessages)
         {

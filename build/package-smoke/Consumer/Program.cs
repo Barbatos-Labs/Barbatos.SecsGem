@@ -12,6 +12,7 @@ using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Mapping;
 using Barbatos.SecsGem.Serialization;
+using Barbatos.SecsGem.Substrates;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.WaferMap;
@@ -83,6 +84,7 @@ internal static class Program
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
+        await Run("carriers + substrates: E87 and E90 in one machine, both answering stream 14", CarriersAndSubstratesComposeAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -713,5 +715,82 @@ internal static class Program
         Assert(carrier is not null, "the carrier went missing");
         Assert(carrier!.AccessStatus == CarrierAccessStatus.InAccess, $"the carrier is {carrier.AccessStatus}");
         Assert(carrier.SubstrateCount == 2, $"the slot map counted {carrier.SubstrateCount} substrates, not two");
+    }
+
+    /// <summary>
+    /// E87 and E90 in one machine, which is the thing no single package can check.
+    /// </summary>
+    /// <remarks>
+    /// Stream 14 has one provider per connection, and two packages each contribute one. Until they
+    /// composed, the second registration quietly did nothing - a machine would answer carrier
+    /// attributes and no substrate attributes at all, with nothing anywhere saying so. Worth a
+    /// check from a packaged assembly, because it is the one fault in this stack that a passing
+    /// build and a passing test run would both have missed.
+    /// </remarks>
+    private static async Task CarriersAndSubstratesComposeAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddCarrierEquipment(manager => manager.AddPort(1))
+            .AddSubstrateTracking(tracker =>
+            {
+                tracker.AddLocation("SLOT-1");
+                tracker.AddLocation("CHUCK");
+            });
+
+        await using var provider = services.BuildServiceProvider();
+
+        var tracker = provider.GetRequiredService<SubstrateTracker>();
+
+        Assert(tracker.Add("W01", "SLOT-1", slotId: 3).IsAccepted, "the tracker refused a substrate at an empty location");
+        Assert(tracker.MoveTo("W01", "CHUCK").IsAccepted, "the substrate could not be moved to work");
+        Assert(tracker.BeginProcessing("W01").IsAccepted, "work could not start on a substrate at work");
+
+        var tooLate = tracker.MoveTo("W01", "SLOT-1");
+
+        Assert(!tooLate.IsAccepted, "a substrate in process was moved");
+        Assert(tooLate.Reason.Contains("InProcess", StringComparison.Ordinal), $"the refusal said '{tooLate.Reason}'");
+
+        // The composition: one provider behind the connection, answering for both standards.
+        var objects = provider.GetRequiredService<ObjectServices>().Provider;
+
+        Assert(objects is not null, "the machine has no object provider at all");
+        Assert(objects is CompositeObjectProvider, $"the provider is a {objects!.GetType().Name}, so one package lost");
+
+        var types = await objects.GetObjectTypesAsync(CancellationToken.None).ConfigureAwait(false);
+
+        foreach (var expected in new[] { "Carrier", "LoadPort", "Substrate", "SubstrateLocation" })
+        {
+            Assert(types.Contains(expected, StringComparer.Ordinal), $"stream 14 does not answer for {expected}");
+        }
+
+        var values = await objects.GetAttributesAsync(
+            new ObjectAttributeRequest { Objects = ["W01"], Attributes = ["SubstrateProcessingState", "SlotID"] },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(values.Count == 1, $"the substrate came back {values.Count} time(s)");
+
+        var read = values[0].Attributes;
+
+        Assert(read.Count == 2, $"the substrate answered {read.Count} attribute(s), not two");
+
+        foreach (var attribute in read)
+        {
+            if (attribute.Name == "SlotID")
+            {
+                Assert(attribute.Value.FirstValueOrDefault<byte>() == 3, "the slot came back wrong");
+            }
+            else
+            {
+                Assert(
+                    attribute.Value.GetString() == nameof(SubstrateProcessingState.InProcess),
+                    $"the processing state came back as {attribute.Value.GetString()}");
+            }
+
+            attribute.Value.Dispose();
+        }
     }
 }

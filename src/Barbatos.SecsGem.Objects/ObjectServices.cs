@@ -80,6 +80,23 @@ public sealed class ObjectServices
     /// <summary>Gets a value indicating whether this end can answer as well as ask.</summary>
     public bool CanAnswer => _provider is not null;
 
+    /// <summary>Gets the objects this end answers out of, or <see langword="null"/> for an end that only asks.</summary>
+    /// <remarks>
+    /// <para>
+    /// Worth having for two reasons. An application that wants to read its own objects in process -
+    /// to log them, to show them on a screen - should not have to resolve and compose the providers
+    /// again to do it. And when several packages each contribute objects, this is the
+    /// <see cref="CompositeObjectProvider"/> that resulted, which is the only place the composition
+    /// is visible: resolving <see cref="IObjectProvider"/> from a container gives whichever was
+    /// registered last, not all of them.
+    /// </para>
+    /// <para>
+    /// Reading through it is reading the machine's own objects, so the ownership rules on
+    /// <see cref="ObjectAttribute"/> apply: a value it hands back is fresh and yours to dispose.
+    /// </para>
+    /// </remarks>
+    public IObjectProvider? Provider => _provider;
+
     /// <summary>Answers one of the primaries in <see cref="HandledMessages"/>.</summary>
     /// <param name="transaction">The transaction.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
