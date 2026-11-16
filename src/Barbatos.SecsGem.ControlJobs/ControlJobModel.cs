@@ -34,12 +34,18 @@ namespace Barbatos.SecsGem.ControlJobs;
 /// is reachable from it.
 /// </para>
 /// <para>
-/// <strong>On provenance.</strong> As with E87 and E90, the catalogue that checks the message set
-/// in this stack says nothing about this: E94 defines behaviour, and its messages are stream 14's.
-/// These transitions are E94 as this library understands it, checked by tests rather than against
-/// reference data, and <see cref="ControlJobManager"/> is the one file to change when a fab
-/// disagrees. What <em>is</em> checked is the wire: every item S14F5, S14F9 and S14F1 carry is
-/// defined in the catalogue, which is better than either of the two chapters before this one.
+/// <strong>On provenance.</strong> The catalogue has no E94 <em>message</em> rows, because E94
+/// defines behaviour and its messages are stream 14's. So these transitions are E94 as this
+/// library understands it, checked by tests rather than against reference data, and
+/// <see cref="ControlJobManager"/> is the one file to change when a fab disagrees.
+/// </para>
+/// <para>
+/// Its item dictionary is another matter, and more use than the first reading of it suggested.
+/// <c>CTLJOBID</c> is defined as <c>A</c>, which is what this package writes, and
+/// <c>CTLJOBCMD</c> is defined with six code values, which is where
+/// <see cref="ControlJobCommands"/> gets its spellings. So is the wire underneath: every item
+/// S14F5, S14F9 and S14F1 carry is defined. What is unverifiable here is the order the states
+/// come in - not the names on them, and not what a host is allowed to say.
 /// </para>
 /// </remarks>
 public enum ControlJobState
@@ -196,33 +202,48 @@ public sealed class ControlJobStateChangedEventArgs : EventArgs
 /// The command names E94 defines, as strings, because <c>RCMD</c> is one.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <strong>These spellings are not this library's invention.</strong> The catalogue defines
+/// <c>CTLJOBCMD</c> as an <c>A</c> item with six code values - <c>START</c>, <c>STOP</c>,
+/// <c>PAUSE</c>, <c>RESUME</c>, <c>CANCEL</c> and <c>ABORT</c> - and those are what six of the
+/// eight below are. It is the only part of E94 in this repository that can be checked against
+/// anything, and a test asserts each value rather than trusting the next edit.
+/// </para>
+/// <para>
+/// <see cref="Select"/> and <see cref="Deselect"/> are the two that <c>CTLJOBCMD</c> does not
+/// name. E94's state model needs them, so they are spelled the way the other six are and that
+/// much is this library's choice.
+/// </para>
+/// <para>
 /// A convenience and not a limit, the same as the carrier actions in the E87 package: a host may
 /// send a command this list does not name, and <see cref="ControlJobManager"/> refuses what it
-/// does not know rather than making it impossible to ask.
+/// does not know rather than making it impossible to ask. It accepts any casing, because a
+/// spelling that is defined leaves nothing for a case fold to guess at.
+/// </para>
 /// </remarks>
 public static class ControlJobCommands
 {
-    /// <summary>Choose this job to run next.</summary>
-    public const string Select = "Select";
+    /// <summary>Choose this job to run next. Not one of <c>CTLJOBCMD</c>'s six.</summary>
+    public const string Select = "SELECT";
 
-    /// <summary>Put it back in the queue.</summary>
-    public const string Deselect = "Deselect";
+    /// <summary>Put it back in the queue. Not one of <c>CTLJOBCMD</c>'s six.</summary>
+    public const string Deselect = "DESELECT";
 
     /// <summary>Start it, for a job waiting on a host to say so.</summary>
-    public const string Start = "Start";
+    public const string Start = "START";
 
     /// <summary>Hold it.</summary>
-    public const string Pause = "Pause";
+    public const string Pause = "PAUSE";
 
     /// <summary>Let it carry on.</summary>
-    public const string Resume = "Resume";
+    public const string Resume = "RESUME";
 
     /// <summary>End it now, without finishing what is in progress.</summary>
-    public const string Abort = "Abort";
+    public const string Abort = "ABORT";
 
     /// <summary>End it tidily: finish what is in progress, then stop.</summary>
-    public const string Stop = "Stop";
+    public const string Stop = "STOP";
 
     /// <summary>Call it off before it ever runs.</summary>
-    public const string Cancel = "Cancel";
+    public const string Cancel = "CANCEL";
 }

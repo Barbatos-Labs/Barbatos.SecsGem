@@ -299,7 +299,11 @@ public sealed class ControlJobManager
         ArgumentNullException.ThrowIfNull(controlJobId);
         ArgumentNullException.ThrowIfNull(command);
 
-        return command switch
+        // Upper case is the vocabulary's own spelling, so a host that sends it unchanged matches
+        // the first comparison; the casing is forgiven because a command whose spelling is defined
+        // leaves nothing for a case fold to guess at. Surrounding space is not forgiven: that is a
+        // different string, and trimming one would start a habit this library has no end for.
+        return command.ToUpperInvariant() switch
         {
             ControlJobCommands.Select => Select(controlJobId),
             ControlJobCommands.Deselect => Deselect(controlJobId),

@@ -40,12 +40,17 @@ Which is why this package exists on top of
 that package had to learn the *actionable* half of stream 14 - create, delete, act - before this
 one could be written. E87 and E90 only ever read.
 
-The provenance caveat is the same as those two, and worth repeating: the catalogue that checks
-every message in this stack **has no E94 rows at all**. These states, transitions and attribute
-names are E94 as this library understands it, checked by tests rather than against reference data,
-and [`ControlJobManager.cs`](ControlJobManager.cs) is the one file to change when a fab disagrees.
-What *is* checked is the wire underneath: every item an S14F5, an S14F9 or an S14F1 carries is
-defined in the catalogue, which is more than either chapter before this one could say.
+The provenance caveat is the same as those two: the catalogue that checks every message in this
+stack **has no E94 message rows**, so these states and transitions are E94 as this library
+understands it, checked by tests rather than against reference data, and
+[`ControlJobManager.cs`](ControlJobManager.cs) is the one file to change when a fab disagrees.
+
+Its *item dictionary* is another matter, and more use than the first reading of it suggested.
+`CTLJOBID` is defined as `A`, which is what this package writes. `CTLJOBCMD` is defined with six
+code values, which is where the command spellings below come from - the first version of this
+package invented PascalCase ones, and no host would have sent them. And the wire underneath is
+defined throughout: every item an S14F5, an S14F9 or an S14F1 carries. What is unverifiable here
+is the *order* the states come in, not the names on them and not what a host is allowed to say.
 
 ## The state machine
 
@@ -178,11 +183,17 @@ message set of its own.
 
 ## Commands
 
-`ControlJobCommands` spells the eight E94 defines - `Select`, `Deselect`, `Start`, `Pause`,
-`Resume`, `Abort`, `Stop`, `Cancel` - as `const string`, because `RCMD` is an `A` item. A
-convenience and not a limit: a host may send a command this list does not name, and the manager
-refuses what it does not know rather than making it impossible to ask. Matching is exact, so
-`"pause"` is not `Pause`.
+`ControlJobCommands` spells them as `const string`, because `RCMD` is an `A` item - and the
+spellings are **not this library's invention**. The catalogue defines `CTLJOBCMD` with six code
+values, `START`, `STOP`, `PAUSE`, `RESUME`, `CANCEL` and `ABORT`, and those are six of the eight
+here; `SELECT` and `DESELECT` are the two E94's state model needs that `CTLJOBCMD` does not name.
+A test asserts each value against a literal, because asserting them against the constants would
+assert nothing.
+
+A convenience and not a limit: a host may send a command this list does not name, and the manager
+refuses what it does not know rather than making it impossible to ask. Casing is forgiven - a
+spelling that is defined leaves nothing for a case fold to guess at - and surrounding space is
+not, because that is a different string and trimming one would start a habit with no end.
 
 ## With E87 and E90
 

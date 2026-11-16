@@ -30,10 +30,12 @@ namespace Barbatos.SecsGem.ControlJobs;
 /// </para>
 /// <para>
 /// <strong>On provenance.</strong> The attribute names are E94 as this library reads it and are not
-/// checked against anything: the catalogue in this stack has no E94 rows. A host discovers them
-/// with S14F17 rather than assuming them, which is the one honest answer to that. What <em>is</em>
-/// checked is every item they travel in, all of which are stream 14's and all of which the
-/// catalogue defines.
+/// checked against anything: the catalogue has no E94 message rows, and attribute names are
+/// <c>ATTRID</c> values rather than data items, so its dictionary does not settle them either. A
+/// host discovers them with S14F17 rather than assuming them, which is the one honest answer to
+/// that. What <em>is</em> checked is every item they travel in, all of which are stream 14's and
+/// all of which the catalogue defines - and the identifier itself, which <c>CTLJOBID</c> defines
+/// as <c>A</c>.
 /// </para>
 /// <para>
 /// An object this provider does not have is left out of its answers rather than refused, so a
@@ -277,7 +279,9 @@ public sealed class ControlJobObjectProvider : IObjectProvider
         {
             switch (attribute.Name)
             {
-                case "ObjID" or "ObjectID" or "ControlJobID":
+                // CTLJOBID is the catalogue's own name for a control job identifier, so a host
+                // that uses it is using the defined spelling rather than one of this library's.
+                case "ObjID" or "ObjectID" or "ControlJobID" or "CTLJOBID":
                     name = Text(attribute.Value);
                     break;
 

@@ -812,15 +812,49 @@ public class ControlJobManagerTests
         Assert.Equal(ControlJobState.Executing, Job(manager).State);
     }
 
+    /// <summary>The command names are the catalogue's, and this test is why they stay that way.</summary>
+    /// <remarks>
+    /// Asserted against literals rather than against the constants, which would assert nothing.
+    /// <c>CTLJOBCMD</c> defines six code values and these are them; <c>SELECT</c> and
+    /// <c>DESELECT</c> are the two E94 needs that it does not name. The first version of this
+    /// package spelled all eight in PascalCase, which no host would have sent.
+    /// </remarks>
     [Fact]
-    public void A_command_is_matched_exactly_rather_than_loosely()
+    public void The_six_commands_the_catalogue_defines_are_spelled_its_way()
+    {
+        Assert.Equal("START", ControlJobCommands.Start);
+        Assert.Equal("STOP", ControlJobCommands.Stop);
+        Assert.Equal("PAUSE", ControlJobCommands.Pause);
+        Assert.Equal("RESUME", ControlJobCommands.Resume);
+        Assert.Equal("CANCEL", ControlJobCommands.Cancel);
+        Assert.Equal("ABORT", ControlJobCommands.Abort);
+
+        Assert.Equal("SELECT", ControlJobCommands.Select);
+        Assert.Equal("DESELECT", ControlJobCommands.Deselect);
+    }
+
+    [Fact]
+    public void A_command_is_matched_by_its_spelling_and_not_by_its_casing()
     {
         var manager = Executing();
 
-        // Not "pause", not "PAUSE": RCMD is a wire value, and a machine that accepted any casing
-        // would be guessing at a protocol.
-        Assert.False(manager.Command("CJ-1", "pause").IsAccepted);
-        Assert.False(manager.Command("CJ-1", " Pause").IsAccepted);
+        // Any casing of a defined spelling: a host sending PAUSE is sending the vocabulary's own
+        // word, and one sending Pause is sending the same word. There is nothing left to guess at.
+        Assert.True(manager.Command("CJ-1", "pause").IsAccepted);
+        Assert.True(manager.Command("CJ-1", "Resume").IsAccepted);
+        Assert.True(manager.Command("CJ-1", "PaUsE").IsAccepted);
+        Assert.Equal(ControlJobState.Paused, Job(manager).State);
+    }
+
+    [Fact]
+    public void Space_around_a_command_is_not_forgiven()
+    {
+        var manager = Executing();
+
+        // A different string, and trimming one would start a habit with no end: next comes the
+        // trailing null, then the fixed-width field padded to eight.
+        Assert.False(manager.Command("CJ-1", " PAUSE").IsAccepted);
+        Assert.False(manager.Command("CJ-1", "PAUSE ").IsAccepted);
         Assert.Equal(ControlJobState.Executing, Job(manager).State);
     }
 

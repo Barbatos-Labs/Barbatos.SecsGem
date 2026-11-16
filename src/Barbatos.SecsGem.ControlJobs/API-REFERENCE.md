@@ -29,7 +29,7 @@ never open a link.
 | `Find` | `ControlJob? Find(string controlJobId)` | |
 | `Reorder` | `ControlJobResult Reorder(IReadOnlyList<string> controlJobIds)` | Every queued job exactly once; naming one twice, leaving one out, or naming one that is not in the queue is refused. |
 | `Describe` | `ControlJobResult Describe(string controlJobId, IReadOnlyList<string>? carriers = null, ControlJobStartMethod? startMethod = null, string? processOrder = null, string? processingSpecification = null)` | Only while `Queued`. A `null` argument means "leave it", not "clear it". |
-| `Command` | `ControlJobResult Command(string controlJobId, string command)` | Dispatches one of [`ControlJobCommands`](#controljobcommands). Matched exactly; a command this library does not know is refused, not thrown. |
+| `Command` | `ControlJobResult Command(string controlJobId, string command)` | Dispatches one of [`ControlJobCommands`](#controljobcommands). Any casing of a defined spelling; space around it is not trimmed. A command this library does not know is refused, not thrown. |
 | `Select` | `ControlJobResult Select(string controlJobId)` | Only from `Queued`, and only when nothing else is selected, waiting or running. |
 | `Deselect` | `ControlJobResult Deselect(string controlJobId)` | Only from `Selected` or `WaitingForStart`. Goes back to the **front** of the queue. |
 | `MaterialReady` | `ControlJobResult MaterialReady(string controlJobId)` | The machine's own transition, only from `Selected`. Goes to `Executing` or `WaitingForStart` by `StartMethod`. |
@@ -83,8 +83,11 @@ has.
 
 ## `ControlJobCommands`
 
-`static class`, eight `const string`: `Select`, `Deselect`, `Start`, `Pause`, `Resume`, `Abort`,
-`Stop`, `Cancel`. Strings because `RCMD` is an `A` item - a convenience and not a limit.
+`static class`, eight `const string`. The values are `SELECT`, `DESELECT`, `START`, `PAUSE`,
+`RESUME`, `ABORT`, `STOP`, `CANCEL` - six of them the code values the catalogue defines for
+`CTLJOBCMD`, and `SELECT` and `DESELECT` the two it does not name. Strings because `RCMD` is an
+`A` item: a convenience and not a limit, and `ControlJobManager.Command` accepts any casing of a
+defined spelling while refusing one with space around it.
 
 ## `ControlJobObjectProvider`
 
