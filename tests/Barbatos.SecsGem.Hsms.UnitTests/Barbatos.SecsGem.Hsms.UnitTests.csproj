@@ -10,6 +10,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <!-- The builder test resolves a router out of a real container, which is the only way to see
+         what the declarations collected during configuration actually became. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
 
   <ItemGroup>

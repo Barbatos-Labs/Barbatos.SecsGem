@@ -193,6 +193,36 @@ public interface ISecsGemBuilder
     /// </remarks>
     ISecsGemBuilder OnPrimary(byte stream, byte function, Func<IServiceProvider, SecsPrimaryHandler> factory);
 
+    /// <summary>Declares a capability's whole message set, and declares it once.</summary>
+    /// <param name="messages">The set, which must be the capability's own static list.</param>
+    /// <param name="factory">Builds the handler for every message in the set.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// What every <c>AddXxx</c> registration in this stack uses, and the reason it exists is a
+    /// mistake each of them could make: the routing table refuses a stream and function twice -
+    /// correctly, because two handlers for one message is a conflict - so a registration called
+    /// twice used to fail at start-up with "S3F17 already has a handler", which is true and
+    /// unhelpful. The services were already idempotent, through <c>TryAdd</c>; the routes were not.
+    /// </para>
+    /// <para>
+    /// <strong>The set is identified by the list itself, not by its contents.</strong> Declaring
+    /// <c>CarrierEquipment.HandledMessages</c> twice declares it once, because it is the same
+    /// object both times. Two <em>different</em> sets that both claim a message still throw, and
+    /// that is the point: one registration asked for twice is a duplicate, while two capabilities
+    /// wanting the same message is a conflict somebody has to resolve - silently keeping one of
+    /// them is how a machine ends up answering half a standard with nothing anywhere saying so.
+    /// </para>
+    /// <para>
+    /// So pass a static list that is the same instance every time. A fresh list built at the call
+    /// site is a different declaration as far as this method is concerned, and the second one will
+    /// throw exactly as it did before.
+    /// </para>
+    /// </remarks>
+    ISecsGemBuilder DeclareOnce(
+        IReadOnlyList<(byte Stream, byte Function)> messages,
+        Func<IServiceProvider, SecsPrimaryHandler> factory);
+
     /// <summary>Registers the handler for every primary no other handler claims.</summary>
     /// <param name="handler">The handler.</param>
     /// <returns>This builder, for chaining.</returns>
@@ -223,6 +253,16 @@ public interface ISecsGemBuilder
 /// <param name="router">The routing table being collected.</param>
 internal sealed class SecsGemBuilder(IServiceCollection services, SecsMessageRouterBuilder router) : ISecsGemBuilder
 {
+    /// <summary>The message sets already declared, by the identity of the list that carried them.</summary>
+    /// <remarks>
+    /// Reference identity rather than contents: see <see cref="ISecsGemBuilder.DeclareOnce"/> for
+    /// why the same registration twice and two registrations wanting one message are different
+    /// questions with different answers. The set lives on the builder rather than in the service
+    /// collection because there is one builder per connection, which is the scope a routing table
+    /// has.
+    /// </remarks>
+    private readonly HashSet<object> _declared = new(ReferenceEqualityComparer.Instance);
+
     public IServiceCollection Services { get; } = services ?? throw new ArgumentNullException(nameof(services));
 
     public ISecsGemBuilder UseTcp() => UseTransport<TcpSecsTransport>();
@@ -236,6 +276,26 @@ internal sealed class SecsGemBuilder(IServiceCollection services, SecsMessageRou
     public ISecsGemBuilder OnPrimary(byte stream, byte function, Func<IServiceProvider, SecsPrimaryHandler> factory)
     {
         router.OnPrimary(stream, function, factory);
+        return this;
+    }
+
+    public ISecsGemBuilder DeclareOnce(
+        IReadOnlyList<(byte Stream, byte Function)> messages,
+        Func<IServiceProvider, SecsPrimaryHandler> factory)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(factory);
+
+        if (!_declared.Add(messages))
+        {
+            return this;
+        }
+
+        foreach (var (stream, function) in messages)
+        {
+            router.OnPrimary(stream, function, factory);
+        }
+
         return this;
     }
 

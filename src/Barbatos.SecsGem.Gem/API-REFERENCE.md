@@ -807,8 +807,8 @@ public static ISecsGemBuilder AddGemTerminal(this ISecsGemBuilder builder, IGemT
 ```
 
 Registers the terminal and, with it, `GemEquipment.TerminalMessages`. The parameterless overload
-uses `GemInMemoryTerminal`. Call it once: a second call registers the same pairs twice, which the
-routing table refuses.
+uses `GemInMemoryTerminal`. Calling it twice is harmless: the pairs go in through
+the builder's `DeclareOnce`.
 
 ---
 
@@ -1180,7 +1180,8 @@ machine is a service.
 | `GemEquipment` | Singleton | |
 | Hosted service | Singleton | Runs `GemEquipment.RunAsync`, unless `runAsHostedService` is `false`. |
 
-It also registers a handler for every pair in `GemEquipment.HandledMessages`.
+It also registers a handler for every pair in `GemEquipment.HandledMessages`, through the builder's
+`DeclareOnce` - so calling it twice registers them once, where it used to fail at start-up.
 
 ### `AddGemProcessPrograms`
 
@@ -1196,8 +1197,8 @@ S7F3 and S7F5, plus the S7F17 and S7F19 both halves of stream 7 share. The param
 uses `GemInMemoryProcessProgramStore`.
 
 Omit it and the connection reports S9F3 for anything in stream 7, unless
-`AddGemFormattedProcessPrograms` declared the other half. Call it once: a second call registers the
-same pairs twice, which the routing table refuses.
+`AddGemFormattedProcessPrograms` declared the other half. Calling it twice is harmless: the pairs go in
+through the builder's `DeclareOnce`, which declares a set once however many times it is asked for.
 
 Order does not matter relative to `AddGemEquipment`. The equipment resolves its store with
 `GetService`, so it is `null` when nothing registered one.

@@ -245,6 +245,10 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBui
 | `AddWaferMapHost()` | `WaferMapHost`, `WaferMapInMemoryStore` as `IWaferMapStore`, and a handler for all ten primaries. |
 | `AddWaferMapHost<TStore>()` | The same with a store of your own. `TryAdd`, so an `IWaferMapStore` already registered wins. |
 
-Do not call both on one builder: both declare S12F19, which the routing table refuses. Either sits
-happily beside `AddGemEquipment` or `AddGemHost`, which share no stream and function pair with
-stream 12.
+Either called twice is harmless - the messages go in through the builder's `DeclareOnce` - but
+**do not call both on one builder**: both declare S12F19, and two different sets claiming one
+message is a conflict rather than a duplicate, so the routing table still refuses it. That is the
+distinction `DeclareOnce` keeps on purpose, and here it is doing its job.
+
+Either sits happily beside `AddGemEquipment` or `AddGemHost`, which share no stream and function
+pair with stream 12.

@@ -171,6 +171,9 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBui
 | `AddMaterialEquipment<TSource>()` | The same with an inventory of your own. `TryAdd`, so an `IMaterialSource` already registered wins. |
 | `AddMaterialHost()` | `MaterialHost` and handlers for S3F5, F7, F13, F35. |
 
-Do not call the equipment and the host on one builder. They declare *different* messages, so the
-routing table cannot catch the mistake - and one process answering as both ends of one link is not
-a thing E5 describes.
+Either called twice is harmless: the messages go in through the builder's `DeclareOnce`, which
+declares a capability's set once however many times it is asked for.
+
+Do not call the equipment and the host on one builder, though. They declare *different* messages,
+so neither the routing table nor `DeclareOnce` can catch the mistake - and one process answering as
+both ends of one link is not a thing E5 describes.

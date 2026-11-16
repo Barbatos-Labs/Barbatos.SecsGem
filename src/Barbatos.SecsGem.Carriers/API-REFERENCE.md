@@ -190,3 +190,6 @@ The provider **composes**: an application with objects beyond carriers and ports
 as well, and both answer through `CompositeObjectProvider`. The same goes for `AddSubstrateTracking`
 and `AddControlJobs` on the same machine - three packages, one stream, and the primaries declared
 once.
+
+Calling `AddCarrierEquipment` twice is harmless too: both sets go in through the builder's
+`DeclareOnce`. The manager is a `TryAdd` singleton, so the first `configure` is the one that runs.

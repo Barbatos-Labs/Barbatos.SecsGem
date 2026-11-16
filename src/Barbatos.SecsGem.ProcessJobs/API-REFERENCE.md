@@ -208,7 +208,7 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBui
 | `AddProcessJobEquipment(Action<ProcessJobManager>? configure = null)` | `ProcessJobManager` (`JobSpace` and any pre-created job in `configure`), `ProcessJobEquipment`, `ProcessJobObjectProvider` as an `IObjectProvider`, stream 16's twelve host primaries and the eleven of object services. |
 | `AddProcessJobHost()` | `ProcessJobHost`, handlers for S16F11 and S16F29, and `AddObjectServices` so a host can read a job's attributes. No provider. |
 
-Calling either twice is harmless: the primaries are declared once, tracked by a marker in the
-service collection, because a registration cannot ask a routing table that has not been built yet.
+Calling either twice is harmless: the primaries go in through the builder's `DeclareOnce`, which is
+where that rule lives for every capability in this stack.
 `AddProcessJobEquipment` composes with `AddCarrierEquipment`, `AddSubstrateTracking` and
 `AddControlJobs` - four providers, one stream 14, through `CompositeObjectProvider`.

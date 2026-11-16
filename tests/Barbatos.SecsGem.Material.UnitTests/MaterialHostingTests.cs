@@ -160,4 +160,49 @@ public class MaterialHostingTests
         Assert.Equal(9, all.Distinct().Count());
         Assert.All(all, pair => Assert.True(pair.Function % 2 == 1, $"S3F{pair.Function} is not a primary"));
     }
+
+    /// <summary>Either registration called twice is harmless.</summary>
+    /// <remarks>
+    /// It was not: the services were idempotent through <c>TryAdd</c> and the route declarations
+    /// were not, so a second call failed at start-up with "S3F1 already has a handler" - true, and
+    /// unhelpful. <c>DeclareOnce</c> on the builder settles it for every capability in this stack;
+    /// this is stream 3's share of the proof.
+    /// </remarks>
+    [Fact]
+    public async Task Registering_either_end_twice_declares_its_messages_once()
+    {
+        var equipment = new ServiceCollection();
+
+        equipment
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddMaterialEquipment()
+            .AddMaterialEquipment();
+
+        await using var equipmentProvider = equipment.BuildServiceProvider();
+
+        var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
+
+        foreach (var (stream, function) in MaterialEquipment.HandledMessages)
+        {
+            Assert.True(equipmentRouter.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
+        }
+
+        var host = new ServiceCollection();
+
+        host
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Active)
+            .UseInMemoryTransport(isActive: true)
+            .AddMaterialHost()
+            .AddMaterialHost();
+
+        await using var hostProvider = host.BuildServiceProvider();
+
+        var hostRouter = hostProvider.GetRequiredService<ISecsMessageRouter>();
+
+        foreach (var (stream, function) in MaterialHost.HandledMessages)
+        {
+            Assert.True(hostRouter.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
+        }
+    }
 }

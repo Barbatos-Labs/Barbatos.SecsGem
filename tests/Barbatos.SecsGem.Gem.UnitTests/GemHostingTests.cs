@@ -148,6 +148,53 @@ public class GemHostingTests
         Assert.Contains("AttemptOnline is transient", error.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>Registering GEM twice, with all its optional sets, declares each of them once.</summary>
+    /// <remarks>
+    /// GEM declares eight message sets - the core, traces, limits, the terminal, spooling, process
+    /// programs, formatted process programs, and the host's own - and the routing table refuses a
+    /// stream and function twice. So a second <c>AddGemEquipment</c> used to fail at start-up with
+    /// "S1F1 already has a handler": true, and unhelpful, since the services were already
+    /// idempotent through <c>TryAdd</c>. <c>DeclareOnce</c> on the builder settles it, and this is
+    /// the package with the most sets to get wrong.
+    /// </remarks>
+    [Fact]
+    public async Task Registering_gem_twice_declares_every_set_once()
+    {
+        var services = new ServiceCollection();
+        var builder = services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false);
+
+        for (var time = 0; time < 2; time++)
+        {
+            builder
+                .AddGemEquipment(
+                    model => model.AddStatusVariable(1, "A", () => SecsItem.U4(1u)),
+                    runAsHostedService: false)
+                .AddGemTraces()
+                .AddGemLimits();
+        }
+
+        await using var provider = services.BuildServiceProvider();
+
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        foreach (var set in new[]
+        {
+            GemEquipment.HandledMessages,
+            GemEquipment.TraceMessages,
+            GemEquipment.LimitMessages,
+        })
+        {
+            foreach (var (stream, function) in set)
+            {
+                Assert.True(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
+            }
+        }
+
+        Assert.NotNull(provider.GetRequiredService<GemEquipment>());
+    }
+
     private sealed class Thermometer(double celsius)
     {
         public double Celsius { get; } = celsius;

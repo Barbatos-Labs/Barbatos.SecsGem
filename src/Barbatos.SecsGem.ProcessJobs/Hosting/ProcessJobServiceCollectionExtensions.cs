@@ -62,24 +62,12 @@ public static class ProcessJobServiceCollectionExtensions
             services.GetService<TimeProvider>(),
             services.GetService<ILogger<ProcessJobEquipment>>()));
 
-        // Declared once, for the reason the stream 14 primaries are: the routing table refuses a
-        // pair twice - correctly - so calling this twice would otherwise fail at start-up with
-        // "S16F1 already has a handler", which is true and unhelpful. The first version of this
-        // package did exactly that, and its own hosting test found it.
-        if (!builder.Services.Any(service => service.ServiceType == typeof(ProcessJobRoutesDeclared)))
-        {
-            builder.Services.AddSingleton<ProcessJobRoutesDeclared>();
-
-            // Deferred, like every other capability in this stack: the handler needs the
-            // equipment, the equipment needs the connection, and the connection needs the routing
-            // table these declarations go into. Resolving the equipment here would close that
-            // circle.
-            foreach (var (stream, function) in ProcessJobEquipment.HandledMessages)
-            {
-                builder.OnPrimary(stream, function, static provider =>
-                    (transaction, token) => provider.GetRequiredService<ProcessJobEquipment>().HandleAsync(transaction, token));
-            }
-        }
+        // Declared once by the builder, which is where that rule now lives for every capability
+        // in this stack. Deferred, like every other one: the handler needs the equipment, the
+        // equipment needs the connection, and the connection needs the routing table these
+        // declarations go into. Resolving the equipment here would close that circle.
+        builder.DeclareOnce(ProcessJobEquipment.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<ProcessJobEquipment>().HandleAsync(transaction, token));
 
         return builder.AddObjectProvider<ProcessJobObjectProvider>();
     }
@@ -102,28 +90,10 @@ public static class ProcessJobServiceCollectionExtensions
             services.GetRequiredService<HsmsConnection>(),
             services.GetService<ILogger<ProcessJobHost>>()));
 
-        if (!builder.Services.Any(service => service.ServiceType == typeof(ProcessJobHostRoutesDeclared)))
-        {
-            builder.Services.AddSingleton<ProcessJobHostRoutesDeclared>();
-
-            foreach (var (stream, function) in ProcessJobHost.HandledMessages)
-            {
-                builder.OnPrimary(stream, function, static provider =>
-                    (transaction, token) => provider.GetRequiredService<ProcessJobHost>().HandleAsync(transaction, token));
-            }
-        }
+        builder.DeclareOnce(ProcessJobHost.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<ProcessJobHost>().HandleAsync(transaction, token));
 
         return builder.AddObjectServices();
     }
 }
 
-/// <summary>Marks that stream 16's equipment primaries have been declared, so they are declared once.</summary>
-/// <remarks>
-/// A registration cannot ask the routing table what it already holds - the table is built later -
-/// so the fact has to live in the service collection beside everything else. Internal and empty:
-/// nothing resolves it, and its presence is the whole of what it says.
-/// </remarks>
-internal sealed class ProcessJobRoutesDeclared;
-
-/// <summary>Marks that stream 16's two host primaries have been declared.</summary>
-internal sealed class ProcessJobHostRoutesDeclared;

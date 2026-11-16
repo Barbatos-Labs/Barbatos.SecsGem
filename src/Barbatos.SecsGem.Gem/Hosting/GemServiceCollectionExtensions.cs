@@ -133,11 +133,8 @@ public static class GemServiceCollectionExtensions
         // the router is being built, so resolving the equipment there would re-enter the
         // half-built router and recurse until the stack ran out. Resolving when a message arrives
         // costs one cached singleton lookup and happens long after the graph is complete.
-        foreach (var (stream, function) in GemEquipment.HandledMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(GemEquipment.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
 
         if (runAsHostedService)
         {
@@ -206,11 +203,8 @@ public static class GemServiceCollectionExtensions
         // Resolved inside the handler rather than inside the factory, the same cycle the equipment
         // registration solves the same way: the host needs the connection, the connection needs
         // the router, and the router is what this is being registered into.
-        foreach (var (stream, function) in GemHost.HandledMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<GemHost>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(GemHost.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemHost>().HandleAsync(transaction, token));
 
         return builder;
     }
@@ -238,8 +232,8 @@ public static class GemServiceCollectionExtensions
     /// <see cref="AddGemFormattedProcessPrograms(ISecsGemBuilder)"/>.
     /// </para>
     /// <para>
-    /// Call it once. A second call registers the same stream and function twice, which the routing
-    /// table refuses.
+    /// Calling it twice is harmless: its set goes in through the builder's <c>DeclareOnce</c>,
+    /// which declares a capability's messages once however many times it is asked for.
     /// </para>
     /// </remarks>
     public static ISecsGemBuilder AddGemProcessPrograms<
@@ -291,8 +285,8 @@ public static class GemServiceCollectionExtensions
     /// <param name="builder">The builder.</param>
     /// <returns>The builder, for chaining.</returns>
     /// <remarks>
-    /// Call it once. A second call registers the same stream and function twice, which the routing
-    /// table refuses.
+    /// Calling it twice is harmless: its set goes in through the builder's <c>DeclareOnce</c>,
+    /// which declares a capability's messages once however many times it is asked for.
     /// </remarks>
     public static ISecsGemBuilder AddGemFormattedProcessPrograms<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStore>(
@@ -436,11 +430,8 @@ public static class GemServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        foreach (var (stream, function) in GemEquipment.TraceMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(GemEquipment.TraceMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
 
         return builder;
     }
@@ -466,11 +457,8 @@ public static class GemServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        foreach (var (stream, function) in GemEquipment.LimitMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(GemEquipment.LimitMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
 
         return builder;
     }
@@ -503,8 +491,8 @@ public static class GemServiceCollectionExtensions
     /// speaking for an operator rather than the host speaking to one.
     /// </para>
     /// <para>
-    /// Call it once. A second call registers the same stream and function twice, which the routing
-    /// table refuses.
+    /// Calling it twice is harmless: its set goes in through the builder's <c>DeclareOnce</c>,
+    /// which declares a capability's messages once however many times it is asked for.
     /// </para>
     /// </remarks>
     public static ISecsGemBuilder AddGemTerminal<
@@ -533,44 +521,32 @@ public static class GemServiceCollectionExtensions
 
     private static ISecsGemBuilder DeclareTerminal(ISecsGemBuilder builder)
     {
-        foreach (var (stream, function) in GemEquipment.TerminalMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(GemEquipment.TerminalMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
 
         return builder;
     }
 
     private static ISecsGemBuilder DeclareSpooling(ISecsGemBuilder builder)
     {
-        foreach (var (stream, function) in GemEquipment.SpoolMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(GemEquipment.SpoolMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
 
         return builder;
     }
 
     private static ISecsGemBuilder DeclareProcessPrograms(ISecsGemBuilder builder)
     {
-        foreach (var (stream, function) in GemEquipment.ProcessProgramMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(GemEquipment.ProcessProgramMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
 
         return builder;
     }
 
     private static ISecsGemBuilder DeclareFormattedProcessPrograms(ISecsGemBuilder builder)
     {
-        foreach (var (stream, function) in GemEquipment.FormattedProcessProgramMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(GemEquipment.FormattedProcessProgramMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
 
         return builder;
     }

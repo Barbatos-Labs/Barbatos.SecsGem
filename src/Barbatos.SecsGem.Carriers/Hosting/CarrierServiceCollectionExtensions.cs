@@ -60,11 +60,8 @@ public static class CarrierServiceCollectionExtensions
             provider.GetRequiredService<CarrierManager>(),
             provider.GetService<ILogger<CarrierEquipment>>()));
 
-        foreach (var (stream, function) in CarrierEquipment.HandledMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<CarrierEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(CarrierEquipment.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<CarrierEquipment>().HandleAsync(transaction, token));
 
         return builder.AddObjectProvider<CarrierObjectProvider>();
     }

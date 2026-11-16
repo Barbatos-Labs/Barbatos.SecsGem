@@ -101,31 +101,16 @@ public static class ObjectServiceCollectionExtensions
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IObjectProvider, TProvider>());
         builder.AddObjectServices();
 
-        // Declared once however many providers there are. The routing table refuses a pair twice -
-        // correctly - so a machine calling this for carriers and again for substrates would
-        // otherwise fail at start-up with "S14F1 already has a handler", which is true and
-        // unhelpful: both registrations are right and there is only one stream 14.
-        if (!builder.Services.Any(service => service.ServiceType == typeof(ObjectRoutesDeclared)))
-        {
-            builder.Services.AddSingleton<ObjectRoutesDeclared>();
-
-            // Resolved inside the handler rather than inside the factory, the same cycle every
-            // other registration here solves the same way.
-            foreach (var (stream, function) in ObjectServices.HandledMessages)
-            {
-                builder.OnPrimary(stream, function, static provider =>
-                    (transaction, token) => provider.GetRequiredService<ObjectServices>().HandleAsync(transaction, token));
-            }
-        }
+        // Declared once however many providers there are - a machine calling this for carriers,
+        // again for substrates and again for control jobs is three right registrations and one
+        // stream 14. This package had its own marker type for that before the builder learned the
+        // rule for everybody; see ISecsGemBuilder.DeclareOnce.
+        //
+        // Resolved inside the handler rather than inside the factory, the same cycle every other
+        // registration here solves the same way.
+        builder.DeclareOnce(ObjectServices.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<ObjectServices>().HandleAsync(transaction, token));
 
         return builder;
     }
 }
-
-/// <summary>Marks that the stream 14 primaries have been declared, so they are declared once.</summary>
-/// <remarks>
-/// A registration cannot ask the routing table what it already holds - the table is built later -
-/// so the fact has to live in the service collection beside everything else. Internal and empty:
-/// nothing resolves it, and its presence is the whole of what it says.
-/// </remarks>
-internal sealed class ObjectRoutesDeclared;

@@ -218,4 +218,6 @@ have providers can each ask the other.
 E87, E90 and E94 does, one call per package - wraps every registered provider in a
 `CompositeObjectProvider` rather than keeping one and dropping the rest. The same provider type
 added twice is added once, and the eleven primaries are declared once however many providers there
-are. An application that wants only its own simply does not call the other registrations.
+are - through the builder's `DeclareOnce`, which this package had its own marker type for before
+that rule moved where every capability could use it. An application that wants only its own simply
+does not call the other registrations.

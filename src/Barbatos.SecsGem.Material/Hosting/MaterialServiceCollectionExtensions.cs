@@ -62,11 +62,8 @@ public static class MaterialServiceCollectionExtensions
         // Resolved inside the handler rather than inside the factory, the same cycle every other
         // registration here solves the same way: the end needs the connection, the connection
         // needs the router, and the router is what this is being registered into.
-        foreach (var (stream, function) in MaterialEquipment.HandledMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<MaterialEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(MaterialEquipment.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<MaterialEquipment>().HandleAsync(transaction, token));
 
         return builder;
     }
@@ -87,11 +84,8 @@ public static class MaterialServiceCollectionExtensions
             provider.GetRequiredService<HsmsConnection>(),
             provider.GetService<ILogger<MaterialHost>>()));
 
-        foreach (var (stream, function) in MaterialHost.HandledMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<MaterialHost>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(MaterialHost.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<MaterialHost>().HandleAsync(transaction, token));
 
         return builder;
     }

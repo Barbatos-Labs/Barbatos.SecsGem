@@ -181,4 +181,37 @@ public class CarrierHostingTests
         Assert.Contains("ControlJob", types);
         Assert.Contains(CarrierObjectProvider.CarrierType, types);
     }
+
+    /// <summary>Registering the equipment twice declares both halves of E87 once.</summary>
+    /// <remarks>
+    /// Both halves is what makes this worth a test here: the five carrier primaries are this
+    /// package's own set and the eleven of stream 14 are the object services package's, so a
+    /// second call has two chances to collide. The services were already idempotent through
+    /// <c>TryAdd</c>; <c>DeclareOnce</c> on the builder is where the routes caught up.
+    /// </remarks>
+    [Fact]
+    public async Task Registering_the_equipment_twice_declares_both_halves_once()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddCarrierEquipment(manager => manager.AddPort(1))
+            .AddCarrierEquipment(manager => manager.AddPort(2));
+
+        await using var provider = services.BuildServiceProvider();
+
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        foreach (var (stream, function) in CarrierEquipment.HandledMessages.Concat(ObjectServices.HandledMessages))
+        {
+            Assert.True(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
+        }
+
+        // And the first registration's configure is the one that ran, because the manager is a
+        // TryAdd singleton: one port, not two, which is the same "first one wins" the services
+        // have always had.
+        Assert.Equal(1, Assert.Single(provider.GetRequiredService<CarrierManager>().Ports).PortId);
+    }
 }

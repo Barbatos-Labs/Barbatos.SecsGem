@@ -464,9 +464,23 @@ serialization hub: the format registry, the transcoder and the native binary spo
 | `UseTransport<TTransport>` | `ISecsGemBuilder UseTransport<TTransport>() where TTransport : class, ISecsTransport` | Replaces rather than tries to add, so the last call wins. |
 | `OnPrimary` | `ISecsGemBuilder OnPrimary(byte stream, byte function, SecsPrimaryHandler handler)` | Also the declaration that makes automatic S9F3 and S9F5 possible. |
 | `OnPrimary` | `ISecsGemBuilder OnPrimary(byte stream, byte function, Func<IServiceProvider, SecsPrimaryHandler> factory)` | For a handler that needs a service. Resolve inside the handler, not inside the factory - see [`SecsMessageRouterBuilder`](#secsmessagerouterbuilder). |
+| `DeclareOnce` | `ISecsGemBuilder DeclareOnce(IReadOnlyList<(byte Stream, byte Function)> messages, Func<IServiceProvider, SecsPrimaryHandler> factory)` | A capability's whole set, declared once however many times it is asked for. Pass the capability's own static list. |
 | `OnUnhandledPrimary` | `ISecsGemBuilder OnUnhandledPrimary(SecsPrimaryHandler handler)` | Turns off automatic S9F3 and S9F5. |
 | `OnUnhandledPrimary` | `ISecsGemBuilder OnUnhandledPrimary(Func<IServiceProvider, SecsPrimaryHandler> factory)` | The same, from the container. |
 | `RunAsHostedService` | `ISecsGemBuilder RunAsHostedService()` | Runs the connection from host start to host stop. Omit it to call `HsmsConnection.RunAsync` yourself. |
+
+**`DeclareOnce` is what every `AddXxx` in this stack uses**, and it exists because of a mistake all
+of them could make. The routing table refuses a stream and function twice - correctly, since two
+handlers for one message is a conflict nobody else can resolve - while the services those
+registrations add go in through `TryAdd` and are happy to be asked for twice. So a registration
+called twice used to fail at start-up with "S3F17 already has a handler": true, and unhelpful.
+
+The set is identified by the **list object**, not by its contents. Declaring
+`CarrierEquipment.HandledMessages` twice declares it once; two *different* sets that both claim a
+message still throw, because that is a conflict rather than a duplicate - silently keeping one of
+them is how a machine ends up answering half a standard with nothing anywhere saying so. A list
+built fresh at the call site is a different declaration and will throw on the second call, so pass
+a static one.
 
 Format spokes extend `IServiceCollection` rather than this builder - `AddSecsSml()`, `AddSecsJson()`
 and the rest - because a spoke cannot reference this assembly. That is what makes adding a format a

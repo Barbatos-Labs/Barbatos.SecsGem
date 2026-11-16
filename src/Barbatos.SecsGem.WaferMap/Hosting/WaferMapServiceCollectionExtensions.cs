@@ -13,9 +13,11 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 /// <summary>Adds wafer mapping - SECS-II stream 12 - to a connection built by <c>AddSecsGem</c>.</summary>
 /// <remarks>
-/// Either end, never both on one builder: both declare S12F19, which the routing table refuses,
-/// and one process answering as both ends of the same link is not a thing E5 describes. Two
-/// connections in one process means two builders.
+/// Either end, never both on one builder: both declare S12F19, and two different sets claiming one
+/// message is a conflict rather than a duplicate, so the routing table still refuses it - which is
+/// the distinction <c>DeclareOnce</c> keeps on purpose. One process answering as both ends of the
+/// same link is not a thing E5 describes, either. Two connections in one process means two
+/// builders; either registration on its own may be called as often as an application likes.
 /// </remarks>
 public static class WaferMapServiceCollectionExtensions
 {
@@ -44,11 +46,8 @@ public static class WaferMapServiceCollectionExtensions
             provider.GetRequiredService<HsmsConnection>(),
             provider.GetService<ILogger<WaferMapEquipment>>()));
 
-        foreach (var (stream, function) in WaferMapEquipment.HandledMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<WaferMapEquipment>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(WaferMapEquipment.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<WaferMapEquipment>().HandleAsync(transaction, token));
 
         return builder;
     }
@@ -92,11 +91,8 @@ public static class WaferMapServiceCollectionExtensions
         // Resolved inside the handler rather than inside the factory, the same cycle the GEM
         // registration solves the same way: the host needs the connection, the connection needs
         // the router, and the router is what this is being registered into.
-        foreach (var (stream, function) in WaferMapHost.HandledMessages)
-        {
-            builder.OnPrimary(stream, function, static provider =>
-                (transaction, token) => provider.GetRequiredService<WaferMapHost>().HandleAsync(transaction, token));
-        }
+        builder.DeclareOnce(WaferMapHost.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<WaferMapHost>().HandleAsync(transaction, token));
 
         return builder;
     }
