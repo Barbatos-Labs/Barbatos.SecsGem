@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.ProcessJobs</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.ProcessJobs</RootNamespace>
+    <PackageTags>secs;e40;processjob;prjob;stream16;processing;recipe;fab300;e94;e87</PackageTags>
+    <Description>Processing management (SEMI E40) for .NET: the process job, the nine-state machine E40 gives it, and SECS-II stream 16 at both ends - create, command, status, list, deselect, event report, additional material, parameter change, queue position, queue reorder, multi-command, material binding, parameter report, queue status. Every transition is enforced and every refusal names the state that refused it. Unlike E87, E90 and E94, E40's states and most of its attributes are in the data item dictionary with their code values, so the state names and numbers here are the standard's own. Depends on Barbatos.SecsGem.Objects and Barbatos.SecsGem.Hsms, not on GEM, E87, E90 or E94: a machine can run process jobs over whatever material and lot model it already has.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+    <!-- E40 has a message set of its own, unlike E90 and E94 - but its job is also an object with
+         attributes, and those are stream 14's. Both halves, the shape E87 has. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Objects\Barbatos.SecsGem.Objects.csproj" />
+  </ItemGroup>
+
+</Project>

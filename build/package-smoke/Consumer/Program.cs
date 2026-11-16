@@ -9,6 +9,7 @@ using Barbatos.SecsGem;
 using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.ControlJobs;
+using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Mapping;
@@ -87,6 +88,7 @@ internal static class Program
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
         await Run("carriers + substrates: E87 and E90 in one machine, both answering stream 14", CarriersAndSubstratesComposeAsync).ConfigureAwait(false);
         await Run("controljobs: E94 drives its state machine through stream 14, beside E87 and E90", ControlJobsResolveAsync).ConfigureAwait(false);
+        await Run("processjobs: E40 declares stream 16 and all four standards answer stream 14", ProcessJobsResolveAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -855,5 +857,82 @@ internal static class Program
         Assert(created.Acknowledgement == ObjectAcknowledgement.Successful, $"the create answered {created.Acknowledgement}");
         Assert(created.ObjectId == "CJ-2", $"the machine named the job '{created.ObjectId}'");
         Assert(manager.Find("CJ-2") is not null, "the created job is not in the manager");
+    }
+
+    private static async Task ProcessJobsResolveAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddCarrierEquipment(manager => manager.AddPort(1))
+            .AddSubstrateTracking(tracker => tracker.AddLocation("SLOT-1"))
+            .AddControlJobs()
+            .AddProcessJobEquipment(manager => manager.JobSpace = 4);
+
+        await using var provider = services.BuildServiceProvider();
+
+        var manager = provider.GetRequiredService<ProcessJobManager>();
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        // Stream 16 is E40's own, and a ProjectReference build cannot tell whether the handler
+        // registration survived packing.
+        Assert(router.TryGetHandler(16, 1, out _), "S16F1 has no handler");
+        Assert(router.TryGetHandler(16, 23, out _), "S16F23 has no handler");
+        Assert(ProcessJobEquipment.HandledMessages.Count == 12, $"E40 declares {ProcessJobEquipment.HandledMessages.Count} primaries, not twelve");
+
+        Assert(manager.Create("PJ-1", "RECIPE-7", ["W01"]).IsAccepted, "the manager refused a new process job");
+
+        var tooEarly = manager.Start("PJ-1");
+
+        Assert(!tooEarly.IsAccepted, "a queued process job was started");
+        Assert(tooEarly.Reason.Contains("Queued", StringComparison.Ordinal), $"the refusal said '{tooEarly.Reason}'");
+
+        // The transient states, which are E40's own shape: a pause is accepted, not completed.
+        Assert(manager.BeginSetup("PJ-1").IsAccepted, "setup could not begin");
+        Assert(manager.SetupComplete("PJ-1").IsAccepted, "setup could not finish");
+        Assert(manager.Pause("PJ-1").IsAccepted, "a processing job could not be paused");
+        Assert(manager.Find("PJ-1")?.State == ProcessJobState.Pausing, "a pause landed somewhere other than Pausing");
+        Assert(manager.PauseComplete("PJ-1").IsAccepted, "the machine could not finish pausing");
+
+        // Four packages, one stream, six object types. A packaging mistake that left one out of
+        // the composite would show up here and nowhere in the test suite.
+        var objects = provider.GetRequiredService<ObjectServices>().Provider;
+
+        Assert(objects is CompositeObjectProvider composite && composite.Providers.Count == 4,
+            "stream 14 is not answered by all four packages");
+
+        var types = await objects!.GetObjectTypesAsync(CancellationToken.None).ConfigureAwait(false);
+
+        foreach (var expected in new[]
+        {
+            "Carrier",
+            "LoadPort",
+            "Substrate",
+            "SubstrateLocation",
+            "ControlJob",
+            ProcessJobObjectProvider.ProcessJobType,
+        })
+        {
+            Assert(types.Contains(expected, StringComparer.Ordinal), $"stream 14 does not answer for {expected}");
+        }
+
+        // And the state reads as PRSTATE's code, which is the one number in this package that
+        // came out of the catalogue rather than out of a reading of it.
+        var values = await objects.GetAttributesAsync(
+            new ObjectAttributeRequest { Objects = ["PJ-1"], Attributes = ["PRSTATE"] },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(values.Count == 1, $"the job came back {values.Count} time(s)");
+
+        var attribute = values[0].Attributes[0];
+
+        Assert(attribute.Name == "PRSTATE", $"the attribute came back as {attribute.Name}");
+        Assert(
+            attribute.Value.FirstValueOrDefault<byte>() == (byte)ProcessJobState.Paused,
+            $"the state came back as {attribute.Value.FirstValueOrDefault<byte>()}, not {(byte)ProcessJobState.Paused}");
+
+        attribute.Value.Dispose();
     }
 }

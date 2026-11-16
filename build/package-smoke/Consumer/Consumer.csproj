@@ -33,6 +33,7 @@
     <PackageReference Include="Barbatos.SecsGem.Carriers" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.Substrates" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.ControlJobs" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.ProcessJobs" Version="$(BarbatosVersion)" />
     <!-- No PrivateAssets: the assembly travels under analyzers/dotnet/cs, and whether the
          compiler actually picks it up from there is one of the things being tested. -->
     <PackageReference Include="Barbatos.SecsGem.SourceGenerators" Version="$(BarbatosVersion)" />

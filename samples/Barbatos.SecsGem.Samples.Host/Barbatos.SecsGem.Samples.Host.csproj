@@ -31,6 +31,10 @@
     <!-- E94, which is E87's and E90's material turned into a lot somebody asked for - and the one
          standard here that uses the actionable half of stream 14. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.ControlJobs\Barbatos.SecsGem.ControlJobs.csproj" />
+    <!-- E40, the one of the four material standards with a stream of its own: this sample is
+         where a control job and a process job sit side by side, which is the arrangement that
+         shows why they are two standards. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.ProcessJobs\Barbatos.SecsGem.ProcessJobs.csproj" />
     <!-- So an S9F3 can say which message the equipment refused, by name. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />

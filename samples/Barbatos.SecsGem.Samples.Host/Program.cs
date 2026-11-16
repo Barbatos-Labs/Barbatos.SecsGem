@@ -8,6 +8,7 @@ using System.Globalization;
 using Barbatos.SecsGem;
 using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.ControlJobs;
+using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
@@ -56,16 +57,28 @@ internal static class Program
     private static readonly ConcurrentQueue<string> ErrorReports = new();
     private static readonly ConcurrentQueue<string> Reports = new();
 
-    /// <summary>What this sample needs to walk E87, E90 and E94, bundled into one parameter.</summary>
+    /// <summary>Stream 16's state reports, kept apart from the GEM ones.</summary>
+    /// <remarks>
+    /// Its own queue because the GEM queue is drained as the conversation goes, and an S16F11 that
+    /// arrived while a handler was emptying it would be printed as a collection event. They are
+    /// different things from different standards.
+    /// </remarks>
+    private static readonly ConcurrentQueue<string> ProcessReports = new();
+
+    /// <summary>What this sample needs to walk E87, E90, E94 and E40, bundled into one parameter.</summary>
     /// <param name="Host">The host side of E87, which decides.</param>
     /// <param name="Machine">The carrier state machines, which in this mode are in the same process.</param>
     /// <param name="Substrates">The substrate tracker, which has no host side at all: E90 has no messages.</param>
     /// <param name="Jobs">The control jobs, which have no host side either: E94's commands are stream 14's.</param>
-    private sealed record CarrierDemo(
+    /// <param name="Processes">The process jobs - E40, the one of the four with a stream of its own.</param>
+    /// <param name="ProcessHost">The host side of E40, which is a real class because stream 16 has one.</param>
+    private sealed record MaterialFlow(
         CarrierHost Host,
         CarrierManager Machine,
         SubstrateTracker Substrates,
-        ControlJobManager Jobs);
+        ControlJobManager Jobs,
+        ProcessJobManager Processes,
+        ProcessJobHost ProcessHost);
 
     /// <summary>The carrier this sample walks through E87.</summary>
     private const string CarrierName = "CAR-001";
@@ -93,6 +106,29 @@ internal static class Program
     [
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1,
     ];
+
+    /// <summary>The recipe this lot runs, as a <c>PPID</c>.</summary>
+    /// <remarks>
+    /// Named rather than written five times: the remote command below starts it, E94 carries it as
+    /// the control job's processing specification, and E40 carries it as the process job's
+    /// <c>PPID</c> - and a sample where those three disagreed would be demonstrating nothing.
+    /// </remarks>
+    private const string StartedProgram = "RECIPE-7";
+
+    /// <summary>The wafer this sample takes all the way through.</summary>
+    /// <remarks>
+    /// Slot three of the carrier, which E90 tracks and E40 runs: a process job's material and a
+    /// substrate are the same wafer seen by two standards, and correlating them is the
+    /// application's business - this line is that correlation.
+    /// </remarks>
+    private const string Wafer = CarrierName + "-03";
+
+    /// <summary>The process job the machine runs one wafer of this lot under.</summary>
+    /// <remarks>
+    /// A control job is the lot; a process job is one piece of work inside it. This sample runs one
+    /// of each, which is the smallest arrangement that shows why they are two standards.
+    /// </remarks>
+    private const string ProcessJobName = "PJ-1";
 
     /// <summary>The control job the host queues for this carrier.</summary>
     /// <remarks>
@@ -224,6 +260,16 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingCarriers!.HandleAsync(transaction, token));
         }
 
+        // And E40, which is the one of the four material standards with a stream of its own:
+        // twelve primaries on stream 16, with a job's attributes going out through the same object
+        // services.
+        ProcessJobEquipment? pendingProcesses = null;
+
+        foreach (var (stream, function) in ProcessJobEquipment.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingProcesses!.HandleAsync(transaction, token));
+        }
+
         // The host's side of the same arrangement. S1F13, S1F1, S5F1, S6F11, S6F13 and stream 9 -
         // everything a machine may send a host unprompted.
         var hostRoutes = new SecsMessageRouterBuilder();
@@ -243,6 +289,15 @@ internal static class Program
         foreach (var (stream, function) in MaterialHost.HandledMessages)
         {
             hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingMaterialHost!.HandleAsync(transaction, token));
+        }
+
+        // And two of stream 16, which is the only thing any of E87, E90, E94 or E40 gives a host
+        // to answer: a process job changed state, and here is the whole queue.
+        ProcessJobHost? pendingProcessHost = null;
+
+        foreach (var (stream, function) in ProcessJobHost.HandledMessages)
+        {
+            hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingProcessHost!.HandleAsync(transaction, token));
         }
 
         await using var equipmentLink = new HsmsConnection(options, passive, equipmentRoutes.Build());
@@ -299,21 +354,51 @@ internal static class Program
         // arrives as an S14F5 further down.
         var controlJobs = new ControlJobManager();
 
-        // One provider per connection, four things to answer for - carriers and load ports,
-        // substrates and their locations, control jobs, and this machine's own chamber. The
-        // composite is the library's, which is the whole point of it existing: this sample used to
-        // carry its own.
+        // E40's state machine, with room for four jobs. Empty for the same reason E94's is: a
+        // process job arrives as an S16F1.
+        var processJobs = new ProcessJobManager { JobSpace = 4 };
+
+        // One provider per connection, five things to answer for - carriers and load ports,
+        // substrates and their locations, control jobs, process jobs, and this machine's own
+        // chamber. The composite is the library's, which is the whole point of it existing: this
+        // sample used to carry its own.
         var equipmentObjects = new ObjectServices(
             equipmentLink,
             new CompositeObjectProvider(
                 new CarrierObjectProvider(carrierManager),
                 new SubstrateObjectProvider(substrateTracker),
                 new ControlJobObjectProvider(controlJobs),
+                new ProcessJobObjectProvider(processJobs),
                 machineObjects));
 
         var hostObjects = new ObjectServices(hostLink);
         var carrierEquipment = new CarrierEquipment(carrierManager);
         var carrierHost = new CarrierHost(hostLink);
+        var processEquipment = new ProcessJobEquipment(processJobs, equipmentLink);
+        var processHost = new ProcessJobHost(hostLink);
+
+        // The three lines E40 wants and no library can write for you: a state change becomes an
+        // S16F11, sent off the manager's lock, with the two values copied inside the handler
+        // because the arguments are only alive there.
+        processJobs.JobStateChanged += (_, args) =>
+        {
+            var (job, state) = (args.Job.ProcessJobId, args.Current);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await processEquipment.ReportStateAsync(job, state).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    Console.WriteLine($"   [equipment] S16F11 for {job} did not get through: {exception.Message}");
+                }
+            });
+        };
+
+        processHost.JobStateReported += (_, args) => ProcessReports.Enqueue(
+            $"S16F11 <- {args.Report.ProcessJobId} is {args.Report.State} at {args.Report.At:HH:mm:ss}");
 
         pendingEquipment = equipment;
         pendingHost = host;
@@ -323,6 +408,8 @@ internal static class Program
         pendingMaterialHost = materialHost;
         pendingObjects = equipmentObjects;
         pendingCarriers = carrierEquipment;
+        pendingProcesses = processEquipment;
+        pendingProcessHost = processHost;
 
         Subscribe(host);
 
@@ -356,7 +443,13 @@ internal static class Program
                 materialEquipment,
                 materialHost,
                 hostObjects,
-                new CarrierDemo(carrierHost, carrierManager, substrateTracker, controlJobs),
+                new MaterialFlow(
+                    carrierHost,
+                    carrierManager,
+                    substrateTracker,
+                    controlJobs,
+                    processJobs,
+                    processHost),
                 cts.Token);
 
             Console.WriteLine();
@@ -468,7 +561,7 @@ internal static class Program
                 materialEquipment: null,
                 materialHost: null,
                 objects: provider.GetRequiredService<ObjectServices>(),
-                carriers: null,
+                flow: null,
                 cts.Token);
 
             // And then wait for the prober to send a map, which is the half of stream 12 this mode
@@ -521,7 +614,7 @@ internal static class Program
         MaterialEquipment? materialEquipment,
         MaterialHost? materialHost,
         ObjectServices? objects,
-        CarrierDemo? carriers,
+        MaterialFlow? flow,
         CancellationToken cancellationToken)
     {
         var ok = true;
@@ -1003,7 +1096,7 @@ internal static class Program
             ok &= !found;
         }
 
-        if (carriers is not null)
+        if (flow is not null)
         {
             Console.WriteLine();
             Console.WriteLine("-- and a carrier turns up that only the host can vouch for --");
@@ -1012,7 +1105,7 @@ internal static class Program
             // The machine's own doings. In this mode the machine is in the same process, so the
             // sample drives its state machines the way a load port sensor and an identifier reader
             // would.
-            var machine = carriers.Machine;
+            var machine = flow.Machine;
 
             machine.SetTransferState(1, PortTransferState.ReadyToLoad);
             machine.PlaceCarrier(1, CarrierName);
@@ -1034,7 +1127,7 @@ internal static class Program
             ok &= !tooEarly.IsAccepted;
 
             // So the host decides. This is the whole of E87 in one message.
-            var proceed = await carriers.Host.ProceedWithCarrierAsync(CarrierName, cancellationToken);
+            var proceed = await flow.Host.ProceedWithCarrierAsync(CarrierName, cancellationToken);
 
             Console.WriteLine($"   S3F17  -> ProceedWithCarrier CAACK={proceed.Acknowledgement}");
             ok &= proceed.IsAccepted;
@@ -1044,13 +1137,13 @@ internal static class Program
 
             // Asking again is refused, and the refusal names the state - which is what makes
             // CAACK 2 worth reading rather than guessing at.
-            var again = await carriers.Host.ProceedWithCarrierAsync(CarrierName, cancellationToken);
+            var again = await flow.Host.ProceedWithCarrierAsync(CarrierName, cancellationToken);
 
             Console.WriteLine($"   S3F17  -> again: CAACK={again.Acknowledgement} ({again.ErrorText})");
             ok &= again.Acknowledgement == CarrierAcknowledgement.CannotPerformNow;
 
-            Console.WriteLine($"   S3F23  -> {CarrierName} is at location {await carriers.Host.FindCarrierAsync(CarrierName, cancellationToken)}");
-            Console.WriteLine($"   S3F25  -> port 1 holds {await carriers.Host.ReadCarrierIdAsync(1, cancellationToken) ?? "nothing it will name"}");
+            Console.WriteLine($"   S3F23  -> {CarrierName} is at location {await flow.Host.FindCarrierAsync(CarrierName, cancellationToken)}");
+            Console.WriteLine($"   S3F25  -> port 1 holds {await flow.Host.ReadCarrierIdAsync(1, cancellationToken) ?? "nothing it will name"}");
 
             // And the slot map, over stream 14 - which is where E87 puts it, and why this package
             // does not implement S3F27. Twenty-five slots carried as an attribute, no format
@@ -1081,7 +1174,7 @@ internal static class Program
             // What a mapped carrier turns into: one substrate per occupied slot, each at the slot
             // it came out of. This is the join between E87 and E90, and it is the application's to
             // make - a library doing it would be guessing which slot map a wafer belongs to.
-            var substrates = carriers.Substrates;
+            var substrates = flow.Substrates;
             var loaded = 0;
 
             for (var slot = 1; slot <= SlotMap.Length; slot++)
@@ -1115,7 +1208,7 @@ internal static class Program
                     [
                         new ObjectAttribute { Name = "ObjID", Value = SecsItem.A(JobName) },
                         new ObjectAttribute { Name = "CarrierInputSpec", Value = SecsItem.L(SecsItem.A(CarrierName)) },
-                        new ObjectAttribute { Name = "ProcessingCtrlSpec", Value = SecsItem.A("RECIPE-7") },
+                        new ObjectAttribute { Name = "ProcessingCtrlSpec", Value = SecsItem.A(StartedProgram) },
                     ],
                     cancellationToken);
 
@@ -1135,7 +1228,7 @@ internal static class Program
                 // And then the one transition no host command can stand in for: the carriers are
                 // in and the wafers are mapped. This job starts itself, because nobody asked for a
                 // host-initiated one - which is the only thing StartMethod decides.
-                ok &= carriers.Jobs.MaterialReady(JobName).IsAccepted;
+                ok &= flow.Jobs.MaterialReady(JobName).IsAccepted;
 
                 await objects.GetAttributesAsync(
                     JobName,
@@ -1144,7 +1237,7 @@ internal static class Program
                     values => Console.WriteLine($"   S14F1  -> {Describe(values)}"),
                     cancellationToken);
 
-                ok &= carriers.Jobs.Find(JobName)?.State == ControlJobState.Executing;
+                ok &= flow.Jobs.Find(JobName)?.State == ControlJobState.Executing;
 
                 // A command the state machine will not have. OBJACK has five codes and none of
                 // them means "not from that state", so a refusal arrives as Error and the reason
@@ -1157,11 +1250,58 @@ internal static class Program
 
                 Console.WriteLine($"   S14F9  -> Start OBJACK={refused}, because it is already running");
                 ok &= refused == ObjectAcknowledgement.Error;
+
+                Console.WriteLine();
+                Console.WriteLine("-- and one piece of that lot becomes a process job: E40 --");
+                Console.WriteLine();
+
+                // E40 is the one of these four standards with a stream of its own, so this is a
+                // transaction rather than an object action: identifier, recipe, material.
+                var queuedJob = await flow.ProcessHost.CreateAsync(
+                    ProcessJobName,
+                    StartedProgram,
+                    [Wafer],
+                    cancellationToken);
+
+                Console.WriteLine($"   S16F1  -> PJACK={queuedJob}, {ProcessJobName} is queued for {Wafer}");
+                ok &= queuedJob == ProcessJobAcknowledgement.Accepted;
+
+                // S16F1 carries three items, so everything else about the job is an attribute -
+                // and this one is to wait for a host rather than start itself. That is the whole
+                // of E40's division of labour: stream 16 drives, stream 14 describes.
+                var described = await objects.SetAttributesAsync(
+                    ProcessJobName,
+                    ProcessJobObjectProvider.ProcessJobType,
+                    [new ObjectAttribute { Name = "PRPROCESSSTART", Value = SecsItem.Boolean(false) }],
+                    cancellationToken);
+
+                Console.WriteLine($"   S14F3  -> PRPROCESSSTART=false OBJACK={described}");
+                ok &= described == ObjectAcknowledgement.Successful;
+
+                // The machine takes the job up and gets it ready. Each of these raises an S16F11
+                // of its own, which is why the queue of reports below has more than one line.
+                ok &= flow.Processes.BeginSetup(ProcessJobName).IsAccepted;
+                ok &= flow.Processes.SetupComplete(ProcessJobName).IsAccepted;
+                ok &= flow.Processes.Find(ProcessJobName)?.State == ProcessJobState.WaitingForStart;
+
+                var started = await flow.ProcessHost.CommandAsync(
+                    ProcessJobName,
+                    ProcessJobCommands.Start,
+                    cancellationToken);
+
+                Console.WriteLine($"   S16F3  -> START CMDA={started}");
+                ok &= started == ProcessJobCommandAcknowledgement.Performed;
+
+                // A command this machine has never heard of is a different answer from one it
+                // cannot do yet, and CMDA is defined with both - which is the one thing E40 can
+                // tell a host that E94 cannot.
+                var nonsense = await flow.ProcessHost.CommandAsync(ProcessJobName, "TELEPORT", cancellationToken);
+
+                Console.WriteLine($"   S16F3  -> TELEPORT CMDA={nonsense}, as against CannotPerformNow");
+                ok &= nonsense == ProcessJobCommandAcknowledgement.DoesNotExist;
             }
 
             // One wafer through, with the gate E90 exists for shown on the way.
-            const string Wafer = CarrierName + "-03";
-
             var early = substrates.BeginProcessing(Wafer);
 
             Console.WriteLine($"   [machine] work refused: {early.Reason}");
@@ -1203,12 +1343,50 @@ internal static class Program
             if (objects is not null)
             {
                 Console.WriteLine();
-                Console.WriteLine("-- the lot is done, so the job ends --");
+                Console.WriteLine("-- the wafer is done, so the process job is --");
+                Console.WriteLine();
+
+                // The machine's own ending, as against the three a host can ask for. It is also
+                // the fourth S16F11 this job has produced.
+                ok &= flow.Processes.MaterialProcessed(ProcessJobName).IsAccepted;
+
+                var finished = await flow.ProcessHost.GetStatusAsync(ProcessJobName, cancellationToken);
+
+                Console.WriteLine(
+                    $"   S16F5  -> {finished?.ProcessJobId} is {finished?.State} (JOBSTATE {finished?.StateCode}), recipe {finished?.RecipeId}");
+
+                // The code is PRSTATE's own number, which is the one value in this package that
+                // came out of the catalogue rather than out of a reading of it.
+                ok &= finished?.State == ProcessJobState.ProcessComplete
+                    && finished.StateCode == (byte)ProcessJobState.ProcessComplete;
+
+                var place = await flow.ProcessHost.GetQueuePositionAsync(ProcessJobName, cancellationToken);
+
+                Console.WriteLine($"   S16F19 -> QPOSN={place?.Position}, because a finished job is not waiting");
+                ok &= place?.Position == 0;
+
+                var dropped = await flow.ProcessHost.DeselectAsync(ProcessJobName, cancellationToken);
+
+                Console.WriteLine($"   S16F9  -> PJACK={dropped}, {flow.Processes.Jobs.Count} process job(s) left");
+                ok &= dropped == ProcessJobAcknowledgement.Accepted && flow.Processes.Jobs.Count == 0;
+
+                // Four state changes, each a transaction of its own rather than a collection event
+                // somebody had to define: queued to setting up, to waiting, to processing, to
+                // complete. This is what E40 has that E90 and E94 do not.
+                await WaitUntilAsync(() => ProcessReports.Count >= 4, "the machine's four S16F11 reports to arrive");
+
+                while (ProcessReports.TryDequeue(out var line))
+                {
+                    Console.WriteLine($"   {line}");
+                }
+
+                Console.WriteLine();
+                Console.WriteLine("-- the lot is done, so the control job is --");
                 Console.WriteLine();
 
                 // The machine's own ending, as against the three a host can ask for: every piece
                 // of material was dealt with. A host reads which one it was.
-                ok &= carriers.Jobs.MaterialFinished(JobName).IsAccepted;
+                ok &= flow.Jobs.MaterialFinished(JobName).IsAccepted;
 
                 await objects.GetAttributesAsync(
                     JobName,
@@ -1221,8 +1399,8 @@ internal static class Program
                 // with nothing accounting for it.
                 var gone = await objects.DeleteAsync(JobName, "ControlJob", cancellationToken);
 
-                Console.WriteLine($"   S14F7  -> OBJACK={gone}, {carriers.Jobs.Jobs.Count} job(s) left on the machine");
-                ok &= gone == ObjectAcknowledgement.Successful && carriers.Jobs.Jobs.Count == 0;
+                Console.WriteLine($"   S14F7  -> OBJACK={gone}, {flow.Jobs.Jobs.Count} job(s) left on the machine");
+                ok &= gone == ObjectAcknowledgement.Successful && flow.Jobs.Jobs.Count == 0;
             }
 
             Console.WriteLine();
@@ -1233,7 +1411,7 @@ internal static class Program
             // application having to remember.
             machine.EndAccess(CarrierName);
 
-            var out01 = await carriers.Host.CarrierOutAsync(CarrierName, cancellationToken);
+            var out01 = await flow.Host.CarrierOutAsync(CarrierName, cancellationToken);
 
             Console.WriteLine($"   S3F33  -> CarrierOut ACKC3={out01}, port 1 is {machine.FindPort(1)?.TransferState}");
             ok &= out01 == CarrierRequestAcknowledgement.Accepted
