@@ -7,7 +7,7 @@ signature is a breaking change in somebody's fab.
 ## Repository map
 
 ```
-src/          eighteen shipping packages, one folder each (+ README.md, API-REFERENCE.md)
+src/          nineteen shipping packages, one folder each (+ README.md, API-REFERENCE.md)
 src/Shared/   compile-linked source, not a package: the serialization hub registration
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
@@ -25,6 +25,9 @@ Core  <-  Hsms  <-  Gem
                                      (E87, E90, E94, E40, on Objects: their attributes are
                                      stream 14; E90 and E94 have no messages at all, E87
                                      borrows S3F17, and E40 has stream 16 of its own)
+                                            ^-- MaterialFlow   (the E87-E90 join, and the only
+                                                package here that depends on two standards:
+                                                neither of those two may depend on the other)
   ^-- Serialization.{Sml,Json,Xml,Ini}
   ^-- Mapper  <-- SourceGenerators (analyzer only)
 ```

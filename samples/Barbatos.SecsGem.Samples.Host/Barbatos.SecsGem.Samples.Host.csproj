@@ -35,6 +35,9 @@
          where a control job and a process job sit side by side, which is the arrangement that
          shows why they are two standards. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.ProcessJobs\Barbatos.SecsGem.ProcessJobs.csproj" />
+    <!-- The E87-E90 join. This sample is where it earns its keep: the loop it replaces was
+         written here by hand, twice. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.MaterialFlow\Barbatos.SecsGem.MaterialFlow.csproj" />
     <!-- So an S9F3 can say which message the equipment refused, by name. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />

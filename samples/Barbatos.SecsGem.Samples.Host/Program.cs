@@ -13,6 +13,7 @@ using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
+using Barbatos.SecsGem.MaterialFlow;
 using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.Substrates;
 using Barbatos.SecsGem.WaferMap;
@@ -72,13 +73,15 @@ internal static class Program
     /// <param name="Jobs">The control jobs, which have no host side either: E94's commands are stream 14's.</param>
     /// <param name="Processes">The process jobs - E40, the one of the four with a stream of its own.</param>
     /// <param name="ProcessHost">The host side of E40, which is a real class because stream 16 has one.</param>
-    private sealed record MaterialFlow(
+    /// <param name="Bridge">The E87-E90 join, which turned the slot map into these substrates.</param>
+    private sealed record MaterialDemo(
         CarrierHost Host,
         CarrierManager Machine,
         SubstrateTracker Substrates,
         ControlJobManager Jobs,
         ProcessJobManager Processes,
-        ProcessJobHost ProcessHost);
+        ProcessJobHost ProcessHost,
+        CarrierSubstrateBridge Bridge);
 
     /// <summary>The carrier this sample walks through E87.</summary>
     private const string CarrierName = "CAR-001";
@@ -343,12 +346,9 @@ internal static class Program
         // processed on: anything that holds one substrate at a time is a location.
         var substrateTracker = new SubstrateTracker();
 
+        // Only the chuck: the twenty-five slot locations used to be declared here in a loop, and
+        // the bridge below declares each one as it needs it.
         substrateTracker.AddLocation(ChuckLocation);
-
-        for (var slot = 1; slot <= SlotMap.Length; slot++)
-        {
-            substrateTracker.AddLocation(SlotLocation(slot));
-        }
 
         // E94's state machine. Empty, because a control job is a host's instruction: this one
         // arrives as an S14F5 further down.
@@ -376,6 +376,20 @@ internal static class Program
         var carrierHost = new CarrierHost(hostLink);
         var processEquipment = new ProcessJobEquipment(processJobs, equipmentLink);
         var processHost = new ProcessJobHost(hostLink);
+
+        // The E87-E90 join, which this sample used to write by hand: a verified slot map becomes
+        // one substrate per occupied slot, named the way SlotLocation and the wafer names below
+        // already named them. Attached, so nothing has to remember to call it.
+        var bridge = new CarrierSubstrateBridge(
+            carrierManager,
+            substrateTracker,
+            new CarrierSubstrateOptions
+            {
+                SlotLocationName = (_, slot) => SlotLocation(slot),
+                SubstrateName = (carrier, slot) => $"{carrier}-{slot:00}",
+            });
+
+        bridge.Attach();
 
         // The three lines E40 wants and no library can write for you: a state change becomes an
         // S16F11, sent off the manager's lock, with the two values copied inside the handler
@@ -443,13 +457,14 @@ internal static class Program
                 materialEquipment,
                 materialHost,
                 hostObjects,
-                new MaterialFlow(
+                new MaterialDemo(
                     carrierHost,
                     carrierManager,
                     substrateTracker,
                     controlJobs,
                     processJobs,
-                    processHost),
+                    processHost,
+                    bridge),
                 cts.Token);
 
             Console.WriteLine();
@@ -614,7 +629,7 @@ internal static class Program
         MaterialEquipment? materialEquipment,
         MaterialHost? materialHost,
         ObjectServices? objects,
-        MaterialFlow? flow,
+        MaterialDemo? flow,
         CancellationToken cancellationToken)
     {
         var ok = true;
@@ -1172,26 +1187,20 @@ internal static class Program
             Console.WriteLine();
 
             // What a mapped carrier turns into: one substrate per occupied slot, each at the slot
-            // it came out of. This is the join between E87 and E90, and it is the application's to
-            // make - a library doing it would be guessing which slot map a wafer belongs to.
+            // it came out of. This sample wrote that loop by hand twice; it is the bridge's now,
+            // and it ran back when the host agreed the slot map - which is the moment a wafer
+            // becomes something to track.
             var substrates = flow.Substrates;
-            var loaded = 0;
-
-            for (var slot = 1; slot <= SlotMap.Length; slot++)
-            {
-                if (SlotMap[slot - 1] == 0)
-                {
-                    continue;
-                }
-
-                if (substrates.Add($"{CarrierName}-{slot:00}", SlotLocation(slot), (byte)slot).IsAccepted)
-                {
-                    loaded++;
-                }
-            }
+            var loaded = flow.Bridge.SubstratesOf(CarrierName).Count;
 
             Console.WriteLine($"   [machine] {loaded} substrates from the slot map, all AtSource and NeedsProcessing");
-            ok &= loaded == 23;
+            Console.WriteLine($"   [machine] {substrates.Locations.Count} locations: the chuck and one per occupied slot");
+            ok &= loaded == 23 && substrates.Substrates.Count == 23;
+
+            // The two empty slots are the two that are not there, and nobody declared a location
+            // for them either: a slot with no wafer needs none.
+            ok &= substrates.FindSubstrate($"{CarrierName}-13") is null
+                && substrates.FindLocation(SlotLocation(13)) is null;
 
             if (objects is not null)
             {
@@ -1337,8 +1346,13 @@ internal static class Program
 
             var wafer = substrates.FindSubstrate(Wafer);
 
+            // AtDestination now, where this used to read AtSource: the bridge gave the wafer its
+            // own slot as a destination, so going back there is the machine letting go of it
+            // rather than putting it down where it found it. E90 refuses to move it again, and
+            // that is the whole point of a destination.
             ok &= wafer?.ProcessingState == SubstrateProcessingState.Processed
-                && wafer.TransportState == SubstrateTransportState.AtSource;
+                && wafer.TransportState == SubstrateTransportState.AtDestination
+                && !substrates.MoveTo(Wafer, ChuckLocation).IsAccepted;
 
             if (objects is not null)
             {

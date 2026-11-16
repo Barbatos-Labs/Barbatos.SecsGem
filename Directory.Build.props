@@ -77,7 +77,7 @@
         <IsPackable>true</IsPackable>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <!-- Deliberate deviation from Barbatos.Wpf: packing 18 projects x 3 TFMs on every build
+        <!-- Deliberate deviation from Barbatos.Wpf: packing 19 projects x 3 TFMs on every build
              is a lot of friction during development. Pass -p:PackOnBuild=true (or run
              dotnet pack) when you want the .nupkg files. -->
         <GeneratePackageOnBuild Condition="'$(PackOnBuild)' == 'true'">true</GeneratePackageOnBuild>

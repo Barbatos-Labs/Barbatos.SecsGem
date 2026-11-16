@@ -157,6 +157,12 @@ The two standards stay independent in code. A carrier's slot map is what the mac
 substrate is what the machine is *tracking*; correlating them is the application's business, and a
 library that did it for you would be guessing which slot map a given wafer came from.
 
+If your fab's guess is the usual one, it is written down:
+[`Barbatos.SecsGem.MaterialFlow`](../Barbatos.SecsGem.MaterialFlow/README.md) turns a verified slot
+map into one substrate per occupied slot and forgets them again when the carrier is done, with the
+naming, the occupancy rule and the destination all replaceable. It depends on both packages, which
+is why it is a third one - neither of these two may depend on the other.
+
 ## Events, and why this does not depend on GEM
 
 ```csharp

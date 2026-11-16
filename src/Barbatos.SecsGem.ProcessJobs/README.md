@@ -243,6 +243,11 @@ Carriers, load ports, substrates, substrate locations, control jobs and process 
 providers, one stream, one connection. `ProcessJob.Material` is a list of plain strings rather than
 E90 substrates, deliberately: correlating the two is the application's business.
 
+Where that correlation is the usual one, it is written down for E87 and E90 in
+[`Barbatos.SecsGem.MaterialFlow`](../Barbatos.SecsGem.MaterialFlow/README.md), which turns a
+verified slot map into substrates whose identifiers are exactly what a process job's material list
+wants. Nothing here depends on it.
+
 ## Telling a host what happened
 
 ```csharp

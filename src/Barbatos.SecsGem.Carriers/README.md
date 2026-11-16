@@ -212,15 +212,19 @@ Queue the work.
 
 - **The E87 messages that need an undefined item**: S3F19/F20, S3F21/F22, S3F27/F28, S3F31/F32.
   Their content is on stream 14 instead, which is where E87 puts it.
-- **E40 process jobs**, the last of the material-flow standards still missing here. E90 substrate
-  tracking and E94 control jobs now have packages of their own -
-  [`Barbatos.SecsGem.Substrates`](../Barbatos.SecsGem.Substrates/README.md) and
-  [`Barbatos.SecsGem.ControlJobs`](../Barbatos.SecsGem.ControlJobs/README.md) - and a machine can
-  register all three, which was the point of building them in this order.
 - A manager that outlives the process. The states are in memory; a machine that reboots with a
   carrier on a port re-reads the label, which is also what E87 expects.
 - `ContentMap`, as distinct from `SlotMap`. One byte per slot covers what a machine knows; naming
-  which substrate is in which slot is E90's job.
+  which substrate is in which slot is E90's job - and
+  [`Barbatos.SecsGem.MaterialFlow`](../Barbatos.SecsGem.MaterialFlow/README.md) is where the two
+  are joined up, because a verified slot map is exactly the moment a wafer becomes something to
+  track.
+
+The other three material-flow standards now have packages of their own -
+[`Barbatos.SecsGem.Substrates`](../Barbatos.SecsGem.Substrates/README.md) for E90,
+[`Barbatos.SecsGem.ControlJobs`](../Barbatos.SecsGem.ControlJobs/README.md) for E94 and
+[`Barbatos.SecsGem.ProcessJobs`](../Barbatos.SecsGem.ProcessJobs/README.md) for E40 - and a machine
+can register all four, which was the point of building them in this order.
 
 ## Documentation
 

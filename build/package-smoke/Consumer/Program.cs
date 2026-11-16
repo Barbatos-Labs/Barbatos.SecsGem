@@ -9,6 +9,7 @@ using Barbatos.SecsGem;
 using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.ControlJobs;
+using Barbatos.SecsGem.MaterialFlow;
 using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
@@ -89,6 +90,7 @@ internal static class Program
         await Run("carriers + substrates: E87 and E90 in one machine, both answering stream 14", CarriersAndSubstratesComposeAsync).ConfigureAwait(false);
         await Run("controljobs: E94 drives its state machine through stream 14, beside E87 and E90", ControlJobsResolveAsync).ConfigureAwait(false);
         await Run("processjobs: E40 declares stream 16 and all four standards answer stream 14", ProcessJobsResolveAsync).ConfigureAwait(false);
+        await Run("materialflow: a verified slot map turns into substrates by itself", MaterialFlowResolvesAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -934,5 +936,55 @@ internal static class Program
             $"the state came back as {attribute.Value.FirstValueOrDefault<byte>()}, not {(byte)ProcessJobState.Paused}");
 
         attribute.Value.Dispose();
+    }
+
+    private static async Task MaterialFlowResolvesAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddCarrierEquipment(manager =>
+            {
+                manager.AddPort(1);
+                manager.SetServiceStatus(1, inService: true);
+            })
+            .AddSubstrateTracking(tracker => tracker.AddLocation("CHUCK"))
+            .AddCarrierSubstrateBridge(options => options.SubstrateType = "300mm Si");
+
+        await using var provider = services.BuildServiceProvider();
+
+        var bridge = provider.GetRequiredService<CarrierSubstrateBridge>();
+        var carriers = provider.GetRequiredService<CarrierManager>();
+        var substrates = provider.GetRequiredService<SubstrateTracker>();
+
+        // Attached as soon as it resolves, which a ProjectReference build cannot tell apart from
+        // a registration that packed wrong.
+        Assert(bridge.IsAttached, "the bridge resolved detached");
+        Assert(bridge.Options.SubstrateType == "300mm Si", "the registration's options did not reach the bridge");
+
+        Assert(carriers.SetTransferState(1, PortTransferState.ReadyToLoad).IsAccepted, "port 1 would not take a carrier");
+        Assert(carriers.PlaceCarrier(1, "CAR-001").IsAccepted, "the carrier could not be placed");
+        Assert(carriers.ReadCarrierId("CAR-001", verified: true).IsAccepted, "the identifier would not verify");
+
+        // Not yet: an unread map is not a bill of materials.
+        Assert(substrates.Substrates.Count == 0, "substrates appeared before the slot map was read");
+
+        Assert(
+            carriers.ReadSlotMap("CAR-001", new byte[] { 1, 1, 0, 1, 1 }, verified: true).IsAccepted,
+            "the slot map would not verify");
+
+        // Four wafers out of five slots, and not a line of application code in between.
+        Assert(substrates.Substrates.Count == 4, $"the slot map became {substrates.Substrates.Count} substrates, not four");
+        Assert(bridge.SubstratesOf("CAR-001").Count == 4, "the bridge does not remember what it created");
+
+        var wafer = substrates.FindSubstrate("CAR-001-04");
+
+        Assert(wafer is not null, "slot four's wafer is not there under the name the convention gives it");
+        Assert(wafer!.LocationId == "CAR-001-SLOT-04", $"it is at {wafer.LocationId}");
+        Assert(wafer.DestinationLocationId == "CAR-001-SLOT-04", "it has nowhere to go back to");
+        Assert(wafer.SubstrateType == "300mm Si", $"its type is '{wafer.SubstrateType}'");
+        Assert(substrates.FindSubstrate("CAR-001-03") is null, "the empty slot became a wafer");
     }
 }
