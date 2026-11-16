@@ -6,6 +6,7 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
 using Barbatos.SecsGem;
+using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
@@ -81,6 +82,7 @@ internal static class Program
         await Run("wafermap: stream 12 resolves at both ends without the gem package", WaferMapResolvesAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
+        await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -646,5 +648,70 @@ internal static class Program
         Assert(attribute.Value.Items[1].Count == 3, "the inner list lost its values");
 
         attribute.Value.Dispose();
+    }
+
+    /// <summary>
+    /// The carrier package, which is the one that enforces rather than carries.
+    /// </summary>
+    /// <remarks>
+    /// Two things only a packaged assembly can check. One: registering the equipment declares both
+    /// halves of E87 - the five carrier primaries and the seven of object services - because a
+    /// machine that declared only the first five would answer every action and never give up a
+    /// slot map. Two: the state machines actually refuse, which is the whole of what this package
+    /// is for and would be a silent no-op if the build had dropped something.
+    /// </remarks>
+    private static async Task CarriersResolveAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddCarrierEquipment(manager => manager.AddPort(1));
+
+        await using var provider = services.BuildServiceProvider();
+
+        _ = provider.GetRequiredService<CarrierEquipment>();
+
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            router.TryGetHandler(3, 17, out _) && router.TryGetHandler(3, 33, out _),
+            "the router is missing a carrier primary, so AddCarrierEquipment did not declare them");
+
+        Assert(
+            router.TryGetHandler(14, 1, out _) && router.TryGetHandler(14, 17, out _),
+            "the router is missing object services, so a host could never read a slot map");
+
+        Assert(
+            provider.GetRequiredService<IObjectProvider>() is CarrierObjectProvider,
+            "stream 14 is not answered out of the carriers");
+
+        // And the rules, through the packaged assembly: a carrier nobody has verified cannot be
+        // accessed, and the refusal says which state refused it.
+        var manager = provider.GetRequiredService<CarrierManager>();
+
+        Assert(manager.SetServiceStatus(1, inService: true).IsAccepted, "the port refused to go in service");
+        Assert(manager.SetTransferState(1, PortTransferState.ReadyToLoad).IsAccepted, "the port refused to be ready to load");
+        Assert(manager.PlaceCarrier(1, "CAR-SMOKE").IsAccepted, "the port refused a carrier it was ready for");
+
+        var tooEarly = manager.BeginAccess("CAR-SMOKE");
+
+        Assert(!tooEarly.IsAccepted, "an unverified carrier was accessed");
+        Assert(
+            tooEarly.Acknowledgement == CarrierAcknowledgement.CannotPerformNow,
+            $"the refusal came back as {tooEarly.Acknowledgement}");
+
+        Assert(tooEarly.ErrorText.Contains("not verified", StringComparison.Ordinal), $"the refusal said '{tooEarly.ErrorText}'");
+
+        Assert(manager.ReadCarrierId("CAR-SMOKE", verified: true).IsAccepted, "the identifier was refused");
+        Assert(manager.ReadSlotMap("CAR-SMOKE", new byte[] { 1, 1, 0 }, verified: true).IsAccepted, "the slot map was refused");
+        Assert(manager.BeginAccess("CAR-SMOKE").IsAccepted, "a verified carrier was not accessed");
+
+        var carrier = manager.FindCarrier("CAR-SMOKE");
+
+        Assert(carrier is not null, "the carrier went missing");
+        Assert(carrier!.AccessStatus == CarrierAccessStatus.InAccess, $"the carrier is {carrier.AccessStatus}");
+        Assert(carrier.SubstrateCount == 2, $"the slot map counted {carrier.SubstrateCount} substrates, not two");
     }
 }

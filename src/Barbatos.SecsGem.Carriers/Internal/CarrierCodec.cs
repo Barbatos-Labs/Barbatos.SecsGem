@@ -1,0 +1,388 @@
+// This Source Code Form is subject to the terms of the MIT License.
+// If a copy of the MIT was not distributed with this file, You can obtain one at https://opensource.org/licenses/MIT.
+// Copyright (C) Barbatos Labs | Pham The Hung and Barbatos.SecsGem Contributors.
+// All Rights Reserved.
+
+using System.Globalization;
+
+namespace Barbatos.SecsGem.Carriers;
+
+/// <summary>
+/// The five stream 3 transactions E87 drives, written and read in one place.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>Why five and not thirteen.</strong> Stream 3's carrier half is S3F17 to S3F34. Three of
+/// those transactions need an item the catalogue has no entry for - <c>CARRIERSTATUS</c> on S3F20,
+/// <c>PORTSTATUS</c> on S3F22 and S3F32, <c>SLOTMAP</c> on S3F28 - so implementing them would mean
+/// inventing a wire format for a carrier's state and its slot map. E87 already says where those
+/// live: they are attributes of the carrier and load port objects, read over stream 14, where an
+/// attribute may be any item at all. So this package carries the five transactions whose every
+/// item is defined, and <see cref="CarrierObjectProvider"/> carries the rest properly.
+/// </para>
+/// <code>
+/// S3F17  L,3 { CARRIERACTION, CARRIERID, PTN }   the one that matters: every action, carrier and port
+/// S3F18  L,3 { CAACK, ERRCODE, ERRTEXT }         accepted, or refused with the state that refused it
+/// S3F23  CARRIERID            -&gt; S3F24  L,2 { CARRIERID, LOC }
+/// S3F25  PTN                  -&gt; S3F26  L,2 { ACKC3, CARRIERID }
+/// S3F29  L,2 { CARRIERID, PTN } -&gt; S3F30  ACKC3
+/// S3F33  CARRIERID            -&gt; S3F34  ACKC3
+/// </code>
+/// <para>
+/// Not one row of stream 3 is marked as a definition in the catalogue rather than as part of a
+/// representative subset, so these bodies are a careful reading of the item lists. What is firm is
+/// the vocabulary: <c>CAACK</c> has its four codes, <c>ACKC3</c> its two, and
+/// <c>CARRIERACTION</c> is an <c>A</c> item - free text - which is why the action names in
+/// <see cref="CarrierActions"/> are strings and not an enum.
+/// </para>
+/// <para>
+/// <strong>An absent port.</strong> S3F17 always carries three items, so an action that names no
+/// port sends a zero-length <c>PTN</c> rather than a zero - port 0 is a port, and a machine that
+/// read "no port" as "port 0" would reserve the wrong hardware. The reader turns a zero-length
+/// item back into no port.
+/// </para>
+/// </remarks>
+internal static class CarrierCodec
+{
+    /// <summary>S3F17 - Carrier Action Request.</summary>
+    internal static SecsItem ActionBody(CarrierActionRequest request)
+        => SecsItem.L(
+            SecsItem.A(request.Action).Named("CARRIERACTION"),
+            SecsItem.A(request.CarrierId).Named("CARRIERID"),
+            (request.PortId is { } port ? SecsItem.U1(port) : SecsItem.U1()).Named("PTN"));
+
+    /// <summary>Reads S3F17.</summary>
+    internal static bool TryReadAction(SecsItem? body, out CarrierActionRequest? request)
+    {
+        request = null;
+
+        if (body is null || !body.IsList || body.Count < 2)
+        {
+            return false;
+        }
+
+        var action = Text(body.Items[0]);
+
+        if (action.Length == 0)
+        {
+            return false;
+        }
+
+        request = new CarrierActionRequest
+        {
+            Action = action,
+            CarrierId = Text(body.Items[1]),
+            PortId = body.Count > 2 ? Byte(body.Items[2]) : null,
+        };
+
+        return true;
+    }
+
+    /// <summary>S3F18 - Carrier Action Acknowledge.</summary>
+    internal static SecsItem ActionResultBody(CarrierActionResult result)
+        => SecsItem.L(
+            SecsItem.U1((byte)result.Acknowledgement).Named("CAACK"),
+            SecsItem.U4(result.ErrorCode).Named("ERRCODE"),
+            SecsItem.A(result.ErrorText).Named("ERRTEXT"));
+
+    /// <summary>Reads S3F18.</summary>
+    /// <param name="body">The reply body.</param>
+    /// <returns>The result, or <see langword="null"/> when there is no acknowledgement code in it.</returns>
+    /// <remarks>
+    /// The code is the first item and the error pair follows it, flat. A machine that nests the
+    /// error pair in a list - which some revisions of E87 write - still reads: the code is taken
+    /// from the front and the text from the first text item anywhere after it.
+    /// </remarks>
+    internal static CarrierActionResult? TryReadActionResult(SecsItem? body)
+    {
+        if (body is null)
+        {
+            return null;
+        }
+
+        if (!body.IsList)
+        {
+            return ReadCode(body) is { } bare
+                ? new CarrierActionResult { Acknowledgement = Acknowledgement(bare) }
+                : null;
+        }
+
+        if (body.Count == 0 || ReadCode(body.Items[0]) is not { } code)
+        {
+            return null;
+        }
+
+        return new CarrierActionResult
+        {
+            Acknowledgement = Acknowledgement(code),
+            ErrorCode = FindErrorCode(body, start: 1),
+            ErrorText = FindErrorText(body, start: 1),
+        };
+    }
+
+    /// <summary>S3F23 and S3F33 - one bare <c>CARRIERID</c>.</summary>
+    internal static SecsItem CarrierIdBody(string carrierId) => SecsItem.A(carrierId).Named("CARRIERID");
+
+    /// <summary>S3F25 - one bare <c>PTN</c>.</summary>
+    internal static SecsItem PortBody(byte portId) => SecsItem.U1(portId).Named("PTN");
+
+    /// <summary>S3F29 - Carrier Reservation Request.</summary>
+    internal static SecsItem ReservationBody(string carrierId, byte portId)
+        => SecsItem.L(
+            SecsItem.A(carrierId).Named("CARRIERID"),
+            SecsItem.U1(portId).Named("PTN"));
+
+    /// <summary>Reads S3F29.</summary>
+    internal static bool TryReadReservation(SecsItem? body, out string carrierId, out byte portId)
+    {
+        carrierId = string.Empty;
+        portId = 0;
+
+        if (body is null || !body.IsList || body.Count < 2)
+        {
+            return false;
+        }
+
+        carrierId = Text(body.Items[0]);
+
+        if (Byte(body.Items[1]) is not { } port)
+        {
+            return false;
+        }
+
+        portId = port;
+
+        return true;
+    }
+
+    /// <summary>S3F24 - Carrier Location Data.</summary>
+    internal static SecsItem LocationBody(string carrierId, uint location)
+        => SecsItem.L(
+            SecsItem.A(carrierId).Named("CARRIERID"),
+            SecsItem.U4(location).Named("LOC"));
+
+    /// <summary>Reads S3F24. A zero-length list means the machine does not have that carrier.</summary>
+    internal static bool TryReadLocation(SecsItem? body, out string carrierId, out uint? location)
+    {
+        carrierId = string.Empty;
+        location = null;
+
+        if (body is null || !body.IsList)
+        {
+            return false;
+        }
+
+        if (body.Count == 0)
+        {
+            return true;
+        }
+
+        if (body.Count < 2)
+        {
+            return false;
+        }
+
+        carrierId = Text(body.Items[0]);
+        location = UInt32(body.Items[1]);
+
+        return true;
+    }
+
+    /// <summary>S3F26 - Carrier ID Read Acknowledge.</summary>
+    internal static SecsItem IdReadBody(CarrierRequestAcknowledgement acknowledgement, string carrierId)
+        => SecsItem.L(
+            SecsItem.B((byte)acknowledgement).Named("ACKC3"),
+            SecsItem.A(carrierId).Named("CARRIERID"));
+
+    /// <summary>Reads S3F26.</summary>
+    internal static bool TryReadIdRead(SecsItem? body, out CarrierRequestAcknowledgement acknowledgement, out string carrierId)
+    {
+        acknowledgement = CarrierRequestAcknowledgement.Denied;
+        carrierId = string.Empty;
+
+        if (body is null || !body.IsList || body.Count < 1 || ReadCode(body.Items[0]) is not { } code)
+        {
+            return false;
+        }
+
+        acknowledgement = code == 0 ? CarrierRequestAcknowledgement.Accepted : CarrierRequestAcknowledgement.Denied;
+
+        if (body.Count > 1)
+        {
+            carrierId = Text(body.Items[1]);
+        }
+
+        return true;
+    }
+
+    /// <summary>S3F30 and S3F34 - one bare <c>ACKC3</c>.</summary>
+    internal static SecsItem RequestResultBody(CarrierRequestAcknowledgement acknowledgement)
+        => SecsItem.B((byte)acknowledgement).Named("ACKC3");
+
+    /// <summary>Reads a bare <c>ACKC3</c>.</summary>
+    internal static CarrierRequestAcknowledgement? TryReadRequestResult(SecsItem? body)
+        => ReadCode(body) is { } code
+            ? code == 0 ? CarrierRequestAcknowledgement.Accepted : CarrierRequestAcknowledgement.Denied
+            : null;
+
+    /// <summary>Turns a <c>CAACK</c> code into an acknowledgement, with anything unknown reading as a refusal.</summary>
+    internal static CarrierAcknowledgement Acknowledgement(byte code)
+        => code <= (byte)CarrierAcknowledgement.InvalidData
+            ? (CarrierAcknowledgement)code
+            : CarrierAcknowledgement.CannotPerformNow;
+
+    /// <summary>Reads a bare text item, descending into a list of one.</summary>
+    internal static string? TryReadText(SecsItem? item)
+    {
+        if (item is null)
+        {
+            return null;
+        }
+
+        if (item.IsList)
+        {
+            return item.Count == 1 ? TryReadText(item.Items[0]) : null;
+        }
+
+        return item.Format.IsText() ? Text(item) : null;
+    }
+
+    /// <summary>Reads a bare <c>PTN</c>, descending into a list of one.</summary>
+    internal static byte? TryReadPort(SecsItem? item)
+    {
+        if (item is null)
+        {
+            return null;
+        }
+
+        return item.IsList
+            ? item.Count == 1 ? TryReadPort(item.Items[0]) : null
+            : Byte(item);
+    }
+
+    // ------------------------------------------------------------------ the pieces
+
+    /// <summary>Finds <c>ERRCODE</c> after the acknowledgement, however deep it was nested.</summary>
+    /// <param name="body">The list to search.</param>
+    /// <param name="start">
+    /// Where to start. One at the top level, because index nought there is the acknowledgement
+    /// code itself and reading it as an error code would turn every refusal into error 2. Nought
+    /// inside a nested list, where the first item is the error code - which is exactly what a
+    /// machine that writes S3F18 as a code and a list of error pairs sends.
+    /// </param>
+    /// <returns>The code, or zero.</returns>
+    private static uint FindErrorCode(SecsItem body, int start)
+    {
+        for (var i = start; i < body.Count; i++)
+        {
+            var item = body.Items[i];
+
+            if (item.IsList)
+            {
+                var nested = FindErrorCode(item, start: 0);
+
+                if (nested != 0)
+                {
+                    return nested;
+                }
+
+                continue;
+            }
+
+            if (!item.Format.IsText() && UInt32(item) is { } value && value != 0)
+            {
+                return value;
+            }
+        }
+
+        return 0;
+    }
+
+    /// <summary>Finds <c>ERRTEXT</c> after the acknowledgement, however deep it was nested.</summary>
+    /// <param name="body">The list to search.</param>
+    /// <param name="start">As <see cref="FindErrorCode"/>: one at the top level, nought inside a nested list.</param>
+    /// <returns>The text, or an empty string.</returns>
+    private static string FindErrorText(SecsItem body, int start)
+    {
+        for (var i = start; i < body.Count; i++)
+        {
+            var item = body.Items[i];
+
+            if (item.IsList)
+            {
+                var nested = FindErrorText(item, start: 0);
+
+                if (nested.Length > 0)
+                {
+                    return nested;
+                }
+
+                continue;
+            }
+
+            if (item.Format.IsText() && item.Count > 0)
+            {
+                return Text(item);
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string Text(SecsItem item)
+        => item.Format.IsText() && item.Count > 0 ? item.GetString().TrimEnd() : string.Empty;
+
+    /// <summary>Reads a port number, where a zero-length item means there is no port.</summary>
+    private static byte? Byte(SecsItem item)
+        => item.IsList || item.Count == 0
+            ? null
+            : UInt32(item) is { } value ? (byte)Math.Min(value, byte.MaxValue) : null;
+
+    private static byte? ReadCode(SecsItem? item)
+    {
+        if (item is null)
+        {
+            return null;
+        }
+
+        if (item.IsList)
+        {
+            return item.Count == 1 ? ReadCode(item.Items[0]) : null;
+        }
+
+        if (item.Count == 0)
+        {
+            return null;
+        }
+
+        return UInt32(item) is { } value && value <= byte.MaxValue ? (byte)value : null;
+    }
+
+    /// <summary>Reads an unsigned value in whatever numeric format arrived, or out of text.</summary>
+    private static uint? UInt32(SecsItem item)
+    {
+        if (item.IsList || item.Count == 0)
+        {
+            return null;
+        }
+
+        return item.Format switch
+        {
+            SecsFormat.Binary or SecsFormat.U1 => item.FirstValueOrDefault<byte>(),
+            SecsFormat.U2 => item.FirstValueOrDefault<ushort>(),
+            SecsFormat.U4 => item.FirstValueOrDefault<uint>(),
+            SecsFormat.U8 => NarrowUnsigned(item.FirstValueOrDefault<ulong>()),
+            SecsFormat.I1 => Narrow(item.FirstValueOrDefault<sbyte>()),
+            SecsFormat.I2 => Narrow(item.FirstValueOrDefault<short>()),
+            SecsFormat.I4 => Narrow(item.FirstValueOrDefault<int>()),
+            SecsFormat.I8 => Narrow(item.FirstValueOrDefault<long>()),
+            SecsFormat.ASCII or SecsFormat.JIS8 =>
+                uint.TryParse(item.GetString().Trim(), CultureInfo.InvariantCulture, out var parsed) ? parsed : null,
+            _ => null,
+        };
+
+        static uint? Narrow(long value) => value is >= 0 and <= uint.MaxValue ? (uint)value : null;
+
+        static uint? NarrowUnsigned(ulong value) => value <= uint.MaxValue ? (uint)value : null;
+    }
+}

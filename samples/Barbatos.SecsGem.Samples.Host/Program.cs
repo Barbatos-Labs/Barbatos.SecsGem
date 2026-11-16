@@ -6,6 +6,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using Barbatos.SecsGem;
+using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
@@ -52,6 +53,93 @@ internal static class Program
 
     private static readonly ConcurrentQueue<string> ErrorReports = new();
     private static readonly ConcurrentQueue<string> Reports = new();
+
+    /// <summary>
+    /// Two object providers, tried in order: the carriers, and everything else this machine has.
+    /// </summary>
+    /// <remarks>
+    /// The extension point the carrier package documents, written out. E87 gives a machine carriers
+    /// and load ports; this machine also has a chamber, and stream 14 has one provider per
+    /// connection - so an application with objects of its own composes them. Each provider already
+    /// leaves out objects it does not have, which is what makes concatenating the answers correct
+    /// rather than merely convenient.
+    /// </remarks>
+    private sealed class CombinedObjects(IObjectProvider carriers, IObjectProvider others) : IObjectProvider
+    {
+        public async ValueTask<IReadOnlyList<string>> GetObjectTypesAsync(CancellationToken cancellationToken)
+            =>
+            [
+                .. await carriers.GetObjectTypesAsync(cancellationToken),
+                .. await others.GetObjectTypesAsync(cancellationToken),
+            ];
+
+        public async ValueTask<IReadOnlyList<string>> GetInstancesAsync(string objectType, CancellationToken cancellationToken)
+            =>
+            [
+                .. await carriers.GetInstancesAsync(objectType, cancellationToken),
+                .. await others.GetInstancesAsync(objectType, cancellationToken),
+            ];
+
+        public async ValueTask<IReadOnlyList<string>> GetAttributeNamesAsync(
+            string objectSpecification,
+            string objectType,
+            CancellationToken cancellationToken)
+        {
+            // Whichever has the object: a namelist that advertises attributes nothing answers is
+            // worse than a short one.
+            var held = await carriers.GetAttributesAsync(
+                new ObjectAttributeRequest { Objects = [objectSpecification], Attributes = [] },
+                cancellationToken);
+
+            return held.Count > 0
+                ? await carriers.GetAttributeNamesAsync(objectSpecification, objectType, cancellationToken)
+                : await others.GetAttributeNamesAsync(objectSpecification, objectType, cancellationToken);
+        }
+
+        public async ValueTask<IReadOnlyList<ObjectAttributeValues>> GetAttributesAsync(
+            ObjectAttributeRequest request,
+            CancellationToken cancellationToken)
+            =>
+            [
+                .. await carriers.GetAttributesAsync(request, cancellationToken),
+                .. await others.GetAttributesAsync(request, cancellationToken),
+            ];
+
+        public async ValueTask<IReadOnlyList<ObjectSetResult>> SetAttributesAsync(
+            ObjectAttributeWrite write,
+            CancellationToken cancellationToken)
+        {
+            var mine = await carriers.SetAttributesAsync(write, cancellationToken);
+
+            // An object the carriers do not have gets the same write offered to the other
+            // provider, rather than a refusal that only means "not mine".
+            if (mine.Count > 0 && mine[0].Acknowledgement is not ObjectAcknowledgement.InvalidObjectInstance)
+            {
+                return mine;
+            }
+
+            return await others.SetAttributesAsync(write, cancellationToken);
+        }
+    }
+
+    /// <summary>The two ends of E87 this sample drives, bundled so the conversation takes one parameter rather than two.</summary>
+    /// <param name="Host">The host side, which decides.</param>
+    /// <param name="Machine">The machine's state machines, which in this mode are in the same process.</param>
+    private sealed record CarrierDemo(CarrierHost Host, CarrierManager Machine);
+
+    /// <summary>The carrier this sample walks through E87.</summary>
+    private const string CarrierName = "CAR-001";
+
+    /// <summary>Twenty-five slots with two of them empty, as one byte each.</summary>
+    /// <remarks>
+    /// The codes are the machine's own: E87 leaves the vocabulary to the equipment and the
+    /// catalogue has no entry for <c>SLOTMAP</c> at all. Zero is empty here, which is the only
+    /// reading this stack takes.
+    /// </remarks>
+    private static readonly byte[] SlotMap =
+    [
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1,
+    ];
 
     /// <summary>The chamber, as stream 14 names it.</summary>
     private const string ChamberObject = "CH-1";
@@ -167,6 +255,15 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingObjects!.HandleAsync(transaction, token));
         }
 
+        // And E87: five primaries on stream 3, with the carrier and load port attributes going out
+        // through the object services above.
+        CarrierEquipment? pendingCarriers = null;
+
+        foreach (var (stream, function) in CarrierEquipment.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingCarriers!.HandleAsync(transaction, token));
+        }
+
         // The host's side of the same arrangement. S1F13, S1F1, S5F1, S6F11, S6F13 and stream 9 -
         // everything a machine may send a host unprompted.
         var hostRoutes = new SecsMessageRouterBuilder();
@@ -221,8 +318,21 @@ internal static class Program
         machineObjects.Add("PORT-1", "LoadPort");
         machineObjects.Set("PORT-1", "State", SecsItem.A("ReadyToLoad"));
 
-        var equipmentObjects = new ObjectServices(equipmentLink, machineObjects);
+        // E87's state machines, with one load port, in service and clear.
+        var carrierManager = new CarrierManager();
+
+        carrierManager.AddPort(1);
+        carrierManager.SetServiceStatus(1, inService: true);
+
+        // One provider per connection, so the machine's own objects and E87's are composed - which
+        // is the arrangement the carrier package documents for an application that has both.
+        var equipmentObjects = new ObjectServices(
+            equipmentLink,
+            new CombinedObjects(new CarrierObjectProvider(carrierManager), machineObjects));
+
         var hostObjects = new ObjectServices(hostLink);
+        var carrierEquipment = new CarrierEquipment(carrierManager);
+        var carrierHost = new CarrierHost(hostLink);
 
         pendingEquipment = equipment;
         pendingHost = host;
@@ -231,6 +341,7 @@ internal static class Program
         pendingMaterial = materialEquipment;
         pendingMaterialHost = materialHost;
         pendingObjects = equipmentObjects;
+        pendingCarriers = carrierEquipment;
 
         Subscribe(host);
 
@@ -255,7 +366,17 @@ internal static class Program
             // conversation, and nothing may be reported before it.
             await WaitUntilAsync(() => equipment.IsCommunicating, "the equipment to establish communications");
 
-            var ok = await ConversationAsync(host, hostLink, equipment, mapper, mapHost, materialEquipment, materialHost, hostObjects, cts.Token);
+            var ok = await ConversationAsync(
+                host,
+                hostLink,
+                equipment,
+                mapper,
+                mapHost,
+                materialEquipment,
+                materialHost,
+                hostObjects,
+                new CarrierDemo(carrierHost, carrierManager),
+                cts.Token);
 
             Console.WriteLine();
             Console.WriteLine("-- decode paths --");
@@ -366,6 +487,7 @@ internal static class Program
                 materialEquipment: null,
                 materialHost: null,
                 objects: provider.GetRequiredService<ObjectServices>(),
+                carriers: null,
                 cts.Token);
 
             // And then wait for the prober to send a map, which is the half of stream 12 this mode
@@ -418,6 +540,7 @@ internal static class Program
         MaterialEquipment? materialEquipment,
         MaterialHost? materialHost,
         ObjectServices? objects,
+        CarrierDemo? carriers,
         CancellationToken cancellationToken)
     {
         var ok = true;
@@ -887,6 +1010,88 @@ internal static class Program
 
             Console.WriteLine($"   S14F1  -> CH-99: {(found ? "found" : "no such object")}");
             ok &= !found;
+        }
+
+        if (carriers is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and a carrier turns up that only the host can vouch for --");
+            Console.WriteLine();
+
+            // The machine's own doings. In this mode the machine is in the same process, so the
+            // sample drives its state machines the way a load port sensor and an identifier reader
+            // would.
+            var machine = carriers.Machine;
+
+            machine.SetTransferState(1, PortTransferState.ReadyToLoad);
+            machine.PlaceCarrier(1, CarrierName);
+
+            // The identifier was read and this machine cannot vouch for it: nothing bound it to
+            // the port, so E87 leaves the carrier waiting rather than guessing.
+            machine.ReadCarrierId(CarrierName, verified: null);
+            machine.ReadSlotMap(CarrierName, SlotMap, verified: true);
+
+            var carrier = machine.FindCarrier(CarrierName);
+
+            Console.WriteLine($"   [machine] {CarrierName} on port 1: identifier {carrier?.IdStatus}, slot map {carrier?.SlotMapStatus}");
+            ok &= carrier?.IdStatus == CarrierIdStatus.WaitingForHost;
+
+            // Which the machine refuses to work on, and says why.
+            var tooEarly = machine.BeginAccess(CarrierName);
+
+            Console.WriteLine($"   [machine] access refused: {tooEarly.ErrorText}");
+            ok &= !tooEarly.IsAccepted;
+
+            // So the host decides. This is the whole of E87 in one message.
+            var proceed = await carriers.Host.ProceedWithCarrierAsync(CarrierName, cancellationToken);
+
+            Console.WriteLine($"   S3F17  -> ProceedWithCarrier CAACK={proceed.Acknowledgement}");
+            ok &= proceed.IsAccepted;
+
+            Console.WriteLine($"   [machine] access {(machine.BeginAccess(CarrierName).IsAccepted ? "begun" : "still refused")}");
+            ok &= machine.FindCarrier(CarrierName)?.AccessStatus == CarrierAccessStatus.InAccess;
+
+            // Asking again is refused, and the refusal names the state - which is what makes
+            // CAACK 2 worth reading rather than guessing at.
+            var again = await carriers.Host.ProceedWithCarrierAsync(CarrierName, cancellationToken);
+
+            Console.WriteLine($"   S3F17  -> again: CAACK={again.Acknowledgement} ({again.ErrorText})");
+            ok &= again.Acknowledgement == CarrierAcknowledgement.CannotPerformNow;
+
+            Console.WriteLine($"   S3F23  -> {CarrierName} is at location {await carriers.Host.FindCarrierAsync(CarrierName, cancellationToken)}");
+            Console.WriteLine($"   S3F25  -> port 1 holds {await carriers.Host.ReadCarrierIdAsync(1, cancellationToken) ?? "nothing it will name"}");
+
+            // And the slot map, over stream 14 - which is where E87 puts it, and why this package
+            // does not implement S3F27. Twenty-five slots carried as an attribute, no format
+            // invented for them.
+            if (objects is not null)
+            {
+                await objects.GetAttributesAsync(
+                    CarrierName,
+                    "Carrier",
+                    ["SlotMap", "SubstrateCount", "AccessStatus"],
+                    values =>
+                    {
+                        var slots = values.Attributes.First(attribute => attribute.Name == "SlotMap");
+                        var count = values.Attributes.First(attribute => attribute.Name == "SubstrateCount");
+                        var status = values.Attributes.First(attribute => attribute.Name == "AccessStatus");
+
+                        Console.WriteLine(
+                            $"   S14F1  -> {CarrierName}: {slots.Value.Count} slots, "
+                            + $"{count.Value.FirstValueOrDefault<byte>()} substrates, {status.Value.GetString()}");
+                    },
+                    cancellationToken);
+            }
+
+            // The lot is done, so the carrier leaves - and the port says so rather than the
+            // application having to remember.
+            machine.EndAccess(CarrierName);
+
+            var out01 = await carriers.Host.CarrierOutAsync(CarrierName, cancellationToken);
+
+            Console.WriteLine($"   S3F33  -> CarrierOut ACKC3={out01}, port 1 is {machine.FindPort(1)?.TransferState}");
+            ok &= out01 == CarrierRequestAcknowledgement.Accepted
+                && machine.FindPort(1)?.TransferState == PortTransferState.ReadyToUnload;
         }
 
         Console.WriteLine();

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.Carriers</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Carriers</RootNamespace>
+    <PackageTags>secs;e87;carrier;loadport;fab300;slotmap;accessmode;e5;stream3</PackageTags>
+    <Description>Carrier management (SEMI E87) for .NET: the carrier and load port objects, the seven state machines E87 defines for them, and the carrier and port actions that drive those states over S3F17. State transitions are enforced rather than described - an action that E87 does not allow from the current state is refused with the acknowledgement code it defines, and the reason says which state refused it. Carrier and port attributes, the slot map among them, are exposed through SECS-II stream 14 object services, which is where E87 puts them and which needs no invented wire format. Depends on Barbatos.SecsGem.Objects and Barbatos.SecsGem.Hsms, not on GEM: the collection events E87 defines are raised as events for an application to publish through whatever reports it already has.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+    <!-- E87 puts its object attributes in stream 14, so the object services package is not an
+         optional extra here: the slot map and every port attribute travel through it. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Objects\Barbatos.SecsGem.Objects.csproj" />
+  </ItemGroup>
+
+</Project>
