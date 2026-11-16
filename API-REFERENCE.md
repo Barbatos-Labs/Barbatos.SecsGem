@@ -39,6 +39,6 @@ One page per package, generated per release:
 | `Barbatos.SecsGem.Substrates` | Substrates | SEMI E90: the substrate and location objects and their state machines; no messages of its own |
 | `Barbatos.SecsGem.ControlJobs` | ControlJobs | SEMI E94: the control job object, its state machine and the commands that drive it; no messages of its own |
 | `Barbatos.SecsGem.ProcessJobs` | ProcessJobs | SEMI E40: the process job, its nine-state machine, and stream 16 at both ends |
-| `Barbatos.SecsGem.MaterialFlow` | MaterialFlow | The E87-E90 join: a slot map becomes substrates, and the convention that does it |
+| `Barbatos.SecsGem.MaterialFlow` | MaterialFlow | The joins between E87, E90 and E40: a slot map becomes substrates, and a job's ending reaches them |
 | `Barbatos.SecsGem.Serialization.Sml` / `.Json` / `.Xml` / `.Ini` | the four spokes | format readers and writers |
-| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Objects, Carriers, Substrates, ControlJobs, ProcessJobs, MaterialFlow, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddControlJobs`, `AddProcessJobEquipment`, `AddCarrierSubstrateBridge`, `AddSecsSml`, ... |
+| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Objects, Carriers, Substrates, ControlJobs, ProcessJobs, MaterialFlow, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddControlJobs`, `AddProcessJobEquipment`, `AddCarrierSubstrateBridge`, `AddProcessJobSubstrateBridge`, `AddSecsSml`, ... |

@@ -7,6 +7,9 @@ and what each default means, is in [`README.md`](README.md); this page is member
 - [`CarrierSubstrateOptions`](#carriersubstrateoptions)
 - [`CarrierSubstrateResult`](#carriersubstrateresult)
 - [`CarrierSubstrateEntry`](#carriersubstrateentry)
+- [`ProcessJobSubstrateBridge`](#processjobsubstratebridge)
+- [`ProcessJobSubstrateOptions`](#processjobsubstrateoptions)
+- [`ProcessJobSubstrateResult`](#processjobsubstrateresult)
 - [Events](#events)
 - [Registration](#registration)
 
@@ -89,10 +92,70 @@ twenty-four slots worked and one did not is the case this type exists for.
 `LocationId` (`required string`) - the slot location the wafer came out of, which is also where it
 goes back to when `ReturnsToItsOwnSlot` is on.
 
+## `ProcessJobSubstrateBridge`
+
+`sealed class`. Carries a process job's ending through to the substrates it was running. No
+connection and no message, as with the other one.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| constructor | `ProcessJobSubstrateBridge(ProcessJobManager jobs, SubstrateTracker substrates, ProcessJobSubstrateOptions? options = null)` | |
+| `Options` | `ProcessJobSubstrateOptions { get; }` | |
+| `IsAttached` | `bool { get; }` | |
+| `Attach` | `void Attach()` | Listens for jobs that end, and for jobs being set up. Attaching twice listens once. |
+| `Detach` | `void Detach()` | What it already settled stays settled: a wafer whose work ended does not un-end. |
+| `Check` | `ProcessJobSubstrateResult Check(string processJobId)` | Every piece of the job's material the tracker does not have, in `Unexpected`. Changes nothing. |
+| `Settle` | `ProcessJobSubstrateResult Settle(string processJobId)` | Carries the job's ending to its material. Only a job that has one. |
+| `Settled` | `event EventHandler<ProcessJobSubstrateEventArgs>?` | After a job's substrates are settled. |
+| `MaterialMissing` | `event EventHandler<ProcessJobSubstrateEventArgs>?` | When a job being set up names material the tracker lacks - only when there is something to say. |
+
+**What `Settle` does**, per piece of material, and nothing else:
+
+| The wafer is | The job ended | What happens |
+| --- | --- | --- |
+| `InProcess` | `Stopped` or `Aborted` | work ends `Stopped` / `Aborted` - the same word both standards use |
+| `NeedsProcessing` | `Stopped`, `Aborted` or `Cancelled` | skipped, which is E90's word for a wafer nobody got to |
+| `InProcess` | `Completed` | reported: there is no honest state to end it in |
+| `NeedsProcessing` | `Completed` | reported: a completed job says every piece went through |
+| `Processed` | `Cancelled` | reported: the job never ran |
+| anything else | anything | left alone - already accounted for |
+
+`Settle` is refused outright for a job the manager does not have and for one with no ending yet -
+having a completion and being `ProcessJobState.ProcessComplete` are the same fact in E40's manager,
+so that is one check rather than two.
+
+**Locks**: attached, it runs inside the process job manager's lock and calls the substrate tracker
+from there. Jobs first, then substrates, as the carrier bridge goes carriers first - substrates are
+always last.
+
+## `ProcessJobSubstrateOptions`
+
+`sealed class`.
+
+| Member | Type | Default | What it decides |
+| --- | --- | --- | --- |
+| `EndsWorkInProgress` | `bool` | `true` | Whether a job's ending ends work on the wafers being processed |
+| `SkipsUntouched` | `bool` | `true` | Whether wafers nobody got to are skipped when a job ends early |
+| `SettlesWhenTheJobEnds` | `bool` | `true` | Whether an attached bridge settles by itself |
+| `ChecksMaterialWhenSettingUp` | `bool` | `true` | Whether a job being set up has its material checked |
+
+With either of the first two off, the wafers it would have moved are reported in `Unexpected`
+instead: the option changes who accounts for them, not whether anybody has to.
+
+## `ProcessJobSubstrateResult`
+
+`sealed class`. `IsAccepted` (`required bool`), `Reason` (`string`), `ProcessJobId`
+(`required string`), `Ended` and `Skipped` (`IReadOnlyList<string>`), `Unexpected`
+(`IReadOnlyDictionary<string, string>` - substrate to what does not fit) and `Count`
+(`Ended` plus `Skipped`).
+
+`Check` fills only `Unexpected`.
+
 ## Events
 
-`CarrierSubstrateEventArgs` carries the `Result`. Nothing is raised for an outright refusal: an
-event that announced work nobody did would be worse than silence.
+`CarrierSubstrateEventArgs` and `ProcessJobSubstrateEventArgs` each carry the `Result`. Nothing is
+raised for an outright refusal: an event that announced work nobody did would be worse than
+silence.
 
 ## Registration
 
@@ -101,10 +164,12 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extension on `ISecsGemBuil
 | Method | What it adds |
 | --- | --- |
 | `AddCarrierSubstrateBridge(Action<CarrierSubstrateOptions>? configure = null)` | `CarrierSubstrateOptions`, `CarrierSubstrateBridge`, and the bridge is attached as soon as it is resolved. |
+| `AddProcessJobSubstrateBridge(Action<ProcessJobSubstrateOptions>? configure = null)` | `ProcessJobSubstrateOptions`, `ProcessJobSubstrateBridge`, attached the same way. |
 
-It needs `CarrierManager` and `SubstrateTracker` in the container, so call it after
-`AddCarrierEquipment` and `AddSubstrateTracking`. A graph missing either fails to resolve the
-bridge, which is the right moment to find out: the alternative is a machine that reads slot maps
-and silently tracks nothing.
+The first needs `CarrierManager` and `SubstrateTracker` in the container, the second
+`ProcessJobManager` and `SubstrateTracker` - so call each after the registrations that put those
+there. A graph missing one fails to resolve that bridge, which is the right moment to find out: the
+alternative is a machine that reads slot maps and silently tracks nothing, or one whose stopped
+jobs quietly leave a lot half tracked.
 
-Calling it twice adds one bridge. It declares no message of its own.
+Either called twice adds one bridge. Neither declares a message of its own.

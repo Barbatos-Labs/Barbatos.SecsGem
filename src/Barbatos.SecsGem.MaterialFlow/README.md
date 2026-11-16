@@ -1,8 +1,12 @@
 # Barbatos.SecsGem.MaterialFlow
 
-The join between **SEMI E87** and **SEMI E90** for **.NET 8, 9 and 10**: a carrier's verified slot
-map becomes one tracked substrate per occupied slot, and the substrates are forgotten again when
-the carrier is done with.
+The joins between the material-flow standards for **.NET 8, 9 and 10** - the ones none of those
+standards makes itself:
+
+- **E87 to E90**: a carrier's verified slot map becomes one tracked substrate per occupied slot,
+  and they are forgotten again when the carrier is done with.
+- **E40 to E90**: a process job's ending reaches the wafers it was running, so a stopped job stops
+  the work in progress and skips what nobody got to.
 
 > Part of **[Barbatos.SecsGem](https://github.com/Barbatos-Labs/Barbatos.SecsGem)** - a modern, allocation-conscious SECS-II / HSMS-SS / GEM stack
 > for .NET 8, 9 and 10.
@@ -13,8 +17,10 @@ the carrier is done with.
 dotnet add package Barbatos.SecsGem.MaterialFlow
 ```
 
-Depends on `Barbatos.SecsGem.Carriers` and `Barbatos.SecsGem.Substrates`. It is the only package in
-this repository that depends on two standards at once, and that is the whole reason it exists.
+Depends on `Barbatos.SecsGem.Carriers`, `Barbatos.SecsGem.Substrates` and
+`Barbatos.SecsGem.ProcessJobs`. It is the only package in this repository that depends on several
+standards at once, and that is the whole reason it exists. The two bridges are independent: a
+machine may have either, both or neither.
 
 ## Why this is a package and not a method
 
@@ -139,29 +145,85 @@ for each occupied slot before adding the wafer to it, and declaring a location t
 A twenty-five slot carrier with two empties leaves twenty-three locations, not twenty-five -
 because a slot with no wafer needs no location, and two empty ones would show up in every report.
 
-## What it does not do
+## The second join: a job's ending reaches its wafers
 
-- **It does not touch a wire.** The bridge is two state machines meeting; every test in its suite
+E40 ends a job as completed, stopped, aborted or cancelled. E90 ends work on a wafer as processed,
+aborted, stopped or rejected, or lets it be skipped. **Two of those words are the same word** - and
+nothing joins them, so a job somebody stopped leaves the wafer on the chuck `InProcess` and the
+rest of the lot `NeedsProcessing`, for ever: E90's own rules mean nothing can move them afterwards,
+because work ends only from `InProcess` and skipping is only from `NeedsProcessing`, and nobody is
+coming back to those on behalf of a job that is already over.
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddSubstrateTracking(tracker => tracker.AddLocation("CHUCK"))
+    .AddProcessJobEquipment()
+    .AddProcessJobSubstrateBridge()
+    .RunAsHostedService();
+```
+
+From then on:
+
+```csharp
+// W01 is on the chuck, being processed; W02 and W03 are still in the carrier.
+jobs.Command("PJ-1", ProcessJobCommands.Stop);
+jobs.StopComplete("PJ-1");
+
+substrates.FindSubstrate("W01")!.ProcessingState;   // Stopped  - the job's own word
+substrates.FindSubstrate("W02")!.ProcessingState;   // Skipped  - nobody got to it
+```
+
+Stopped for stopped and aborted for aborted is the one mapping in this package that needed no
+choosing. Skipping the untouched ones is E90's word for exactly that case, and both halves are
+options: `EndsWorkInProgress` and `SkipsUntouched`.
+
+**What it will not do is tidy up.** A job the machine called complete with a wafer still in
+process, or a job cancelled before it ran with a wafer already processed, is a machine telling two
+different stories - and those come back in `Unexpected`, untouched:
+
+```csharp
+var result = bridge.Settle("PJ-1");
+
+result.Ended;        // the wafers whose work this bridge ended
+result.Skipped;      // the ones it skipped
+result.Unexpected;   // substrate -> what does not fit, and nothing done about it
+```
+
+A bridge that quietly picked one story would destroy the evidence of the other, and the evidence is
+the only thing anybody can act on.
+
+It also checks, when a job starts setting up, that the tracker has the material the job names - E40
+carries material as identifiers and knows nothing about substrates, so a job can name a wafer
+nothing is tracking and the machine would process material it cannot account for. The check cannot
+*refuse* the transition, because it hears about it afterwards; it raises `MaterialMissing`, and a
+host that wants to refuse calls `Check` before it tells the machine to set the job up.
+
+## What neither bridge does
+
+- **They do not touch a wire.** Both are state machines meeting; every test in this package's suite
   runs without a link, and the package declares no message. A join that invented a transaction
   would be inventing a standard.
-- **It does not schedule anything.** Which wafer goes to a chuck, and when, is the machine's.
-- **It does not bridge E40 or E94.** A process job's material and a control job's carriers are
-  lists of identifiers in those packages, deliberately, and correlating them is the same kind of
-  application decision this package makes explicit for E87 and E90. If the same convention turns
-  out to be wanted there, it belongs here.
-- **It keeps no history.** `Close` forgets, and E90's own `SubstrateStateChanged` event is where an
+- **They do not schedule anything.** Which wafer goes to a chuck, and when, is the machine's.
+- **They do not bridge E94.** A control job's carriers are a list of identifiers in that package,
+  deliberately. A control job is a lot and a carrier is a box; correlating them is a decision with
+  more than one sensible answer, and until one of them is clearly the usual one this package is not
+  the place to guess.
+- **They keep no history.** `Close` forgets, and E90's own `SubstrateStateChanged` event is where an
   application builds a history in whatever it already stores.
 
 ## Locks, and the one order that matters
 
-The bridge holds a lock of its own only over its own bookkeeping; the work is two calls into two
-managers that each hold theirs. Attached, it runs **inside the carrier manager's lock** - its
-handler is called from `CarrierStateChanged` - and from there it calls the substrate tracker. So
-the order is always carriers, then substrates, and never the other way.
+Each bridge holds a lock of its own only over its own bookkeeping; the work is calls into two
+managers that each hold theirs. Attached, a bridge runs **inside the lock of the manager it
+listens to** - the carrier one is called from `CarrierStateChanged`, the process job one from
+`JobStateChanged` - and from there it calls the substrate tracker. So the order is always the other
+standard first and **substrates last**, and never the other way.
 
-An application that adds its own handlers should keep that order. Two locks taken in two orders is
-the one deadlock a stack like this can build for itself, and this package is the only place where
-two of them meet.
+That is the rule to keep if an application adds handlers of its own, and the reason both bridges go
+the same direction: the substrate tracker is the one thing both of them touch, so as long as
+nothing calls back out of it, two locks can never be taken in two orders. That is the one deadlock
+a stack like this can build for itself, and this package is the only place where its locks meet.
 
 ## Documentation
 

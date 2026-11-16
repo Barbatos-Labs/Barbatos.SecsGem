@@ -391,6 +391,12 @@ internal static class Program
 
         bridge.Attach();
 
+        // And the other join in the same package: E40's endings reaching E90's wafers, so the
+        // second job below - the one somebody stops part way - leaves a lot that adds up.
+        var jobFlow = new ProcessJobSubstrateBridge(processJobs, substrateTracker);
+
+        jobFlow.Attach();
+
         // The three lines E40 wants and no library can write for you: a state change becomes an
         // S16F11, sent off the manager's lock, with the two values copied inside the handler
         // because the arguments are only alive there.
@@ -1383,6 +1389,44 @@ internal static class Program
 
                 Console.WriteLine($"   S16F9  -> PJACK={dropped}, {flow.Processes.Jobs.Count} process job(s) left");
                 ok &= dropped == ProcessJobAcknowledgement.Accepted && flow.Processes.Jobs.Count == 0;
+
+                Console.WriteLine();
+                Console.WriteLine("-- and a second job that somebody stops part way --");
+                Console.WriteLine();
+
+                // Two more wafers out of the same carrier, so there is something to half-run. The
+                // interesting state is a lot where one wafer is on the chuck and one is not.
+                const string Stopped = "PJ-2";
+                var pair = new[] { $"{CarrierName}-05", $"{CarrierName}-06" };
+
+                ok &= await flow.ProcessHost.CreateAsync(Stopped, StartedProgram, pair, cancellationToken)
+                    == ProcessJobAcknowledgement.Accepted;
+
+                ok &= flow.Processes.BeginSetup(Stopped).IsAccepted
+                    && flow.Processes.SetupComplete(Stopped).IsAccepted
+                    && substrates.MoveTo(pair[0], ChuckLocation).IsAccepted
+                    && substrates.BeginProcessing(pair[0]).IsAccepted;
+
+                Console.WriteLine($"   [machine] {pair[0]} is {substrates.FindSubstrate(pair[0])?.ProcessingState}, {pair[1]} is {substrates.FindSubstrate(pair[1])?.ProcessingState}");
+
+                var halted = await flow.ProcessHost.CommandAsync(Stopped, ProcessJobCommands.Stop, cancellationToken);
+
+                Console.WriteLine($"   S16F3  -> STOP CMDA={halted}, and the job is {flow.Processes.Find(Stopped)?.State}");
+                ok &= halted == ProcessJobCommandAcknowledgement.Performed;
+
+                ok &= flow.Processes.StopComplete(Stopped).IsAccepted;
+
+                // The join E40 and E90 do not make themselves: the wafer that was being worked on
+                // ends the way the job ended, and the one nobody got to is skipped. Without the
+                // bridge both would sit as they were for ever, because E90 will not let anything
+                // move them once the job is over.
+                Console.WriteLine($"   [machine] {pair[0]} is now {substrates.FindSubstrate(pair[0])?.ProcessingState}, {pair[1]} is {substrates.FindSubstrate(pair[1])?.ProcessingState}");
+
+                ok &= substrates.FindSubstrate(pair[0])?.ProcessingState == SubstrateProcessingState.Stopped
+                    && substrates.FindSubstrate(pair[1])?.ProcessingState == SubstrateProcessingState.Skipped;
+
+                ok &= await flow.ProcessHost.DeselectAsync(Stopped, cancellationToken)
+                    == ProcessJobAcknowledgement.Accepted;
 
                 // Four state changes, each a transaction of its own rather than a collection event
                 // somebody had to define: queued to setting up, to waiting, to processing, to

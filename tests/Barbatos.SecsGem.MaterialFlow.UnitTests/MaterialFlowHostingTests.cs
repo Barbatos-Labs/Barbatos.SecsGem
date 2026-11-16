@@ -5,6 +5,7 @@
 
 using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.Hsms;
+using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Substrates;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -143,8 +144,99 @@ public class MaterialFlowHostingTests
         Assert.Contains(nameof(SubstrateTracker), thrown.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>The E40 bridge resolves attached, so a job that ends settles its lot.</summary>
+    /// <remarks>
+    /// This test exists because a negative control went looking for it and found nothing: the
+    /// registration could have been leaving the bridge detached and the whole suite would have
+    /// passed.
+    /// </remarks>
+    [Fact]
+    public async Task The_process_job_bridge_resolves_attached_and_settles_a_stopped_job()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddSubstrateTracking(tracker =>
+            {
+                tracker.AddLocation("CHUCK");
+                tracker.AddLocation("SLOT-1");
+            })
+            .AddProcessJobEquipment()
+            .AddProcessJobSubstrateBridge();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var bridge = provider.GetRequiredService<ProcessJobSubstrateBridge>();
+
+        Assert.True(bridge.IsAttached);
+        Assert.Same(bridge, provider.GetRequiredService<ProcessJobSubstrateBridge>());
+
+        var substrates = provider.GetRequiredService<SubstrateTracker>();
+        var jobs = provider.GetRequiredService<ProcessJobManager>();
+
+        Assert.True(substrates.Add("W01", "SLOT-1", slotId: 1).IsAccepted);
+        Assert.True(jobs.Create("PJ-1", "RECIPE-7", ["W01"]).IsAccepted);
+        Assert.True(jobs.BeginSetup("PJ-1").IsAccepted);
+        Assert.True(jobs.SetupComplete("PJ-1").IsAccepted);
+        Assert.True(substrates.MoveTo("W01", "CHUCK").IsAccepted);
+        Assert.True(substrates.BeginProcessing("W01").IsAccepted);
+
+        Assert.True(jobs.Command("PJ-1", ProcessJobCommands.Stop).IsAccepted);
+        Assert.True(jobs.StopComplete("PJ-1").IsAccepted);
+
+        // Not a line of application code between E40's ending and E90's.
+        Assert.Equal(SubstrateProcessingState.Stopped, substrates.FindSubstrate("W01")?.ProcessingState);
+    }
+
+    [Fact]
+    public async Task The_process_job_bridge_takes_its_convention_from_the_registration()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddSubstrateTracking()
+            .AddProcessJobEquipment()
+            .AddProcessJobSubstrateBridge(options => options.SkipsUntouched = false);
+
+        await using var provider = services.BuildServiceProvider();
+
+        var bridge = provider.GetRequiredService<ProcessJobSubstrateBridge>();
+
+        Assert.False(bridge.Options.SkipsUntouched);
+        Assert.True(bridge.Options.EndsWorkInProgress);
+        Assert.Same(provider.GetRequiredService<ProcessJobSubstrateOptions>(), bridge.Options);
+    }
+
+    [Fact]
+    public async Task A_process_job_bridge_with_no_tracker_says_so_when_it_is_resolved()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddProcessJobEquipment()
+            .AddProcessJobSubstrateBridge();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var thrown = Assert.Throws<InvalidOperationException>(
+            () => provider.GetRequiredService<ProcessJobSubstrateBridge>());
+
+        Assert.Contains(nameof(SubstrateTracker), thrown.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_null_builder_is_rejected()
-        => Assert.Throws<ArgumentNullException>(
+    {
+        Assert.Throws<ArgumentNullException>(
             () => MaterialFlowServiceCollectionExtensions.AddCarrierSubstrateBridge(null!));
+
+        Assert.Throws<ArgumentNullException>(
+            () => MaterialFlowServiceCollectionExtensions.AddProcessJobSubstrateBridge(null!));
+    }
 }

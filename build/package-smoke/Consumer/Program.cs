@@ -91,6 +91,7 @@ internal static class Program
         await Run("controljobs: E94 drives its state machine through stream 14, beside E87 and E90", ControlJobsResolveAsync).ConfigureAwait(false);
         await Run("processjobs: E40 declares stream 16 and all four standards answer stream 14", ProcessJobsResolveAsync).ConfigureAwait(false);
         await Run("materialflow: a verified slot map turns into substrates by itself", MaterialFlowResolvesAsync).ConfigureAwait(false);
+        await Run("materialflow: a stopped process job settles the lot it was running", ProcessJobFlowResolvesAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -986,5 +987,52 @@ internal static class Program
         Assert(wafer.DestinationLocationId == "CAR-001-SLOT-04", "it has nowhere to go back to");
         Assert(wafer.SubstrateType == "300mm Si", $"its type is '{wafer.SubstrateType}'");
         Assert(substrates.FindSubstrate("CAR-001-03") is null, "the empty slot became a wafer");
+    }
+
+    private static async Task ProcessJobFlowResolvesAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddSubstrateTracking(tracker =>
+            {
+                tracker.AddLocation("CHUCK");
+                tracker.AddLocation("SLOT-1");
+                tracker.AddLocation("SLOT-2");
+            })
+            .AddProcessJobEquipment()
+            .AddProcessJobSubstrateBridge();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var bridge = provider.GetRequiredService<ProcessJobSubstrateBridge>();
+        var substrates = provider.GetRequiredService<SubstrateTracker>();
+        var jobs = provider.GetRequiredService<ProcessJobManager>();
+
+        Assert(bridge.IsAttached, "the process job bridge resolved detached");
+
+        Assert(substrates.Add("W01", "SLOT-1", slotId: 1).IsAccepted, "W01 could not be tracked");
+        Assert(substrates.Add("W02", "SLOT-2", slotId: 2).IsAccepted, "W02 could not be tracked");
+        Assert(jobs.Create("PJ-1", "RECIPE-7", ["W01", "W02"]).IsAccepted, "the job could not be created");
+
+        Assert(jobs.BeginSetup("PJ-1").IsAccepted, "setup could not begin");
+        Assert(jobs.SetupComplete("PJ-1").IsAccepted, "setup could not finish");
+        Assert(substrates.MoveTo("W01", "CHUCK").IsAccepted, "W01 could not reach the chuck");
+        Assert(substrates.BeginProcessing("W01").IsAccepted, "work could not start on W01");
+
+        Assert(jobs.Command("PJ-1", ProcessJobCommands.Stop).IsAccepted, "the job could not be stopped");
+        Assert(jobs.StopComplete("PJ-1").IsAccepted, "the machine could not finish stopping");
+
+        // The whole point of the join: E40's ending reached E90's wafers with nobody calling
+        // anything, and the two wafers ended differently because they were in different states.
+        Assert(
+            substrates.FindSubstrate("W01")?.ProcessingState == SubstrateProcessingState.Stopped,
+            $"W01 is {substrates.FindSubstrate("W01")?.ProcessingState}, not Stopped");
+
+        Assert(
+            substrates.FindSubstrate("W02")?.ProcessingState == SubstrateProcessingState.Skipped,
+            $"W02 is {substrates.FindSubstrate("W02")?.ProcessingState}, not Skipped");
     }
 }

@@ -4,8 +4,8 @@
     <PackageId>Barbatos.SecsGem.MaterialFlow</PackageId>
     <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
     <RootNamespace>Barbatos.SecsGem.MaterialFlow</RootNamespace>
-    <PackageTags>secs;e87;e90;carrier;substrate;slotmap;wafer;fab300;materialflow</PackageTags>
-    <Description>The join between SEMI E87 and SEMI E90 for .NET: turns a carrier's verified slot map into one tracked substrate per occupied slot, and forgets them again when the carrier is done. E87 says what the machine read and E90 says what it is tracking; neither standard says how one becomes the other, so this package makes one convention explicit and replaceable - the slot and substrate naming, what counts as an occupied slot, and whether a wafer goes back to the slot it came from. Depends on Barbatos.SecsGem.Carriers and Barbatos.SecsGem.Substrates, which stay independent of each other.</Description>
+    <PackageTags>secs;e87;e90;e40;carrier;substrate;slotmap;processjob;wafer;fab300;materialflow</PackageTags>
+    <Description>The joins between the material-flow standards for .NET, which none of them makes itself. E87 to E90: a carrier's verified slot map becomes one tracked substrate per occupied slot, forgotten again when the carrier is done - with the naming, the occupancy rule and the destination all replaceable. E40 to E90: a process job's ending reaches the wafers it was running, so a stopped job stops the work in progress and skips what nobody got to, instead of leaving a lot half tracked for ever. Depends on Barbatos.SecsGem.Carriers, Barbatos.SecsGem.Substrates and Barbatos.SecsGem.ProcessJobs, which stay independent of each other.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,11 +14,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The only package in this repository that depends on two standards at once, which is the
-         whole reason it exists: E87 must not depend on E90 or the other way round, so the join
-         cannot live in either of them. -->
+    <!-- The only package in this repository that depends on several standards at once, which is
+         the whole reason it exists: none of E87, E90 and E40 may depend on another, so the joins
+         between them cannot live in any of them. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Carriers\Barbatos.SecsGem.Carriers.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Substrates\Barbatos.SecsGem.Substrates.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.ProcessJobs\Barbatos.SecsGem.ProcessJobs.csproj" />
   </ItemGroup>
 
 </Project>

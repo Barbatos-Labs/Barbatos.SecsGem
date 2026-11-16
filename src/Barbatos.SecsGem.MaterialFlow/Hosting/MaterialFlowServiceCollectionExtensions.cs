@@ -6,6 +6,7 @@
 using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.MaterialFlow;
+using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Substrates;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -61,6 +62,53 @@ public static class MaterialFlowServiceCollectionExtensions
             // Attached here rather than in a hosted service, because there is nothing to start:
             // the bridge is two event subscriptions, and a machine whose first slot map arrives
             // before anything called StartAsync would otherwise miss it.
+            bridge.Attach();
+
+            return bridge;
+        });
+
+        return builder;
+    }
+
+    /// <summary>Adds the process job to substrate bridge, listening for jobs that end.</summary>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <param name="configure">The convention: what happens to work in progress and to wafers nobody got to.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// Registers <see cref="ProcessJobSubstrateOptions"/> and
+    /// <see cref="ProcessJobSubstrateBridge"/>, and attaches the bridge as soon as it is resolved -
+    /// so a job that is stopped settles the lot it was running without another line of code.
+    /// </para>
+    /// <para>
+    /// It needs <see cref="Barbatos.SecsGem.ProcessJobs.ProcessJobManager"/> and
+    /// <see cref="SubstrateTracker"/> in the container, so call it after
+    /// <c>AddProcessJobEquipment</c> and <c>AddSubstrateTracking</c>. The two bridges in this
+    /// package are independent: a machine may have either, both or neither.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddProcessJobSubstrateBridge(
+        this ISecsGemBuilder builder,
+        Action<ProcessJobSubstrateOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton(_ =>
+        {
+            var options = new ProcessJobSubstrateOptions();
+
+            configure?.Invoke(options);
+
+            return options;
+        });
+
+        builder.Services.TryAddSingleton(services =>
+        {
+            var bridge = new ProcessJobSubstrateBridge(
+                services.GetRequiredService<ProcessJobManager>(),
+                services.GetRequiredService<SubstrateTracker>(),
+                services.GetRequiredService<ProcessJobSubstrateOptions>());
+
             bridge.Attach();
 
             return bridge;
