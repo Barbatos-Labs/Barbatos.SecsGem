@@ -29,6 +29,7 @@
     <!-- Depends on Hsms and not on Gem, which only a restore from the real .nupkg can check. -->
     <PackageReference Include="Barbatos.SecsGem.WaferMap" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.Material" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.Objects" Version="$(BarbatosVersion)" />
     <!-- No PrivateAssets: the assembly travels under analyzers/dotnet/cs, and whether the
          compiler actually picks it up from there is one of the things being tested. -->
     <PackageReference Include="Barbatos.SecsGem.SourceGenerators" Version="$(BarbatosVersion)" />

@@ -10,6 +10,7 @@ using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
+using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -51,6 +52,12 @@ internal static class Program
 
     private static readonly ConcurrentQueue<string> ErrorReports = new();
     private static readonly ConcurrentQueue<string> Reports = new();
+
+    /// <summary>The chamber, as stream 14 names it.</summary>
+    private const string ChamberObject = "CH-1";
+
+    /// <summary>And its type. Both are the machine's own vocabulary: E5 does not define object types.</summary>
+    private const string ChamberType = "Chamber";
 
     /// <summary>The lot the remote command below starts, and so the wafer the map comes back for.</summary>
     /// <remarks>
@@ -151,6 +158,15 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingMaterial!.HandleAsync(transaction, token));
         }
 
+        // And object services. The machine has the objects, so the machine declares the stream;
+        // the host below only asks, which needs nothing declared at all.
+        ObjectServices? pendingObjects = null;
+
+        foreach (var (stream, function) in ObjectServices.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingObjects!.HandleAsync(transaction, token));
+        }
+
         // The host's side of the same arrangement. S1F13, S1F1, S5F1, S6F11, S6F13 and stream 9 -
         // everything a machine may send a host unprompted.
         var hostRoutes = new SecsMessageRouterBuilder();
@@ -195,12 +211,26 @@ internal static class Program
         var materialEquipment = new MaterialEquipment(inventory, equipmentLink);
         var materialHost = new MaterialHost(hostLink);
 
+        // The machine as objects: a chamber with two attributes and a load port with one. The
+        // types and the attribute names are this machine's own - E5 does not define object types,
+        // which is why no library can.
+        var machineObjects = new ObjectInMemoryProvider();
+        machineObjects.Add(ChamberObject, ChamberType);
+        machineObjects.Set(ChamberObject, "Pressure", SecsItem.F8(1_013.25d));
+        machineObjects.Set(ChamberObject, "Setpoint", SecsItem.F8(1_013.25d));
+        machineObjects.Add("PORT-1", "LoadPort");
+        machineObjects.Set("PORT-1", "State", SecsItem.A("ReadyToLoad"));
+
+        var equipmentObjects = new ObjectServices(equipmentLink, machineObjects);
+        var hostObjects = new ObjectServices(hostLink);
+
         pendingEquipment = equipment;
         pendingHost = host;
         pendingMapper = mapper;
         pendingMapHost = mapHost;
         pendingMaterial = materialEquipment;
         pendingMaterialHost = materialHost;
+        pendingObjects = equipmentObjects;
 
         Subscribe(host);
 
@@ -225,7 +255,7 @@ internal static class Program
             // conversation, and nothing may be reported before it.
             await WaitUntilAsync(() => equipment.IsCommunicating, "the equipment to establish communications");
 
-            var ok = await ConversationAsync(host, hostLink, equipment, mapper, mapHost, materialEquipment, materialHost, cts.Token);
+            var ok = await ConversationAsync(host, hostLink, equipment, mapper, mapHost, materialEquipment, materialHost, hostObjects, cts.Token);
 
             Console.WriteLine();
             Console.WriteLine("-- decode paths --");
@@ -308,7 +338,11 @@ internal static class Program
 
             // And the four things a machine says about its material without being asked. The five
             // questions in the other direction are this end sending, which needs nothing declared.
-            .AddMaterialHost();
+            .AddMaterialHost()
+
+            // And object services for an end that only asks: no provider, so nothing is declared
+            // and a prober asking this host about its objects gets an honest S9F5.
+            .AddObjectServices();
 
         await using var provider = services.BuildServiceProvider();
         var link = provider.GetRequiredService<HsmsConnection>();
@@ -323,7 +357,16 @@ internal static class Program
         {
             await WaitUntilAsync(() => link.IsSelected, "the equipment to select");
 
-            var ok = await ConversationAsync(host, link, equipment: null, mapper: null, mapHost: null, materialEquipment: null, materialHost: null, cts.Token);
+            var ok = await ConversationAsync(
+                host,
+                link,
+                equipment: null,
+                mapper: null,
+                mapHost: null,
+                materialEquipment: null,
+                materialHost: null,
+                objects: provider.GetRequiredService<ObjectServices>(),
+                cts.Token);
 
             // And then wait for the prober to send a map, which is the half of stream 12 this mode
             // can take part in. The equipment sample sends one when a lot finishes, and the lot the
@@ -374,6 +417,7 @@ internal static class Program
         WaferMapHost? mapHost,
         MaterialEquipment? materialEquipment,
         MaterialHost? materialHost,
+        ObjectServices? objects,
         CancellationToken cancellationToken)
     {
         var ok = true;
@@ -773,6 +817,78 @@ internal static class Program
             ok &= after?.Location == 9;
         }
 
+        if (objects is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and reads the machine as objects with attributes --");
+            Console.WriteLine();
+
+            // Stream 14 asks nothing about who is the host: either end may ask, and this end has
+            // no objects of its own, so it only asks. The object types are the machine's own -
+            // E5 does not restrict them, and a chamber with attributes is the stream used for
+            // what it is.
+            var types = await objects.GetObjectTypesAsync(cancellationToken);
+
+            Console.WriteLine($"   S14F13 -> {(types.Count == 0 ? "no object types" : string.Join(", ", types))}");
+            ok &= types.Count > 0;
+
+            foreach (var type in types)
+            {
+                foreach (var instance in await objects.GetInstancesAsync(type, cancellationToken))
+                {
+                    var names = await objects.GetAttributeNamesAsync(instance, type, cancellationToken);
+
+                    Console.WriteLine($"   S14F15 -> {type} {instance}: {string.Join(", ", names)}");
+                }
+            }
+
+            // One attribute, read and then written. ATTRDATA has no format of its own, so what
+            // comes back is whatever the machine put there - here a float, printed as one.
+            var before = string.Empty;
+
+            await objects.GetAttributesAsync(
+                ChamberObject,
+                ChamberType,
+                ["Setpoint"],
+                values => before = Describe(values),
+                cancellationToken);
+
+            Console.WriteLine($"   S14F1  -> {before}");
+
+            var acknowledgement = await objects.SetAttributesAsync(
+                ChamberObject,
+                ChamberType,
+                [new ObjectAttribute { Name = "Setpoint", Value = SecsItem.F8(1_000d) }],
+                cancellationToken);
+
+            Console.WriteLine($"   S14F3  -> OBJACK={acknowledgement}");
+            ok &= acknowledgement == ObjectAcknowledgement.Successful;
+
+            var after = string.Empty;
+
+            await objects.GetAttributesAsync(
+                ChamberObject,
+                ChamberType,
+                ["Setpoint"],
+                values => after = Describe(values),
+                cancellationToken);
+
+            Console.WriteLine($"   S14F1  -> {after}");
+            ok &= after.Contains("1000", StringComparison.Ordinal);
+
+            // An object the machine does not have is not a failure: S14F2 has no acknowledgement
+            // code in it, so an empty list is all it can say.
+            var found = await objects.GetAttributesAsync(
+                "CH-99",
+                ChamberType,
+                ["Setpoint"],
+                _ => { },
+                cancellationToken);
+
+            Console.WriteLine($"   S14F1  -> CH-99: {(found ? "found" : "no such object")}");
+            ok &= !found;
+        }
+
         Console.WriteLine();
         Console.WriteLine("-- and asks for a stream that is not there --");
         Console.WriteLine();
@@ -848,6 +964,35 @@ internal static class Program
 
             ErrorReports.Enqueue($"{SecsCatalog.Describe(9, e.Function)} came back: {offending} is not implemented");
         };
+    }
+
+    /// <summary>Prints one object's attributes, whatever shape their values turn out to be.</summary>
+    /// <param name="values">What came back.</param>
+    /// <returns>A line for the console.</returns>
+    /// <remarks>
+    /// Called inside the callback that reads a get, which is the only place the values are alive:
+    /// an attribute value is a view into the reply, and the reply is gone when the method returns.
+    /// This builds a string there and then rather than keeping the items.
+    /// </remarks>
+    private static string Describe(ObjectAttributeValues values)
+    {
+        List<string> parts = [];
+
+        foreach (var attribute in values.Attributes)
+        {
+            var value = attribute.Value;
+
+            parts.Add($"{attribute.Name} = " + (value.Format switch
+            {
+                SecsFormat.F8 => value.FirstValueOrDefault<double>().ToString("0.##", CultureInfo.InvariantCulture),
+                SecsFormat.F4 => value.FirstValueOrDefault<float>().ToString("0.##", CultureInfo.InvariantCulture),
+                SecsFormat.ASCII => value.GetString(),
+                _ when value.IsList => $"a list of {value.Count}",
+                _ => $"{value.Format}[{value.Count}]",
+            }));
+        }
+
+        return $"{values.ObjectSpecification}: {(parts.Count == 0 ? "no attributes" : string.Join(", ", parts))}";
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, string what)

@@ -22,6 +22,8 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.WaferMap\Barbatos.SecsGem.WaferMap.csproj" />
     <!-- Material status, for the same reason: E5 stream 3, its own package, on Hsms. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Material\Barbatos.SecsGem.Material.csproj" />
+    <!-- And object services, stream 14. The loopback machine has the objects; this host only asks. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Objects\Barbatos.SecsGem.Objects.csproj" />
     <!-- So an S9F3 can say which message the equipment refused, by name. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />

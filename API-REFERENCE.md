@@ -14,6 +14,7 @@ One page per package, generated per release:
 - [`Barbatos.SecsGem.Gem`](src/Barbatos.SecsGem.Gem/API-REFERENCE.md)
 - [`Barbatos.SecsGem.WaferMap`](src/Barbatos.SecsGem.WaferMap/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Material`](src/Barbatos.SecsGem.Material/API-REFERENCE.md)
+- [`Barbatos.SecsGem.Objects`](src/Barbatos.SecsGem.Objects/API-REFERENCE.md)
 - [`Barbatos.SecsGem`](src/Barbatos.SecsGem/API-REFERENCE.md) (metapackage - no API of its own)
 
 ## Namespaces
@@ -28,5 +29,6 @@ One page per package, generated per release:
 | `Barbatos.SecsGem.Gem` | Gem | GEM state models, object model and equipment service |
 | `Barbatos.SecsGem.WaferMap` | WaferMap | stream 12: setup data, the three map data formats, both ends |
 | `Barbatos.SecsGem.Material` | Material | stream 3: material status, location, transfer, movement, both ends |
+| `Barbatos.SecsGem.Objects` | Objects | stream 14: GetAttr, SetAttr and the three namelists, either direction |
 | `Barbatos.SecsGem.Serialization.Sml` / `.Json` / `.Xml` / `.Ini` | the four spokes | format readers and writers |
-| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddSecsSml`, ... |
+| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Objects, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddSecsSml`, ... |

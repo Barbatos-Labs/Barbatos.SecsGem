@@ -16,6 +16,7 @@
     <Project Path="src/Barbatos.SecsGem.Serialization.Sml/Barbatos.SecsGem.Serialization.Sml.csproj" />
     <Project Path="src/Barbatos.SecsGem.WaferMap/Barbatos.SecsGem.WaferMap.csproj" />
     <Project Path="src/Barbatos.SecsGem.Material/Barbatos.SecsGem.Material.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Objects/Barbatos.SecsGem.Objects.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Barbatos.SecsGem.Samples.Transcode/Barbatos.SecsGem.Samples.Transcode.csproj" />
@@ -33,6 +34,7 @@
     <Project Path="tests/Barbatos.SecsGem.Serialization.UnitTests/Barbatos.SecsGem.Serialization.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.WaferMap.UnitTests/Barbatos.SecsGem.WaferMap.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.Material.UnitTests/Barbatos.SecsGem.Material.UnitTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.Objects.UnitTests/Barbatos.SecsGem.Objects.UnitTests.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Barbatos.SecsGem.Benchmarks/Barbatos.SecsGem.Benchmarks.csproj" />

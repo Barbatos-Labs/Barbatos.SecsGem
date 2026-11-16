@@ -12,6 +12,7 @@ using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Mapping;
 using Barbatos.SecsGem.Serialization;
 using Barbatos.SecsGem.Material;
+using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -79,6 +80,7 @@ internal static class Program
         await Run("gem: the host side resolves on a builder of its own", GemHostResolvesAsync).ConfigureAwait(false);
         await Run("wafermap: stream 12 resolves at both ends without the gem package", WaferMapResolvesAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
+        await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -568,5 +570,81 @@ internal static class Program
                 new MaterialTransfer { MaterialId = "nobody", Destination = 9 },
                 CancellationToken.None).ConfigureAwait(false) == MaterialAcknowledgement.Denied,
             "the inventory accepted a transfer of material it does not hold");
+    }
+
+    /// <summary>
+    /// The object services package, where the registration encodes a decision.
+    /// </summary>
+    /// <remarks>
+    /// Stream 14 is symmetric, so what separates the two registrations is whether this end has
+    /// objects to answer about - and that shows up in the routing table rather than in the API.
+    /// Worth checking from a packaged assembly, because it is the one thing about this package a
+    /// consumer gets wrong by guessing.
+    /// </remarks>
+    private static async Task ObjectServicesResolveAsync()
+    {
+        var askOnly = new ServiceCollection();
+
+        askOnly
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddObjectServices();
+
+        await using var askProvider = askOnly.BuildServiceProvider();
+
+        var asker = askProvider.GetRequiredService<ObjectServices>();
+        var askRouter = askProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(!asker.CanAnswer, "an end with no object provider says it can answer");
+        Assert(
+            !askRouter.TryGetHandler(14, 1, out _),
+            "an end with no objects declared S14F1, so it will answer GetAttr with an empty list instead of S9F5");
+
+        var withObjects = new ServiceCollection();
+
+        withObjects
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddObjectProvider();
+
+        await using var objectProvider = withObjects.BuildServiceProvider();
+
+        Assert(objectProvider.GetRequiredService<ObjectServices>().CanAnswer, "an end with a provider says it cannot answer");
+
+        var router = objectProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(ObjectServices.HandledMessages.Count == 7, $"the stream declares {ObjectServices.HandledMessages.Count} primaries, not seven");
+
+        foreach (var (stream, function) in ObjectServices.HandledMessages)
+        {
+            Assert(
+                router.TryGetHandler(stream, function, out _),
+                $"the router has no handler for S{stream}F{function}, so AddObjectProvider did not declare it");
+        }
+
+        // And an attribute value out of the packaged assembly: ATTRDATA has no format of its own,
+        // so the thing worth checking is that a structure survives being stored and read back.
+        var objects = (ObjectInMemoryProvider)objectProvider.GetRequiredService<IObjectProvider>();
+
+        objects.Add("CAR-SMOKE", "Carrier");
+
+        using (var slotMap = SecsItem.L(SecsItem.A("1"), SecsItem.U1(1, 2, 3)))
+        {
+            Assert(objects.Set("CAR-SMOKE", "SlotMap", slotMap), "the provider refused an attribute on an object it holds");
+        }
+
+        var values = await objects.GetAttributesAsync(
+            new ObjectAttributeRequest { Objects = ["CAR-SMOKE"], Attributes = ["SlotMap"] },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(values.Count == 1, $"the provider returned {values.Count} object(s), not one");
+
+        var attribute = values[0].Attributes[0];
+
+        Assert(attribute.Name == "SlotMap", $"the attribute came back as {attribute.Name}");
+        Assert(attribute.Value.IsList && attribute.Value.Count == 2, "the structure did not survive the store");
+        Assert(attribute.Value.Items[1].Count == 3, "the inner list lost its values");
+
+        attribute.Value.Dispose();
     }
 }

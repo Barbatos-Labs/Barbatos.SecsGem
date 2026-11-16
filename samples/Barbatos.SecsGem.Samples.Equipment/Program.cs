@@ -7,6 +7,7 @@ using Barbatos.SecsGem;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
+using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -48,6 +49,12 @@ internal static class Program
     internal const uint DefaultReport = 5_000;
     internal const ulong PressureAlarm = 9_000;
     internal const uint PressureLimitEvent = 2_500;
+
+    /// <summary>The chamber, as stream 14 names it.</summary>
+    internal const string ChamberObject = "CH-1";
+
+    /// <summary>And its type, which is this machine's own vocabulary rather than E5's.</summary>
+    internal const string ChamberType = "Chamber";
 
     /// <summary>The map of a wafer this machine has just finished with.</summary>
     /// <param name="lotId">The lot, which stands in for a wafer identifier here.</param>
@@ -247,6 +254,11 @@ internal static class Program
             // five questions about what it is holding, and four reports of its own. The runner
             // below loads the lot into the inventory while it processes and reports it moving out.
             .AddMaterialEquipment()
+
+            // And object services with a provider, which is what makes this end able to answer
+            // stream 14 rather than only ask: the runner below keeps the chamber object in step
+            // with the chamber itself.
+            .AddObjectProvider()
             .RunAsHostedService();
 
         builder.Services.AddHostedService<ChamberRunner>();
@@ -320,6 +332,7 @@ internal sealed class ChamberRunner(
     WaferMapEquipment mapping,
     MaterialEquipment material,
     IMaterialSource inventory,
+    IObjectProvider objects,
     Chamber chamber,
     ILogger<ChamberRunner> logger) : BackgroundService
 {
@@ -332,6 +345,16 @@ internal sealed class ChamberRunner(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var alarmRaised = false;
+
+        // The machine as objects, for stream 14: a chamber with two attributes. The type and the
+        // names are this machine's own - E5 does not define object types, which is why no library
+        // can - and a host that asks S14F13 finds them without being told they exist.
+        if (objects is ObjectInMemoryProvider model)
+        {
+            model.Add(Program.ChamberObject, Program.ChamberType);
+            model.Set(Program.ChamberObject, "Pressure", SecsItem.F8(chamber.Pressure));
+            model.Set(Program.ChamberObject, "Setpoint", SecsItem.F8(chamber.Setpoint));
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -346,6 +369,14 @@ internal sealed class ChamberRunner(
 
             chamber.Drift();
             chamber.ControlState = (byte)equipment.ControlState;
+
+            // The object model follows the machine rather than being a copy of it taken once: a
+            // host reading CH-1 Pressure over stream 14 should see what the pressure is now.
+            if (objects is ObjectInMemoryProvider current)
+            {
+                current.Set(Program.ChamberObject, "Pressure", SecsItem.F8(chamber.Pressure));
+                current.Set(Program.ChamberObject, "Setpoint", SecsItem.F8(chamber.Setpoint));
+            }
 
             // The moment a value changed, which is the moment to check it against whatever band
             // the host asked about. Reports nothing until a host has set one.
