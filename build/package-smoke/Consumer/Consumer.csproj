@@ -36,6 +36,7 @@
     <PackageReference Include="Barbatos.SecsGem.ProcessJobs" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.MaterialFlow" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.PerformanceTracking" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.Productivity" Version="$(BarbatosVersion)" />
     <!-- No PrivateAssets: the assembly travels under analyzers/dotnet/cs, and whether the
          compiler actually picks it up from there is one of the things being tested. -->
     <PackageReference Include="Barbatos.SecsGem.SourceGenerators" Version="$(BarbatosVersion)" />

@@ -41,6 +41,10 @@
     <!-- E116, which is the only standard in this sample that reports something none of the others
          can: that the chamber spent four minutes of a recipe waiting for the next wafer. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.PerformanceTracking\Barbatos.SecsGem.PerformanceTracking.csproj" />
+    <!-- E10 and E79, one level further back: E116 says what a chamber did this minute, these two
+         say what the tool was for the shift - and their numbers leave as a GEM status variable,
+         which is the one thing this sample is here to show about them. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Productivity\Barbatos.SecsGem.Productivity.csproj" />
     <!-- So an S9F3 can say which message the equipment refused, by name. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />

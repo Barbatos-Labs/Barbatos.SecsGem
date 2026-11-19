@@ -7,7 +7,7 @@ signature is a breaking change in somebody's fab.
 ## Repository map
 
 ```
-src/          twenty shipping packages, one folder each (+ README.md, API-REFERENCE.md)
+src/          twenty-one shipping packages, one folder each (+ README.md, API-REFERENCE.md)
 src/Shared/   compile-linked source, not a package: the serialization hub registration
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
@@ -35,6 +35,10 @@ Core  <-  Hsms  <-  Gem
                                  ^-- PerformanceTracking  (E116, on Objects and on nothing else
                                      here: not a material standard, no messages, and no mapping
                                      onto E10 - that one is the factory's to make, not ours)
+            ^----  Productivity   (E10 + E79, on Hsms for one thing: the container's TimeProvider.
+                                   No messages, no items, no object type - these two standards
+                                   define measurements, so there is nothing to put on a wire.
+                                   Deliberately NOT on PerformanceTracking: see above.)
   ^-- Serialization.{Sml,Json,Xml,Ini}
   ^-- Mapper  <-- SourceGenerators (analyzer only)
 ```

@@ -9,6 +9,7 @@ using Barbatos.SecsGem;
 using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.ProcessJobs;
+using Barbatos.SecsGem.Productivity;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
@@ -52,6 +53,14 @@ internal static class Program
     private const uint ControlStateVariable = 1;
     private const uint PressureVariable = 2;
     private const uint LotIdVariable = 10;
+
+    /// <summary>E10 availability, published the way a fab actually publishes it: as a status variable.</summary>
+    /// <remarks>
+    /// The point of the E10 section below. Neither E10 nor E79 defines a message, so the numbers
+    /// reach a host as whatever the equipment already publishes - and a GEM status variable is
+    /// what that is. Nothing in the productivity package knows this variable exists.
+    /// </remarks>
+    private const uint AvailabilityVariable = 3;
     private const uint ProcessEndEvent = 1_001;
     private const uint PressureLimitEvent = 2_500;
     private const uint HostReport = 6_000;
@@ -212,6 +221,9 @@ internal static class Program
 
     /// <summary>The loopback chamber's pressure, which the conversation moves to cross a band.</summary>
     private static double _pressure = 1_013.25d;
+
+    /// <summary>The tool E10 is accounting for, so the status variable above can read it.</summary>
+    private static ProductivityTracker? _productivity;
 
     private static async Task<int> Main(string[] args)
         => args.Contains("--tcp") ? await RunOverTcpAsync() : await RunInOneProcessAsync();
@@ -454,6 +466,11 @@ internal static class Program
         var moduleClock = new SampleClock(new DateTimeOffset(2026, 3, 2, 6, 0, 0, TimeSpan.Zero));
         var performance = new PerformanceTracker(moduleClock);
 
+        // E10 and E79 on the same clock, because they are the same day seen from further back:
+        // E116 says what a chamber was doing this minute, E10 says what the tool was for the
+        // shift. One tracker, because E10 measures a piece of equipment and this is one.
+        _productivity = new ProductivityTracker(moduleClock);
+
         performance.AddModule(MachineModule);
         performance.AddModule(ChamberModule);
 
@@ -623,6 +640,16 @@ internal static class Program
                 "mbar",
                 PressureLimitEvent)
             .AddDataVariable(LotIdVariable, "LotId", () => SecsItem.A("LOT-2026-1115"))
+
+            // E10's availability as an ordinary status variable, which is the whole answer to
+            // "where do these numbers go": neither E10 nor E79 has a message, so they go wherever
+            // the equipment already publishes things. The read delegate is three lines and the
+            // productivity package knows nothing about it.
+            .AddStatusVariable(
+                AvailabilityVariable,
+                "Availability",
+                () => SecsItem.F8(_productivity?.Report().AvailabilityEfficiency ?? 0d),
+                "ratio")
             .AddEvent(ProcessEndEvent, "ProcessEnd")
             .AddEvent(PressureLimitEvent, "PressureLimitCrossed")
             .AddRemoteCommand("START", (context, _) =>
@@ -1748,6 +1775,96 @@ internal static class Program
 
                 Console.WriteLine($"   S14F3  -> OBJACK={told} - a module's state is observed, not assigned");
                 ok &= told == ObjectAcknowledgement.InvalidAttribute;
+
+                Console.WriteLine();
+                Console.WriteLine("-- and the shift adds up: E10, and E79's OEE on top of it --");
+                Console.WriteLine();
+
+                // A clean shift from here, on the same clock E116 has been using: the two
+                // standards are the same day seen from different distances.
+                var tool = _productivity!;
+
+                ok &= tool.Reset().IsAccepted;
+
+                // Four hours nobody staffed, two hours of planned maintenance, four hours with
+                // nothing to run, ten hours producing, two hours broken, two hours qualifying the
+                // new pump. A hundred wafers out, ninety good, five minutes each at the tool's
+                // theoretical rate.
+                (EquipmentState State, string Reason, int Hours)[] shift =
+                [
+                    (EquipmentState.NonScheduled, "night shift unstaffed", 4),
+                    (EquipmentState.ScheduledDowntime, "preventive maintenance", 2),
+                    (EquipmentState.Standby, "no material", 4),
+                    (EquipmentState.Productive, string.Empty, 10),
+                    (EquipmentState.UnscheduledDowntime, "pump failed", 2),
+                    (EquipmentState.Engineering, "qualifying the new pump", 2),
+                ];
+
+                foreach (var (state, reason, hours) in shift)
+                {
+                    if (state is EquipmentState.NonScheduled)
+                    {
+                        // Already there: a tracker starts non-scheduled, which is the only honest
+                        // opening state for a tool nobody has said anything about yet.
+                        flow.Clock.Advance(TimeSpan.FromHours(hours));
+                        continue;
+                    }
+
+                    ok &= tool.MoveTo(state, reason).IsAccepted;
+                    flow.Clock.Advance(TimeSpan.FromHours(hours));
+
+                    if (state is EquipmentState.Productive)
+                    {
+                        tool.RecordUnits(100, 90, TimeSpan.FromMinutes(5));
+                        tool.RecordCycles(100);
+                    }
+                }
+
+                var shiftReport = tool.Report();
+
+                Console.WriteLine(
+                    $"   {shiftReport.Productive} producing, {shiftReport.Standby} on standby, "
+                    + $"{shiftReport.Downtime} down, {shiftReport.NonScheduled} not scheduled");
+
+                // The two denominators, which is the distinction E10 exists to force. Both are
+                // right; they answer different questions.
+                Console.WriteLine(
+                    $"   available  {shiftReport.Availability:P0} of the time we asked for the tool, "
+                    + $"{shiftReport.AvailabilityEfficiency:P0} of the whole day");
+                Console.WriteLine(
+                    $"   utilised   {shiftReport.OperationalUtilisation:P0} / {shiftReport.TotalUtilisation:P0}");
+                Console.WriteLine(
+                    $"   MTBF {shiftReport.MeanTimeBetweenFailures}, MTTR {shiftReport.MeanTimeToRepair}, "
+                    + $"MCBF {shiftReport.MeanCyclesBetweenFailures:F0} over {shiftReport.Failures} failure(s)");
+                Console.WriteLine(
+                    $"   OEE {shiftReport.OverallEquipmentEfficiency:P1} = "
+                    + $"{shiftReport.AvailabilityEfficiency:P1} x {shiftReport.OperationalEfficiency:P1} x "
+                    + $"{shiftReport.RateEfficiency:P1} x {shiftReport.QualityEfficiency:P1}");
+
+                // The six buckets add up to the window, and the four factors multiply out to the
+                // whole - the two invariants the package is built to keep, checked here against a
+                // day the sample actually lived rather than one a test made up.
+                ok &= shiftReport.Total == TimeSpan.FromHours(24)
+                    && shiftReport.NonScheduled + shiftReport.UnscheduledDowntime
+                        + shiftReport.ScheduledDowntime + shiftReport.Engineering
+                        + shiftReport.Standby + shiftReport.Productive == shiftReport.Total
+                    && Math.Abs(
+                        (shiftReport.AvailabilityEfficiency * shiftReport.OperationalEfficiency
+                            * shiftReport.RateEfficiency * shiftReport.QualityEfficiency)
+                        - shiftReport.OverallEquipmentEfficiency) < 1e-9;
+
+                // And where the number actually goes. E10 has no message, so availability is a GEM
+                // status variable like any other - read with S1F3, by a host that has never heard
+                // of E10.
+                using (var read = await host.ReadStatusAsync([AvailabilityVariable], cancellationToken))
+                {
+                    var published = read.Item is { IsList: true, Count: > 0 } body
+                        ? body.Items[0].FirstValueOrDefault<double>()
+                        : -1d;
+
+                    Console.WriteLine($"   S1F3   -> the host reads Availability = {published:F4}");
+                    ok &= Math.Abs(published - shiftReport.AvailabilityEfficiency) < 1e-6;
+                }
             }
 
             Console.WriteLine();

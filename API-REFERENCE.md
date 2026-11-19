@@ -21,6 +21,7 @@ One page per package, generated per release:
 - [`Barbatos.SecsGem.ProcessJobs`](src/Barbatos.SecsGem.ProcessJobs/API-REFERENCE.md)
 - [`Barbatos.SecsGem.MaterialFlow`](src/Barbatos.SecsGem.MaterialFlow/API-REFERENCE.md)
 - [`Barbatos.SecsGem.PerformanceTracking`](src/Barbatos.SecsGem.PerformanceTracking/API-REFERENCE.md)
+- [`Barbatos.SecsGem.Productivity`](src/Barbatos.SecsGem.Productivity/API-REFERENCE.md)
 - [`Barbatos.SecsGem`](src/Barbatos.SecsGem/API-REFERENCE.md) (metapackage - no API of its own)
 
 ## Namespaces
@@ -42,5 +43,6 @@ One page per package, generated per release:
 | `Barbatos.SecsGem.ProcessJobs` | ProcessJobs | SEMI E40: the process job, its nine-state machine, and stream 16 at both ends |
 | `Barbatos.SecsGem.MaterialFlow` | MaterialFlow | The joins between E87, E90 and E40: a slot map becomes substrates, and a job's ending reaches them |
 | `Barbatos.SecsGem.PerformanceTracking` | PerformanceTracking | SEMI E116: a machine's modules, their three EPT states, the task a block keeps, and where the time went; no messages of its own |
+| `Barbatos.SecsGem.Productivity` | Productivity | SEMI E10 and E79: the six equipment states, their roll-ups, the RAM metrics and OEE; no wire presence at all |
 | `Barbatos.SecsGem.Serialization.Sml` / `.Json` / `.Xml` / `.Ini` | the four spokes | format readers and writers |
-| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Objects, Carriers, Substrates, ControlJobs, ProcessJobs, MaterialFlow, PerformanceTracking, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddControlJobs`, `AddProcessJobEquipment`, `AddCarrierSubstrateBridge`, `AddProcessJobSubstrateBridge`, `AddPerformanceTracking`, `AddEnhancedServices`, `AddSecsSml`, ... |
+| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Objects, Carriers, Substrates, ControlJobs, ProcessJobs, MaterialFlow, PerformanceTracking, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddControlJobs`, `AddProcessJobEquipment`, `AddCarrierSubstrateBridge`, `AddProcessJobSubstrateBridge`, `AddPerformanceTracking`, `AddEnhancedServices`, `AddProductivityTracking`, `AddSecsSml`, ... |

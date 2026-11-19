@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.Productivity</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Productivity</RootNamespace>
+    <PackageTags>secs;e10;e79;oee;availability;utilisation;utilization;mtbf;mttr;ram;productivity;fab300</PackageTags>
+    <Description>Equipment productivity (SEMI E10 and E79) for .NET: the six basic equipment states - non-scheduled, unscheduled downtime, scheduled downtime, engineering, standby, productive - how they add up, and the arithmetic over them. E10's reliability, availability and maintainability figures (availability, operational and total utilisation, MTBF, MTBI, MTTR, MCBF) and E79's overall equipment efficiency with all four of its factors. The counts are the transitions, so a failure is an entry into unscheduled downtime and a repair is an exit from it into a state the tool can work in - which means MTBF cannot drift away from the availability computed over the same window, and a repair that has not finished is left out of the mean rather than making the tool look quicker the longer it stays broken. Every ratio comes in an operations form and a total form, because confusing those two is the commonest mistake made against E10. Durations are measured through a TimeProvider from a monotonic timestamp, so a shift report survives somebody correcting the machine's clock. Neither standard defines a message, an item or a code value, so this package has no wire presence and no object type on purpose: the numbers reach a host as whatever the application already publishes. Depends on Barbatos.SecsGem.Hsms for the container's clock, and not on GEM.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <!-- Hsms and nothing else: this package sends no message and answers none, and the only thing
+         it wants from the stack is the TimeProvider that AddSecsGem registers. Not on Objects,
+         because E10 defines no object; not on PerformanceTracking, because feeding these states
+         from E116's is a mapping only a fab can make - see the README. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+</Project>

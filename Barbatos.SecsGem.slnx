@@ -23,6 +23,7 @@
     <Project Path="src/Barbatos.SecsGem.ProcessJobs/Barbatos.SecsGem.ProcessJobs.csproj" />
     <Project Path="src/Barbatos.SecsGem.MaterialFlow/Barbatos.SecsGem.MaterialFlow.csproj" />
     <Project Path="src/Barbatos.SecsGem.PerformanceTracking/Barbatos.SecsGem.PerformanceTracking.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Productivity/Barbatos.SecsGem.Productivity.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Barbatos.SecsGem.Samples.Transcode/Barbatos.SecsGem.Samples.Transcode.csproj" />
@@ -47,6 +48,7 @@
     <Project Path="tests/Barbatos.SecsGem.ProcessJobs.UnitTests/Barbatos.SecsGem.ProcessJobs.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.MaterialFlow.UnitTests/Barbatos.SecsGem.MaterialFlow.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.PerformanceTracking.UnitTests/Barbatos.SecsGem.PerformanceTracking.UnitTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.Productivity.UnitTests/Barbatos.SecsGem.Productivity.UnitTests.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Barbatos.SecsGem.Benchmarks/Barbatos.SecsGem.Benchmarks.csproj" />

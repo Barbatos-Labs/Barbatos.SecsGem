@@ -12,6 +12,7 @@ using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.MaterialFlow;
 using Barbatos.SecsGem.PerformanceTracking;
 using Barbatos.SecsGem.ProcessJobs;
+using Barbatos.SecsGem.Productivity;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Mapping;
@@ -95,6 +96,7 @@ internal static class Program
         await Run("materialflow: a stopped process job settles the lot it was running", ProcessJobFlowResolvesAsync).ConfigureAwait(false);
         await Run("performancetracking: E116 accounts for a module's time and refuses to be told its state", PerformanceTrackingResolvesAsync).ConfigureAwait(false);
         await Run("objects: E39's other stream answers per object, beside GEM's own nine functions of it", EnhancedServicesResolveAsync).ConfigureAwait(false);
+        await Run("productivity: E10's buckets add up and E79's four factors multiply out", ProductivityResolvesAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -1172,5 +1174,85 @@ internal static class Program
 
         Assert(values.Count == 2, $"{values.Count} value(s) came back for two identifiers");
         Assert(values[1].Count == 0, "a variable the machine does not have was not an empty item");
+    }
+
+    private static async Task ProductivityResolvesAsync()
+    {
+        var services = new ServiceCollection();
+        var clock = new SmokeClock(new DateTimeOffset(2026, 3, 1, 6, 0, 0, TimeSpan.Zero));
+
+        // Before AddSecsGem, so the application's clock wins: the whole reason this registration
+        // hangs off the SECS builder is that it takes the container's TimeProvider.
+        services.AddSingleton<TimeProvider>(clock);
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddProductivityTracking(tracker => tracker.MoveTo(EquipmentState.Standby, "waiting"));
+
+        await using var provider = services.BuildServiceProvider();
+
+        var tracker = provider.GetRequiredService<ProductivityTracker>();
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(tracker.State == EquipmentState.Standby, $"the tracker resolved {tracker.State}, not Standby");
+
+        // Neither standard defines a message, so nothing may be declared - which only a restore
+        // from the packed assemblies can show, because a stray handler would resolve from bin.
+        for (byte function = 1; function < 64; function += 2)
+        {
+            Assert(
+                !router.TryGetHandler(2, function, out _),
+                $"S2F{function} was declared by a package with no messages");
+        }
+
+        clock.Tick(TimeSpan.FromHours(4));
+        Assert(tracker.MoveTo(EquipmentState.Productive).IsAccepted, "the tool could not start producing");
+        clock.Tick(TimeSpan.FromHours(10));
+        tracker.RecordUnits(100, 90, TimeSpan.FromMinutes(5));
+        tracker.RecordCycles(100);
+        Assert(tracker.MoveTo(EquipmentState.UnscheduledDowntime, "pump failed").IsAccepted, "the tool could not fail");
+        clock.Tick(TimeSpan.FromHours(2));
+        Assert(tracker.MoveTo(EquipmentState.Standby, "fixed").IsAccepted, "the tool could not be fixed");
+        clock.Tick(TimeSpan.FromHours(8));
+
+        var report = tracker.Report();
+
+        Assert(report.Total == TimeSpan.FromHours(24), $"the window is {report.Total}, not a day");
+        Assert(
+            report.NonScheduled + report.UnscheduledDowntime + report.ScheduledDowntime
+            + report.Engineering + report.Standby + report.Productive == report.Total,
+            "E10's six buckets do not add up to the window");
+
+        Assert(report.Failures == 1 && report.Repairs == 1, $"{report.Failures} failure(s), {report.Repairs} repair(s)");
+        Assert(report.MeanTimeToRepair == TimeSpan.FromHours(2), $"MTTR came out {report.MeanTimeToRepair}");
+
+        // E79's chain telescopes, so the product of the four factors is a free check on each.
+        var product = report.AvailabilityEfficiency
+            * report.OperationalEfficiency
+            * report.RateEfficiency
+            * report.QualityEfficiency;
+
+        Assert(
+            Math.Abs(product - report.OverallEquipmentEfficiency) < 1e-9,
+            $"the four factors multiply to {product} and OEE is {report.OverallEquipmentEfficiency}");
+
+        Assert(
+            Math.Abs(report.OverallEquipmentEfficiency - (450d / 1_440d)) < 1e-9,
+            $"OEE came out {report.OverallEquipmentEfficiency}, not 450 theoretical minutes in a day");
+    }
+
+    /// <summary>A clock the smoke test moves by hand, so a day takes no time to measure.</summary>
+    private sealed class SmokeClock(DateTimeOffset start) : TimeProvider
+    {
+        private long _stamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override DateTimeOffset GetUtcNow() => start.AddTicks(_stamp);
+
+        public override long GetTimestamp() => _stamp;
+
+        public void Tick(TimeSpan by) => _stamp += by.Ticks;
     }
 }
