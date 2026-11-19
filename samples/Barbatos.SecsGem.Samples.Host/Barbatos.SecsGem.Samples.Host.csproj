@@ -38,6 +38,9 @@
     <!-- The E87-E90 join. This sample is where it earns its keep: the loop it replaces was
          written here by hand, twice. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.MaterialFlow\Barbatos.SecsGem.MaterialFlow.csproj" />
+    <!-- E116, which is the only standard in this sample that reports something none of the others
+         can: that the chamber spent four minutes of a recipe waiting for the next wafer. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.PerformanceTracking\Barbatos.SecsGem.PerformanceTracking.csproj" />
     <!-- So an S9F3 can say which message the equipment refused, by name. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />

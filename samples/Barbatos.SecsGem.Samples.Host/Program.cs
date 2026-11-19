@@ -15,6 +15,7 @@ using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.MaterialFlow;
 using Barbatos.SecsGem.Objects;
+using Barbatos.SecsGem.PerformanceTracking;
 using Barbatos.SecsGem.Substrates;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
@@ -74,6 +75,12 @@ internal static class Program
     /// <param name="Processes">The process jobs - E40, the one of the four with a stream of its own.</param>
     /// <param name="ProcessHost">The host side of E40, which is a real class because stream 16 has one.</param>
     /// <param name="Bridge">The E87-E90 join, which turned the slot map into these substrates.</param>
+    /// <param name="Performance">E116's modules, which account for where this machine's time went.</param>
+    /// <param name="Clock">
+    /// The clock those durations are measured on - the sample's own, because a demonstration that
+    /// waited twenty real minutes to show twenty minutes of etching would not be a demonstration.
+    /// It is the same seam a test uses, which is the point worth taking away.
+    /// </param>
     private sealed record MaterialDemo(
         CarrierHost Host,
         CarrierManager Machine,
@@ -81,13 +88,53 @@ internal static class Program
         ControlJobManager Jobs,
         ProcessJobManager Processes,
         ProcessJobHost ProcessHost,
-        CarrierSubstrateBridge Bridge);
+        CarrierSubstrateBridge Bridge,
+        PerformanceTracker Performance,
+        SampleClock Clock);
+
+    /// <summary>
+    /// A clock the sample moves by hand.
+    /// </summary>
+    /// <remarks>
+    /// Twelve lines, and it is the whole reason E116's figures in this sample are readable: every
+    /// duration the performance tracker reports comes from a <see cref="TimeProvider"/>, so a
+    /// sample can hand it one that jumps and a test can hand it <c>FakeTimeProvider</c>. Nothing
+    /// in the package knows the difference.
+    /// </remarks>
+    private sealed class SampleClock(DateTimeOffset start) : TimeProvider
+    {
+        private long _stamp;
+
+        /// <inheritdoc/>
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        /// <inheritdoc/>
+        public override DateTimeOffset GetUtcNow() => start.AddTicks(_stamp);
+
+        /// <inheritdoc/>
+        public override long GetTimestamp() => _stamp;
+
+        /// <summary>Moves the clock on.</summary>
+        /// <param name="by">How far.</param>
+        public void Advance(TimeSpan by) => _stamp += by.Ticks;
+    }
 
     /// <summary>The carrier this sample walks through E87.</summary>
     private const string CarrierName = "CAR-001";
 
     /// <summary>Where this machine processes a wafer, as E90 names the place.</summary>
     private const string ChuckLocation = "CHUCK";
+
+    /// <summary>The machine as a whole, as an E116 module.</summary>
+    private const string MachineModule = "EQUIPMENT";
+
+    /// <summary>The chamber that does the work, as an E116 module.</summary>
+    /// <remarks>
+    /// The same piece of hardware the stream 14 chamber object further up describes, seen from the
+    /// other end: that one says what it is set to, this one says what it has been doing with its
+    /// time.
+    /// </remarks>
+    private const string ChamberModule = "PM1";
 
     /// <summary>What a slot of the carrier is called as a substrate location.</summary>
     /// <param name="slot">The slot, counting from one.</param>
@@ -358,10 +405,19 @@ internal static class Program
         // process job arrives as an S16F1.
         var processJobs = new ProcessJobManager { JobSpace = 4 };
 
-        // One provider per connection, five things to answer for - carriers and load ports,
-        // substrates and their locations, control jobs, process jobs, and this machine's own
-        // chamber. The composite is the library's, which is the whole point of it existing: this
-        // sample used to carry its own.
+        // E116's modules, on the sample's own clock. Two of them: the machine as a whole and the
+        // chamber that does the work - a flat pair, because E116 does not say how one module's
+        // state follows from another's and this package will not guess.
+        var moduleClock = new SampleClock(new DateTimeOffset(2026, 3, 2, 6, 0, 0, TimeSpan.Zero));
+        var performance = new PerformanceTracker(moduleClock);
+
+        performance.AddModule(MachineModule);
+        performance.AddModule(ChamberModule);
+
+        // One provider per connection, six things to answer for - carriers and load ports,
+        // substrates and their locations, control jobs, process jobs, performance modules, and
+        // this machine's own chamber. The composite is the library's, which is the whole point of
+        // it existing: this sample used to carry its own.
         var equipmentObjects = new ObjectServices(
             equipmentLink,
             new CompositeObjectProvider(
@@ -369,6 +425,7 @@ internal static class Program
                 new SubstrateObjectProvider(substrateTracker),
                 new ControlJobObjectProvider(controlJobs),
                 new ProcessJobObjectProvider(processJobs),
+                new PerformanceObjectProvider(performance),
                 machineObjects));
 
         var hostObjects = new ObjectServices(hostLink);
@@ -420,6 +477,17 @@ internal static class Program
         processHost.JobStateReported += (_, args) => ProcessReports.Enqueue(
             $"S16F11 <- {args.Report.ProcessJobId} is {args.Report.State} at {args.Report.At:HH:mm:ss}");
 
+        // E116's two events, printed rather than published: a CEID belongs to the equipment that
+        // defines it, so this is the few lines an application with a GEM layer writes instead.
+        performance.StateChanged += (_, args) => Console.WriteLine(
+            $"   [ept] {args.Module.ModuleId} {args.Previous} -> {args.Current}"
+            + (args.Module.BlockedReason is { } why ? $" ({why.Code}: {why.Text})" : string.Empty)
+            + (args.Module.CurrentTask is { } task ? $" [{task.Name}]" : string.Empty));
+
+        performance.TaskEnded += (_, args) => Console.WriteLine(
+            $"   [ept] {args.Task.Name} on {args.Module.ModuleId} took {args.Elapsed}, {args.Blocked} of it blocked"
+            + (args.Completed ? string.Empty : " - abandoned"));
+
         pendingEquipment = equipment;
         pendingHost = host;
         pendingMapper = mapper;
@@ -470,7 +538,9 @@ internal static class Program
                     controlJobs,
                     processJobs,
                     processHost,
-                    bridge),
+                    bridge,
+                    performance,
+                    moduleClock),
                 cts.Token);
 
             Console.WriteLine();
@@ -1459,6 +1529,81 @@ internal static class Program
 
                 Console.WriteLine($"   S14F7  -> OBJACK={gone}, {flow.Jobs.Jobs.Count} job(s) left on the machine");
                 ok &= gone == ObjectAcknowledgement.Successful && flow.Jobs.Jobs.Count == 0;
+
+                Console.WriteLine();
+                Console.WriteLine("-- and the machine says where its time went: E116 --");
+                Console.WriteLine();
+
+                // Driven by hand, and that is not a shortcut - it is the point. Nothing above
+                // reports what E116 reports: E40 knows a job is processing and E90 knows a wafer
+                // is in process, and neither of them knows the chamber spent four minutes of it
+                // standing there waiting for the next wafer. That is the fact this standard
+                // exists for, and only the machine has it.
+                //
+                // In a real equipment these calls live inside the handlers that moved the job;
+                // here they are gathered in one place so the printout reads as one story, on the
+                // sample's clock so that twenty minutes of etching takes no real time at all.
+                ok &= flow.Performance.BeginTask(ChamberModule, StartedProgram, PerformanceTaskTypes.Process)
+                    .IsAccepted;
+
+                flow.Clock.Advance(TimeSpan.FromMinutes(12));
+
+                ok &= flow.Performance.Block(ChamberModule, "NO_MATERIAL", "the next wafer is late").IsAccepted;
+
+                // The task is still the chamber's, which is the rule the whole package turns on:
+                // these four minutes are charged to this recipe as well as to this module.
+                ok &= flow.Performance.FindModule(ChamberModule)?.HasTask == true;
+
+                flow.Clock.Advance(TimeSpan.FromMinutes(4));
+
+                ok &= flow.Performance.Unblock(ChamberModule).IsAccepted;
+
+                flow.Clock.Advance(TimeSpan.FromMinutes(8));
+
+                ok &= flow.Performance.EndTask(ChamberModule).IsAccepted;
+
+                // And then half an hour with nothing to run, which is the factory's problem
+                // rather than the machine's - the distinction E116 is for.
+                flow.Clock.Advance(TimeSpan.FromMinutes(36));
+
+                if (flow.Performance.Statistics(ChamberModule) is { } spent)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine(
+                        $"   {ChamberModule}: {spent.TimeExecuting} working, {spent.TimeBlocked} stuck, "
+                        + $"{spent.TimeIdle} waiting for work - {spent.ExecutingShare:P0} utilised");
+
+                    // Twenty working, four stuck, thirty-six idle: the three add up to the window,
+                    // which is the invariant the package is built to keep.
+                    ok &= spent.Total == spent.TimeIdle + spent.TimeExecuting + spent.TimeBlocked
+                        && spent.TasksCompleted == 1;
+                }
+                else
+                {
+                    ok = false;
+                }
+
+                Console.WriteLine();
+
+                await objects.GetAttributesAsync(
+                    ChamberModule,
+                    PerformanceObjectProvider.ModuleType,
+                    ["EPTState", "TimeExecuting", "TimeBlocked", "TimeIdle"],
+                    values => Console.WriteLine($"   S14F1  -> {Describe(values)}"),
+                    cancellationToken);
+
+                // And the refusal that makes the figures worth reading. Everything else in this
+                // sample has at least one attribute a host owns; a module has none, because a
+                // host that could write Executing here could record this chamber as productive
+                // while it stood empty.
+                var told = await objects.SetAttributesAsync(
+                    ChamberModule,
+                    PerformanceObjectProvider.ModuleType,
+                    [new ObjectAttribute { Name = "EPTState", Value = SecsItem.A("Executing") }],
+                    cancellationToken);
+
+                Console.WriteLine($"   S14F3  -> OBJACK={told} - a module's state is observed, not assigned");
+                ok &= told == ObjectAcknowledgement.InvalidAttribute;
             }
 
             Console.WriteLine();

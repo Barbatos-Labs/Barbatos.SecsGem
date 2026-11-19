@@ -10,6 +10,7 @@ using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.MaterialFlow;
+using Barbatos.SecsGem.PerformanceTracking;
 using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
@@ -92,6 +93,7 @@ internal static class Program
         await Run("processjobs: E40 declares stream 16 and all four standards answer stream 14", ProcessJobsResolveAsync).ConfigureAwait(false);
         await Run("materialflow: a verified slot map turns into substrates by itself", MaterialFlowResolvesAsync).ConfigureAwait(false);
         await Run("materialflow: a stopped process job settles the lot it was running", ProcessJobFlowResolvesAsync).ConfigureAwait(false);
+        await Run("performancetracking: E116 accounts for a module's time and refuses to be told its state", PerformanceTrackingResolvesAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -1034,5 +1036,71 @@ internal static class Program
         Assert(
             substrates.FindSubstrate("W02")?.ProcessingState == SubstrateProcessingState.Skipped,
             $"W02 is {substrates.FindSubstrate("W02")?.ProcessingState}, not Skipped");
+    }
+
+    private static async Task PerformanceTrackingResolvesAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddSubstrateTracking(tracker => tracker.AddLocation("CHUCK"))
+            .AddPerformanceTracking(tracker =>
+            {
+                tracker.AddModule("EQUIPMENT");
+                tracker.AddModule("PM1");
+            });
+
+        await using var provider = services.BuildServiceProvider();
+
+        var tracker = provider.GetRequiredService<PerformanceTracker>();
+
+        Assert(tracker.Modules.Count == 2, $"the tracker has {tracker.Modules.Count} module(s), not two");
+
+        // Two packages answering stream 14 from one feed, which is the thing a ProjectReference
+        // build cannot check: a provider missing from the packed assembly resolves to nothing here.
+        var providers = provider.GetServices<IObjectProvider>().ToArray();
+
+        Assert(providers.Length == 2, $"{providers.Length} object provider(s) registered, not two");
+        Assert(
+            providers.OfType<PerformanceObjectProvider>().Any(),
+            "the E116 object provider is not among the registered providers");
+
+        Assert(tracker.BeginTask("PM1", "RECIPE-7", PerformanceTaskTypes.Process).IsAccepted, "the task could not begin");
+        Assert(!tracker.BeginTask("PM1", "RECIPE-8").IsAccepted, "a second task began on an executing module");
+        Assert(tracker.Block("PM1", "NO_MATERIAL", "waiting for the next wafer").IsAccepted, "the module could not be blocked");
+        Assert(tracker.FindModule("PM1")?.HasTask == true, "the block threw away the task it interrupted");
+        Assert(!tracker.Block("PM1", "NO_MATERIAL").IsAccepted, "the same block was accepted twice");
+        Assert(tracker.Unblock("PM1").IsAccepted, "the module could not be unblocked");
+        Assert(
+            tracker.FindModule("PM1")?.State == PerformanceState.Executing,
+            $"PM1 is {tracker.FindModule("PM1")?.State} after unblocking, not Executing");
+        Assert(tracker.EndTask("PM1").IsAccepted, "the task could not end");
+
+        var statistics = tracker.Statistics("PM1");
+
+        Assert(statistics is not null, "a declared module has no statistics");
+        Assert(statistics!.TasksCompleted == 1, $"{statistics.TasksCompleted} task(s) completed, not one");
+        Assert(statistics.Total == statistics.TimeIdle + statistics.TimeExecuting + statistics.TimeBlocked,
+            "the three times do not add up to the window");
+
+        // Read-only on purpose, and this is the one assertion in the file about a refusal that is
+        // a design decision rather than a state machine: a host that could set an EPT state could
+        // record a chamber as productive while it stood empty.
+        var module = new PerformanceObjectProvider(tracker);
+
+        var written = await module.SetAttributesAsync(
+            new ObjectAttributeWrite
+            {
+                Objects = ["PM1"],
+                ObjectType = PerformanceObjectProvider.ModuleType,
+                Attributes = [new ObjectAttribute { Name = "EPTState", Value = SecsItem.A("Executing") }],
+            },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(
+            written.Count == 1 && written[0].Acknowledgement == ObjectAcknowledgement.InvalidAttribute,
+            "a host was allowed to set an EPT state");
     }
 }
