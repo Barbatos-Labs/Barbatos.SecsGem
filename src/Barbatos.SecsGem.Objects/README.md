@@ -1,9 +1,15 @@
 # Barbatos.SecsGem.Objects
 
-Object services - SECS-II stream 14 - for **.NET 8, 9 and 10**: `GetAttr` and `SetAttr` for one
-object or many, the three namelists that say which object types exist, which instances of a type
-exist and which attributes an object has, and the actionable half - create an object, delete one,
-tell one to do something.
+Object services - **SEMI E39**, across both the streams it uses - for **.NET 8, 9 and 10**.
+
+**Stream 14:** `GetAttr` and `SetAttr` for one object or many, the three namelists that say which
+object types exist, which instances of a type exist and which attributes an object has, and the
+actionable half - create an object, delete one, tell one to do something.
+
+**The enhanced half of stream 2:** the same questions GEM asks a machine, addressed to one object
+instead. A command, a report binding, equipment constants, status variables, data variables, alarms
+and diagnostics - each with an `OBJSPEC` in front, because a cluster tool has four chambers and
+S1F3 has nowhere to put the question "which one".
 
 > Part of **[Barbatos.SecsGem](https://github.com/Barbatos-Labs/Barbatos.SecsGem)** - a modern, allocation-conscious SECS-II / HSMS-SS / GEM stack
 > for .NET 8, 9 and 10.
@@ -30,12 +36,18 @@ It also means you can answer stream 14 for objects of your own invention, and th
 E5 does not restrict the object types. A machine that exposes its chambers and its load ports as
 objects with attributes is using the stream for exactly what it is.
 
-## One class, because the stream has no sides
+## Stream 14: one class, because that stream has no sides
 
 E5 marks the attribute messages as travelling either way. A host reads a carrier's attributes from
 a machine; a machine reads a control job's attributes from the host. Neither end is the passive
 one, so there is no `ObjectEquipment` and no `ObjectHost` - there is `ObjectServices`, which asks
 and answers, and an end that only asks is one built without a provider.
+
+The other half of this package is the opposite, and the catalogue is why: every primary from S2F49
+to S2F64 is marked host to equipment, so there *is* a passive end and an active one, and they get
+`EnhancedServicesHost` and `EnhancedServicesEquipment`. Same standard, same package, different
+shape - because the two streams have different directions and a library that hid that would be
+tidier than the thing it describes.
 
 ```csharp
 // An end that asks and answers: it has objects.
@@ -244,6 +256,92 @@ This was the one real fault these chapters turned up: the registration used to k
 provider and drop the rest, so a machine doing E87 and E90 answered carrier attributes and no
 substrate attributes at all, with nothing anywhere saying so.
 
+## The enhanced half of stream 2: asking *which chamber*
+
+GEM can ask a machine for `SVID` 1234 and the machine has one answer. A cluster tool has four
+chambers and therefore four answers, and S1F3 has nowhere to put the question. These eight
+transactions are GEM's own requests with an object in front - the same identifiers, the same
+codes, the same reply shapes, scoped:
+
+| Transaction | What it scopes | GEM's unscoped version |
+| --- | --- | --- |
+| S2F49/F50 | a remote command, `RCMD` with `CPNAME`/`CPVAL` | S2F41/F42 |
+| S2F51/F52, S2F53/F54 | tying a report to an object, and untying it | nothing: GEM's reports are the machine's |
+| S2F55/F56 | equipment constants, `ECID` | S2F13/F14 |
+| S2F57/F58 | status variables, `SVID` | S1F3/F4 |
+| S2F59/F60 | data variables, `VID` | nothing of its own |
+| S2F61/F62 | alarms, `ALID` with `ALCD` and `ALTX` | S5F5/F6 |
+| S2F63/F64 | diagnostic data, `DATAID` with `DGDATA` | nothing of its own |
+
+The catalogue settles the question of whether that reading is a guess. `HCACK`, the code S2F50
+carries, is defined there with **six** values - and the sixth is *no such object exists*, which
+nothing in GEM can ever return, because S2F41 commands the equipment and there is only one of
+those. A code for "no such object" is the reference data saying out loud that a command is
+expected to be addressed to something.
+
+```csharp
+// A host, which declares nothing: every primary in this range is host to equipment.
+services.AddSecsGem(builder.Configuration).UseTcp().AddEnhancedServices();
+
+// ...
+var result = await enhanced.CommandAsync("PM1", "PP-SELECT",
+    [new ObjectParameter { Name = "PPID", Value = "RECIPE-7" }]);
+
+// HCACK 4 is a success. Read IsAccepted rather than comparing to nought.
+Console.WriteLine(result.IsAccepted ? "on its way" : $"refused: {result.Acknowledgement}");
+
+await enhanced.GetStatusVariablesAsync("PM1", [1234, 1235], values =>
+{
+    foreach (var value in values)
+    {
+        // A zero-length item means the machine does not have that one.
+        Console.WriteLine(value.Count == 0 ? "(absent)" : value.ToString());
+    }
+});
+```
+
+**The replies are positional, and that is the one trap worth knowing.** S2F56, S2F58 and S2F60
+carry values and no identifiers, so the n-th value answers the n-th identifier and a variable the
+machine does not have is a **zero-length item in its place** rather than a gap - the rule GEM
+follows for S1F4 and S2F14, where dropping it instead would silently shift every later value by
+one. This library pads a short answer from a provider and trims a long one, so a malformed
+provider cannot put a host's readings out of step, and it says so in the log when a *peer* sends a
+count that does not match. The alarm reply is not positional: its entries carry their own `ALID`,
+so an alarm the machine does not have is simply absent.
+
+An empty identifier list asks for everything, which is also GEM's rule for S1F3 and S2F13.
+
+### Answering it
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddEnhancedServiceProvider<MyChambers>()
+    .RunAsHostedService();
+```
+
+`IEnhancedServiceProvider` has eight methods and **all of them have defaults**, so an equipment
+implements the requests its machine actually serves. `EnhancedInMemoryProvider` is enough for a
+simulator, as `ObjectInMemoryProvider` is for stream 14.
+
+Two differences from stream 14 are deliberate and worth stating, because both would otherwise look
+like oversights:
+
+- **One provider, not several.** Object providers compose because stream 14's object types belong
+  to several standards at once - E87 brings carriers, E90 substrates, from packages that know
+  nothing about each other. These replies are positional, so two providers each answering half a
+  request cannot be merged into one list. The data here is one application's.
+- **The control state is yours to check.** This package does not depend on GEM and cannot see
+  whether the equipment is on-line remote, so an implementation of `CommandAsync` that performs
+  work must gate it the way `GemRemoteCommand.RequiresRemoteControl` does. Otherwise a host can
+  drive a machine an operator has taken offline. The E87 package says the same about its carrier
+  actions, for the same reason.
+
+The eight primaries collide with none of GEM's nine in the same stream - S2F13, F15, F17, F29, F31,
+F33, F35, F37 and F41 - so an equipment calling `AddGemEquipment` and
+`AddEnhancedServiceProvider` has one routing table with nothing lost in it, and a test asserts that
+rather than a comment claiming it.
+
 ## What came from the standard and what did not
 
 Of stream 14's twenty-eight catalogue rows, exactly **one** - S14F1 - is marked as a definition
@@ -263,12 +361,45 @@ item; an acknowledgement is accepted in any numeric format, and in a reply that 
 code. What is refused is a body that cannot be read without guessing - an odd number of flat
 attribute fields, for one, where pairing them would attach a name to the wrong value.
 
+The enhanced stream 2 does **better** on provenance, and it is the only part of this repository
+that can be said of: **two** of its sixteen rows, S2F49 and S2F50, are definitions rather than a
+representative subset. Better still, the fourteen representative ones have a pattern to check
+against rather than prose - every one of them is the GEM message it scopes with `OBJSPEC` in front,
+and that was checked against this repository's own GEM package rather than against a document.
+Where a reading disagreed with GEM's, GEM's won.
+
+Three names in that range have **no dictionary entry at all**, and each is inferred from a defined
+item doing the same job, which the codec says out loud:
+
+- `RPACK` and `URACK`, the two bind acknowledgements, read as `B[1]` with nought meaning accepted -
+  from `DRACK`, `LRACK` and `ERACK`, the acknowledgements of the three report messages E30 *does*
+  define, all three of which are shaped exactly that way. They share one enum here, because
+  declaring two identical enums to mirror two undefined names would be pretending to knowledge
+  nobody has - and `EnhancedReportBindResult` carries the raw byte so a fab whose host uses another
+  code still has it.
+- `DGDATA` is a whole item, for the same reason `ATTRDATA` is: an undefined item has no format of
+  its own, and diagnostic data is whatever the machine produced.
+
+`CPACK` is defined, but only from 1 upwards - E5 expects that list to carry the parameters that
+*failed* - so nought and four are this library's, named as the E40 package named the same item.
+
 ## What is not here yet
 
 - **S14F11 and S14F12** (attribute relations) and **S14F23 to S14F26** (attribute enable, object
   error reports). All representative in the catalogue, and `ENABLE` among them has no definition at
   all - which is reason enough to leave S14F23 alone until a machine needs it.
-- A provider that outlives the process. `ObjectInMemoryProvider` is in memory, as it says.
+- **An `OBJSPEC` parser.** E39 gives the object specifier a syntax - a type and an identifier, and
+  a path when objects nest - and everything here treats it as an opaque string, which is what the
+  catalogue's `OBJSPEC|A|` licenses and no more. A fab whose hierarchy needs parsing does it in its
+  own provider, and when one convention is clearly the usual one it belongs here.
+- **A bridge from these requests to GEM's own stores.** `AddEnhancedServiceProvider` wants a
+  provider because GEM's variables are not addressed by object; turning a `GemEquipment`'s
+  constants and status variables into per-object ones is a mapping with more than one sensible
+  answer, so it is not made here quietly. It is the shape of a join - see
+  [`Barbatos.SecsGem.MaterialFlow`](../Barbatos.SecsGem.MaterialFlow/README.md) for how this
+  repository writes those down.
+- A provider that outlives the process. `ObjectInMemoryProvider` and `EnhancedInMemoryProvider` are
+  in memory, as they say.
 
 The object models themselves live in their own packages, which is the right order to have built
 them in: [`Barbatos.SecsGem.Carriers`](../Barbatos.SecsGem.Carriers/README.md) for E87,

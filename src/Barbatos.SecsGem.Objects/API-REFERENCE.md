@@ -21,6 +21,12 @@ provenance note live in [`README.md`](README.md); this page is member-by-member.
   - [`ObjectCreateResult`](#objectcreateresult)
   - [`ObjectDeleteRequest`](#objectdeleterequest)
   - [`ObjectAcknowledgement`](#objectacknowledgement)
+- [The enhanced half of stream 2](#the-enhanced-half-of-stream-2)
+  - [`EnhancedServicesHost`](#enhancedserviceshost)
+  - [`EnhancedServicesEquipment`](#enhancedservicesequipment)
+  - [`IEnhancedServiceProvider`](#ienhancedserviceprovider)
+  - [`EnhancedInMemoryProvider`](#enhancedinmemoryprovider)
+  - [The enhanced model](#the-enhanced-model)
 - [Registration](#registration)
 
 ## `ObjectServices`
@@ -201,6 +207,114 @@ attribute and leaves the machine to agree or refuse.
 `InvalidObjectInstance = 3`, `InvalidAttribute = 4`. A code E5 does not define reads as `Error`,
 never as `Successful`.
 
+## The enhanced half of stream 2
+
+Eight transactions, all host to equipment: GEM's own questions with an `OBJSPEC` in front. Unlike
+stream 14 this half has a direction, so it has two classes rather than one.
+
+### `EnhancedServicesHost`
+
+`sealed class`. The asking end. Declares no handlers, because a host answers nothing in this range.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| constructor | `EnhancedServicesHost(HsmsConnection connection, ILogger<EnhancedServicesHost>? logger = null)` | |
+| `CommandAsync` | `ValueTask<EnhancedCommandResult> CommandAsync(string objectSpecification, string command, IReadOnlyList<ObjectParameter>? parameters = null, uint dataId = 0, CancellationToken = default)` | S2F49. Read `IsAccepted`, not the code: `CompletionLater` is a success. |
+| `BindReportAsync` | `ValueTask<EnhancedReportBindResult> BindReportAsync(uint reportId, string objectSpecification, CancellationToken = default)` | S2F51. The report is defined with GEM's S2F33. |
+| `UnbindReportAsync` | `ValueTask<EnhancedReportBindResult> UnbindReportAsync(uint reportId, string objectSpecification, CancellationToken = default)` | S2F53. |
+| `GetEquipmentConstantsAsync` | `ValueTask<int> (string objectSpecification, IReadOnlyList<uint> ids, Action<IReadOnlyList<SecsItem>> read, CancellationToken = default)` | S2F55. Positional; an empty list asks for all. |
+| `GetStatusVariablesAsync` | as above | S2F57. |
+| `GetDataVariablesAsync` | as above | S2F59. |
+| `GetAlarmsAsync` | `ValueTask<IReadOnlyList<EnhancedAlarm>> GetAlarmsAsync(string objectSpecification, IReadOnlyList<uint> alarmIds, CancellationToken = default)` | S2F61. Not positional: entries carry their own `ALID`. |
+| `GetDiagnosticsAsync` | `ValueTask<bool> GetDiagnosticsAsync(string objectSpecification, uint dataId, Action<SecsItem> read, CancellationToken = default)` | S2F63. `false` when the machine has no such diagnostic. |
+
+The values come back through a callback for the same reason stream 14's attributes do: each item is
+a view into the reply, and the reply is disposed when the method returns. A reply that cannot be
+read at all throws `SecsException`; an acknowledgement this library does not recognise is reported
+and never reads as success.
+
+### `EnhancedServicesEquipment`
+
+`sealed class`. The answering end. No connection of its own - it answers transactions handed to it.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| constructor | `EnhancedServicesEquipment(IEnhancedServiceProvider provider, ILogger<EnhancedServicesEquipment>? logger = null)` | |
+| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)>` | S2F49, F51, F53, F55, F57, F59, F61, F63. None collides with GEM's nine. |
+| `Provider` | `IEnhancedServiceProvider { get; }` | |
+| `HandleAsync` | `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken = default)` | |
+
+A short answer from a provider is padded with zero-length items and a long one trimmed, so a
+positional reply stays positional. `CommandAsync` is the one call guarded against a throwing
+handler - it answers `CannotPerformNow`, as GEM does for S2F41 - because the read replies have no
+code that could carry a failure.
+
+### `IEnhancedServiceProvider`
+
+`interface`. Eight methods, **all with defaults**, so an equipment implements the requests its
+machine serves.
+
+| Member | Signature | Default |
+| --- | --- | --- |
+| `CommandAsync` | `ValueTask<EnhancedCommandResult> (EnhancedCommandRequest, CancellationToken)` | `InvalidCommand` |
+| `GetEquipmentConstantsAsync` | `ValueTask<IReadOnlyList<SecsItem>> (EnhancedValueRequest, CancellationToken)` | empty |
+| `GetStatusVariablesAsync` | as above | empty |
+| `GetDataVariablesAsync` | as above | empty |
+| `GetAlarmsAsync` | `ValueTask<IReadOnlyList<EnhancedAlarm>> (EnhancedAlarmRequest, CancellationToken)` | empty |
+| `GetDiagnosticsAsync` | `ValueTask<SecsItem?> (EnhancedDiagnosticRequest, CancellationToken)` | `null` |
+| `BindReportAsync` | `ValueTask<EnhancedReportAcknowledgement> (EnhancedReportBinding, CancellationToken)` | `Denied` |
+| `UnbindReportAsync` | as above | `Denied` |
+
+Return one value per requested identifier, with a zero-length item for one this end does not have.
+A value returned becomes the reply's and is disposed with it, so build a fresh item for each - the
+first of the two ownership rules on [`ObjectAttribute`](#objectattribute), unchanged.
+
+**The control state is yours to check** in `CommandAsync`: this package cannot see GEM's.
+
+### `EnhancedInMemoryProvider`
+
+`sealed class : IEnhancedServiceProvider`. Enough for a simulator.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `Objects` | `IReadOnlyCollection<string> { get; }` | |
+| `Bindings` | `IReadOnlyCollection<EnhancedReportBinding> { get; }` | |
+| `AddObject` | `void AddObject(string objectSpecification)` | Also done implicitly by the four setters. |
+| `SetVariable` | `void SetVariable(string objectSpecification, EnhancedVariableKind kind, uint id, SecsItem value)` | Encoded on the way in. |
+| `SetAlarm` | `void SetAlarm(string objectSpecification, EnhancedAlarm alarm)` | Replaces one of the same `ALID`. |
+| `SetDiagnostic` | `void SetDiagnostic(string objectSpecification, uint dataId, SecsItem data)` | |
+| `SetCommand` | `void SetCommand(string objectSpecification, string command, Func<EnhancedCommandRequest, EnhancedCommandResult> handler)` | |
+| `Clear` | `void Clear()` | |
+
+An undeclared object gets `NoSuchObject`, an unregistered command `InvalidCommand`, and binding a
+report twice is denied.
+
+### The enhanced model
+
+| Type | Members |
+| --- | --- |
+| `EnhancedCommandRequest` | `ObjectSpecification`, `Command`, `DataId`, `Parameters` (`ObjectParameter`, shared with S14F9) |
+| `EnhancedCommandResult` | `Acknowledgement`, `Parameters`, `IsAccepted`, `static From(code)` |
+| `EnhancedParameterResult` | `Name`, `Acknowledgement` |
+| `EnhancedValueRequest` | `ObjectSpecification`, `Ids` - one type for `ECID`, `SVID` and `VID`, all `U4` |
+| `EnhancedAlarmRequest` | `ObjectSpecification`, `AlarmIds` |
+| `EnhancedAlarm` | `Id`, `Code` (`ALCD`), `Text`, `IsSet` (bit 7 of the code) |
+| `EnhancedDiagnosticRequest` | `ObjectSpecification`, `DataId` |
+| `EnhancedReportBinding` | `ReportId`, `ObjectSpecification` |
+| `EnhancedReportBindResult` | `Code` (the raw byte), `Acknowledgement`, `IsAccepted` - nought only |
+| `EnhancedVariableKind` | `EquipmentConstant`, `StatusVariable`, `DataVariable` |
+
+| Enum | Members |
+| --- | --- |
+| `EnhancedCommandAcknowledgement` | `Accepted` 0, `InvalidCommand` 1, `CannotPerformNow` 2, `InvalidParameter` 3, `CompletionLater` 4, `AlreadyInDesiredCondition` 5, `NoSuchObject` 6 |
+| `EnhancedParameterAcknowledgement` | `Accepted` 0, `NameDoesNotExist` 1, `IllegalValue` 2, `IllegalFormat` 3, `Error` 4 |
+| `EnhancedReportAcknowledgement` | `Accepted` 0, `Denied` 1 - for both `RPACK` and `URACK`, neither of which the catalogue defines |
+
+`EnhancedCommandAcknowledgement` is spelled like GEM's `GemHostCommandAcknowledgement` on purpose,
+and is a second enum rather than a reference because this package does not depend on GEM - the
+same reason the E40 package declares its own `HCACK`. Its sixth code is the one GEM can never
+produce.
+
 ## Registration
 
 Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBuilder`.
@@ -210,6 +324,12 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBui
 | `AddObjectServices()` | `ObjectServices` for an end that only asks. Declares nothing. |
 | `AddObjectProvider()` | The same plus `ObjectInMemoryProvider`, and handlers for all eleven primaries. |
 | `AddObjectProvider<TProvider>()` | The same with a provider of your own. |
+| `AddEnhancedServices()` | `EnhancedServicesHost`, for a host. Declares nothing: every primary in that range is host to equipment. |
+| `AddEnhancedServiceProvider<TProvider>()` | `EnhancedServicesEquipment` over your provider, and handlers for the eight primaries. |
+
+**The enhanced registration takes one provider, not several**, and that asymmetry is deliberate:
+its replies are positional, so two providers each answering half a request cannot be merged. A
+second call with a different provider keeps the first. Calling it twice is not a start-up failure.
 
 Both ends of one link may use either registration: stream 14 is symmetric, and two ends that both
 have providers can each ask the other.

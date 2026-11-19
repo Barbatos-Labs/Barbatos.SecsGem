@@ -715,7 +715,7 @@ internal static class ObjectCodec
     // ------------------------------------------------------------- the pieces
 
     /// <summary>Writes an action's parameters as two-element entries.</summary>
-    private static SecsItem ParameterListBody(IReadOnlyList<ObjectParameter> parameters)
+    internal static SecsItem ParameterListBody(IReadOnlyList<ObjectParameter> parameters)
     {
         var entries = new SecsItem[parameters.Count];
 
@@ -735,7 +735,7 @@ internal static class ObjectCodec
     /// that is not text is read as its digits, because <c>CPVAL</c> is an <c>A</c> item in the
     /// catalogue and a machine that sends a number has still said what it meant.
     /// </remarks>
-    private static bool TryReadParameterList(SecsItem? item, out List<ObjectParameter> parameters)
+    internal static bool TryReadParameterList(SecsItem? item, out List<ObjectParameter> parameters)
     {
         parameters = [];
 
@@ -788,7 +788,7 @@ internal static class ObjectCodec
     }
 
     /// <summary>Reads a parameter value, which the catalogue says is text and a machine may not send as text.</summary>
-    private static string Value(SecsItem item)
+    internal static string Value(SecsItem item)
     {
         if (item.Format.IsText())
         {
@@ -969,6 +969,6 @@ internal static class ObjectCodec
         static byte? Narrow(long value) => value is >= 0 and <= byte.MaxValue ? (byte)value : null;
     }
 
-    private static string Text(SecsItem item)
+    internal static string Text(SecsItem item)
         => item.Format.IsText() && item.Count > 0 ? item.GetString().TrimEnd() : string.Empty;
 }

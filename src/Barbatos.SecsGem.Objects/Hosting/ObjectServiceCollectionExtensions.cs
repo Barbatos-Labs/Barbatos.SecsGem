@@ -113,4 +113,72 @@ public static class ObjectServiceCollectionExtensions
 
         return builder;
     }
+
+    /// <summary>Adds the asking end of E39's enhanced services - the stream 2 messages that carry an <c>OBJSPEC</c>.</summary>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// For a host. Registers <see cref="EnhancedServicesHost"/> and declares nothing in the
+    /// routing table, because every primary in this range travels host to equipment and a host
+    /// answers none of them.
+    /// </para>
+    /// <para>
+    /// This is what lets a host ask <em>which chamber</em>. GEM's S1F3 asks a machine for
+    /// <c>SVID</c> 1234 and the machine has one answer; S2F57 asks a named object for it.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddEnhancedServices(this ISecsGemBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton(provider => new EnhancedServicesHost(
+            provider.GetRequiredService<HsmsConnection>(),
+            provider.GetService<ILogger<EnhancedServicesHost>>()));
+
+        return builder;
+    }
+
+    /// <summary>Adds the answering end of E39's enhanced services, backed by a provider of your own.</summary>
+    /// <typeparam name="TProvider">Where the per-object variables, constants, alarms and diagnostics live.</typeparam>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// For an equipment. Registers <typeparamref name="TProvider"/> as the
+    /// <see cref="IEnhancedServiceProvider"/>, an <see cref="EnhancedServicesEquipment"/>, and a
+    /// handler for every pair in <see cref="EnhancedServicesEquipment.HandledMessages"/> - S2F49,
+    /// F51, F53, F55, F57, F59, F61 and F63. None of them collides with <c>AddGemEquipment</c>,
+    /// which declares a different nine functions of the same stream.
+    /// </para>
+    /// <para>
+    /// <strong>One provider, unlike stream 14, and the difference is not an oversight.</strong>
+    /// Object providers compose because stream 14's object types belong to several standards at
+    /// once - E87 brings carriers and E90 brings substrates, from packages that know nothing about
+    /// each other. These replies are positional: S2F56, S2F58 and S2F60 carry values and no
+    /// identifiers, so two providers each answering half a request cannot be merged into one list
+    /// without putting a host's readings out of step. The data here is one application's, and one
+    /// application answers for it. A second call with a different provider keeps the first.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddEnhancedServiceProvider<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TProvider>(
+        this ISecsGemBuilder builder)
+        where TProvider : class, IEnhancedServiceProvider
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton<IEnhancedServiceProvider, TProvider>();
+        builder.Services.TryAddSingleton(provider => new EnhancedServicesEquipment(
+            provider.GetRequiredService<IEnhancedServiceProvider>(),
+            provider.GetService<ILogger<EnhancedServicesEquipment>>()));
+
+        // Resolved inside the handler rather than inside the factory, the same cycle every other
+        // registration in this repository solves the same way.
+        builder.DeclareOnce(EnhancedServicesEquipment.HandledMessages, static provider =>
+            (transaction, token) =>
+                provider.GetRequiredService<EnhancedServicesEquipment>().HandleAsync(transaction, token));
+
+        return builder;
+    }
 }

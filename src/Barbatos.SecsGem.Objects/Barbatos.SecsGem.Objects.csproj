@@ -4,8 +4,8 @@
     <PackageId>Barbatos.SecsGem.Objects</PackageId>
     <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
     <RootNamespace>Barbatos.SecsGem.Objects</RootNamespace>
-    <PackageTags>secs;e5;stream14;objectservices;getattr;setattr;attributes;namelist</PackageTags>
-    <Description>Object services (SECS-II stream 14) for .NET: GetAttr and SetAttr for one object or many, and the three namelists that say which object types exist, which instances of a type exist and which attributes an object has. Either end may ask and either may answer, so one class does both. Stream 14 is a protocol over object models that other standards define - E87 carriers, E90 substrates, E94 control jobs - so this package supplies the protocol and your application supplies the objects, through one five-method interface. Depends on Barbatos.SecsGem.Hsms, not on GEM.</Description>
+    <PackageTags>secs;e39;e5;stream14;stream2;objectservices;getattr;setattr;attributes;namelist;objspec</PackageTags>
+    <Description>Object services (SEMI E39) for .NET, across both the streams it uses. Stream 14: GetAttr and SetAttr for one object or many, the three namelists that say which object types exist, which instances of a type exist and which attributes an object has, and the actionable half - create, delete, act. Either end may ask and either may answer, so one class does both. The enhanced half of stream 2 (S2F49-S2F64): the same questions GEM asks a machine, addressed to one object instead - a command, a report binding, equipment constants, status variables, data variables, alarms and diagnostics, each with an OBJSPEC in front, because a cluster tool has four chambers and S1F3 has nowhere to put the question which one. Both halves are a protocol over data other standards define - E87 carriers, E90 substrates, E94 control jobs, GEM variables - so this package supplies the protocol and your application supplies the data, through one interface per half. Depends on Barbatos.SecsGem.Hsms, not on GEM.</Description>
   </PropertyGroup>
 
   <ItemGroup>

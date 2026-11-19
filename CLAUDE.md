@@ -20,7 +20,11 @@ assets/       SML/JSON conformance fixtures
 
 ```
 Core  <-  Hsms  <-  Gem
-            ^----  WaferMap, Material, Objects   (E5 streams 12, 3, 14; deliberately not on Gem)
+            ^----  WaferMap, Material, Objects   (E5 streams 12 and 3, and E39's two - stream 14
+                                                 plus the OBJSPEC half of stream 2, S2F49-S2F64;
+                                                 all three deliberately not on Gem, so the
+                                                 enhanced commands' control-state gate is the
+                                                 application's and says so)
                                  ^-- Carriers, Substrates, ControlJobs, ProcessJobs
                                      (E87, E90, E94, E40, on Objects: their attributes are
                                      stream 14; E90 and E94 have no messages at all, E87

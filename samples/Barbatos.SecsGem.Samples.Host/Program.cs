@@ -188,6 +188,15 @@ internal static class Program
     private const string JobName = "CJ-1";
 
     /// <summary>The chamber, as stream 14 names it.</summary>
+    /// <summary>The second chamber, which is the reason E39's enhanced stream 2 exists.</summary>
+    /// <remarks>
+    /// The first one is <see cref="ChamberModule"/>, and it is deliberately the same constant the
+    /// E116 modules use: one piece of hardware, addressed by three standards in this sample - as a
+    /// stream 14 object with a setpoint, as an E116 module with an account of its time, and here
+    /// as the owner of its own copy of a machine-wide status variable.
+    /// </remarks>
+    private const string SecondChamber = "PM2";
+
     private const string ChamberObject = "CH-1";
 
     /// <summary>And its type. Both are the machine's own vocabulary: E5 does not define object types.</summary>
@@ -301,6 +310,16 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingObjects!.HandleAsync(transaction, token));
         }
 
+        // And E39's other half, which is eight more primaries on stream 2 - none of them one of
+        // the nine GemEquipment already declared above, which is the arrangement worth seeing in a
+        // sample: both sets on one routing table with nothing lost.
+        EnhancedServicesEquipment? pendingEnhanced = null;
+
+        foreach (var (stream, function) in EnhancedServicesEquipment.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEnhanced!.HandleAsync(transaction, token));
+        }
+
         // And E87: five primaries on stream 3, with the carrier and load port attributes going out
         // through the object services above.
         CarrierEquipment? pendingCarriers = null;
@@ -383,6 +402,30 @@ internal static class Program
         machineObjects.Add("PORT-1", "LoadPort");
         machineObjects.Set("PORT-1", "State", SecsItem.A("ReadyToLoad"));
 
+        // E39's other half: the same SVID the GEM model below publishes machine-wide, but held
+        // per chamber. This is the whole point of the enhanced stream 2 in four lines - a cluster
+        // tool has two pressures and S1F3 has nowhere to put the question which one.
+        var chamberData = new EnhancedInMemoryProvider();
+
+        chamberData.SetVariable(ChamberModule, EnhancedVariableKind.StatusVariable, PressureVariable, SecsItem.F8(1_013.25d));
+        chamberData.SetVariable(SecondChamber, EnhancedVariableKind.StatusVariable, PressureVariable, SecsItem.F8(2.7d));
+        chamberData.SetVariable(ChamberModule, EnhancedVariableKind.EquipmentConstant, 7, SecsItem.U4(450));
+        chamberData.SetAlarm(
+            SecondChamber,
+            new EnhancedAlarm { Id = 9000, Code = 0x82, Text = "Chamber pressure out of range" });
+        chamberData.SetDiagnostic(ChamberModule, 99, SecsItem.L(SecsItem.A("PUMP"), SecsItem.U4(17)));
+
+        // The command a host can address to one chamber. The control state is not checked here,
+        // and this is the one line of the sample that says so out loud: this package cannot see
+        // GEM's control state, so an equipment that performs work gates it itself, exactly as
+        // GemRemoteCommand.RequiresRemoteControl does above.
+        chamberData.SetCommand(
+            SecondChamber,
+            "PP-SELECT",
+            request => request.Parameters.Count == 0
+                ? EnhancedCommandResult.From(EnhancedCommandAcknowledgement.InvalidParameter)
+                : EnhancedCommandResult.From(EnhancedCommandAcknowledgement.CompletionLater));
+
         // E87's state machines, with one load port, in service and clear.
         var carrierManager = new CarrierManager();
 
@@ -429,6 +472,10 @@ internal static class Program
                 machineObjects));
 
         var hostObjects = new ObjectServices(hostLink);
+
+        // The asking end of E39's enhanced stream 2. It declares nothing, because every primary in
+        // that range travels host to equipment.
+        var enhancedHost = new EnhancedServicesHost(hostLink);
         var carrierEquipment = new CarrierEquipment(carrierManager);
         var carrierHost = new CarrierHost(hostLink);
         var processEquipment = new ProcessJobEquipment(processJobs, equipmentLink);
@@ -495,6 +542,7 @@ internal static class Program
         pendingMaterial = materialEquipment;
         pendingMaterialHost = materialHost;
         pendingObjects = equipmentObjects;
+        pendingEnhanced = new EnhancedServicesEquipment(chamberData);
         pendingCarriers = carrierEquipment;
         pendingProcesses = processEquipment;
         pendingProcessHost = processHost;
@@ -531,6 +579,7 @@ internal static class Program
                 materialEquipment,
                 materialHost,
                 hostObjects,
+                enhancedHost,
                 new MaterialDemo(
                     carrierHost,
                     carrierManager,
@@ -652,6 +701,10 @@ internal static class Program
                 materialEquipment: null,
                 materialHost: null,
                 objects: provider.GetRequiredService<ObjectServices>(),
+
+                // Over a socket the equipment is the other sample, which does not serve E39's
+                // enhanced stream 2 - so the host does not ask it.
+                enhanced: null,
                 flow: null,
                 cts.Token);
 
@@ -705,6 +758,7 @@ internal static class Program
         MaterialEquipment? materialEquipment,
         MaterialHost? materialHost,
         ObjectServices? objects,
+        EnhancedServicesHost? enhanced,
         MaterialDemo? flow,
         CancellationToken cancellationToken)
     {
@@ -1185,6 +1239,96 @@ internal static class Program
 
             Console.WriteLine($"   S14F1  -> CH-99: {(found ? "found" : "no such object")}");
             ok &= !found;
+        }
+
+        if (enhanced is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and asks the same question of one chamber rather than of the machine: E39 --");
+            Console.WriteLine();
+
+            // The same SVID three times. GEM's S1F3 can only ask the machine, and the machine has
+            // one answer; the two chambers have their own, and the whole of the difference between
+            // the two messages is an OBJSPEC in front.
+            using (var wide = await host.ReadStatusAsync([PressureVariable], cancellationToken))
+            {
+                var value = wide.Item is { IsList: true, Count: > 0 } body
+                    ? body.Items[0].FirstValueOrDefault<double>()
+                    : 0d;
+
+                Console.WriteLine($"   S1F3   -> the machine's Pressure is {value:F2} mbar");
+            }
+
+            foreach (var chamber in new[] { ChamberModule, SecondChamber })
+            {
+                var read = 0d;
+
+                var answered = await enhanced.GetStatusVariablesAsync(
+                    chamber,
+                    [PressureVariable],
+                    values => read = values[0].IsList ? double.NaN : values[0].FirstValueOrDefault<double>(),
+                    cancellationToken);
+
+                Console.WriteLine($"   S2F57  -> {chamber}'s Pressure is {read:F2} mbar");
+                ok &= answered == 1 && !double.IsNaN(read);
+            }
+
+            // And the placeholder rule, which is the one trap in this half of the stream: the
+            // reply carries values and no identifiers, so a variable the machine does not have is
+            // a zero-length item in its place and never a gap.
+            await enhanced.GetStatusVariablesAsync(
+                ChamberModule,
+                [PressureVariable, 7777],
+                values => Console.WriteLine(
+                    $"   S2F57  -> two asked for, {values.Count} back, and the missing one is "
+                    + $"{(values[1].Count == 0 ? "an empty item in its place" : "something else")}"),
+                cancellationToken);
+
+            // A command addressed to a chamber. HCACK 4 is a success - the recipe will be selected
+            // and the machine will say so with an event - which is why IsAccepted exists.
+            var selected = await enhanced.CommandAsync(
+                SecondChamber,
+                "PP-SELECT",
+                [new ObjectParameter { Name = "PPID", Value = StartedProgram }],
+                dataId: 1,
+                cancellationToken);
+
+            Console.WriteLine(
+                $"   S2F49  -> PP-SELECT on {SecondChamber}: HCACK={selected.Acknowledgement}"
+                + $" ({(selected.IsAccepted ? "accepted" : "refused")})");
+            ok &= selected.IsAccepted;
+
+            // And the code the catalogue kept for this stream and this stream only. Nothing in GEM
+            // can return HCACK 6: S2F41 commands the equipment, and there is only one of those.
+            var nowhere = await enhanced.CommandAsync("PM9", "PP-SELECT", cancellationToken: cancellationToken);
+
+            Console.WriteLine($"   S2F49  -> the same command to PM9: HCACK={nowhere.Acknowledgement}");
+            ok &= nowhere.Acknowledgement == EnhancedCommandAcknowledgement.NoSuchObject;
+
+            // An alarm list scoped to one chamber, which S5F5 cannot do either.
+            var alarms = await enhanced.GetAlarmsAsync(SecondChamber, [], cancellationToken);
+
+            foreach (var alarm in alarms)
+            {
+                Console.WriteLine(
+                    $"   S2F61  -> {SecondChamber} ALID={alarm.Id} {(alarm.IsSet ? "SET" : "CLEARED")}: {alarm.Text}");
+            }
+
+            ok &= alarms.Count == 1 && (await enhanced.GetAlarmsAsync(ChamberModule, [], cancellationToken)).Count == 0;
+
+            // A report tied to a chamber: the report itself is GEM's, defined with S2F33 further
+            // up, and this says whose copy of those variables it should carry.
+            var bound = await enhanced.BindReportAsync(1, ChamberModule, cancellationToken);
+
+            Console.WriteLine($"   S2F51  -> report 1 bound to {ChamberModule}: RPACK={bound.Acknowledgement}");
+            ok &= bound.IsAccepted;
+
+            // Twice says nothing, so it is denied - and RPACK has no definition in the catalogue
+            // at all, which is why the raw byte comes back beside the enum.
+            var again = await enhanced.BindReportAsync(1, ChamberModule, cancellationToken);
+
+            Console.WriteLine($"   S2F51  -> and again: RPACK={again.Code} ({again.Acknowledgement})");
+            ok &= !again.IsAccepted;
         }
 
         if (flow is not null)

@@ -94,6 +94,7 @@ internal static class Program
         await Run("materialflow: a verified slot map turns into substrates by itself", MaterialFlowResolvesAsync).ConfigureAwait(false);
         await Run("materialflow: a stopped process job settles the lot it was running", ProcessJobFlowResolvesAsync).ConfigureAwait(false);
         await Run("performancetracking: E116 accounts for a module's time and refuses to be told its state", PerformanceTrackingResolvesAsync).ConfigureAwait(false);
+        await Run("objects: E39's other stream answers per object, beside GEM's own nine functions of it", EnhancedServicesResolveAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -1102,5 +1103,74 @@ internal static class Program
         Assert(
             written.Count == 1 && written[0].Acknowledgement == ObjectAcknowledgement.InvalidAttribute,
             "a host was allowed to set an EPT state");
+    }
+
+    private static async Task EnhancedServicesResolveAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+
+            // GEM and both halves of E39 on one machine. GemEquipment declares nine functions of
+            // stream 2 and the enhanced set declares eight others, which only a restore from the
+            // real .nupkg files can prove do not tread on each other.
+            .AddGemEquipment(
+                model => model.AddStatusVariable(1u, "ControlState", () => SecsItem.U1(5)),
+                runAsHostedService: false)
+            .AddObjectProvider()
+            .AddEnhancedServiceProvider<EnhancedInMemoryProvider>();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+        var equipment = provider.GetRequiredService<EnhancedServicesEquipment>();
+
+        Assert(
+            EnhancedServicesEquipment.HandledMessages.Count == 8,
+            $"the enhanced set declares {EnhancedServicesEquipment.HandledMessages.Count} primaries, not eight");
+
+        foreach (var (stream, function) in EnhancedServicesEquipment.HandledMessages)
+        {
+            Assert(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} has no handler");
+        }
+
+        foreach (var (stream, function) in GemEquipment.HandledMessages.Concat(ObjectServices.HandledMessages))
+        {
+            Assert(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} lost its handler");
+        }
+
+        Assert(
+            equipment.Provider is EnhancedInMemoryProvider,
+            $"the equipment resolved with {equipment.Provider.GetType().Name}, not the in-memory provider");
+
+        var store = (EnhancedInMemoryProvider)equipment.Provider;
+
+        store.SetVariable("PM1", EnhancedVariableKind.StatusVariable, 1234, SecsItem.U4(250));
+        store.SetCommand("PM1", "START", _ => EnhancedCommandResult.From(EnhancedCommandAcknowledgement.CompletionLater));
+
+        // The two codes worth checking from a packed assembly: HCACK 4 is a success, and HCACK 6
+        // is the code the catalogue kept for a stream that can address an object.
+        var started = await store.CommandAsync(
+            new EnhancedCommandRequest { ObjectSpecification = "PM1", Command = "START" },
+            CancellationToken.None).ConfigureAwait(false);
+
+        var nowhere = await store.CommandAsync(
+            new EnhancedCommandRequest { ObjectSpecification = "PM9", Command = "START" },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(started.IsAccepted, $"HCACK {started.Acknowledgement} did not read as accepted");
+        Assert(
+            nowhere.Acknowledgement == EnhancedCommandAcknowledgement.NoSuchObject,
+            $"a command to an undeclared object answered {nowhere.Acknowledgement}, not NoSuchObject");
+
+        // And the positional rule, which is the one thing a caller can get silently wrong.
+        var values = await store.GetStatusVariablesAsync(
+            new EnhancedValueRequest { ObjectSpecification = "PM1", Ids = [1234, 7777] },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(values.Count == 2, $"{values.Count} value(s) came back for two identifiers");
+        Assert(values[1].Count == 0, "a variable the machine does not have was not an empty item");
     }
 }
