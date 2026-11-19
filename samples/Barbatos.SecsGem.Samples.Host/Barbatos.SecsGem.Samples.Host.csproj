@@ -45,6 +45,9 @@
          say what the tool was for the shift - and their numbers leave as a GEM status variable,
          which is the one thing this sample is here to show about them. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Productivity\Barbatos.SecsGem.Productivity.csproj" />
+    <!-- And the join between them, which is the only thing in this sample that turns one
+         standard's observations into another's accounting with no code in between. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.PerformanceFlow\Barbatos.SecsGem.PerformanceFlow.csproj" />
     <!-- So an S9F3 can say which message the equipment refused, by name. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Mapper\Barbatos.SecsGem.Mapper.csproj" />

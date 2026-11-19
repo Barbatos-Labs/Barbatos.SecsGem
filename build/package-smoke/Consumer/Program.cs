@@ -10,6 +10,7 @@ using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.Catalog;
 using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.MaterialFlow;
+using Barbatos.SecsGem.PerformanceFlow;
 using Barbatos.SecsGem.PerformanceTracking;
 using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Productivity;
@@ -97,6 +98,7 @@ internal static class Program
         await Run("performancetracking: E116 accounts for a module's time and refuses to be told its state", PerformanceTrackingResolvesAsync).ConfigureAwait(false);
         await Run("objects: E39's other stream answers per object, beside GEM's own nine functions of it", EnhancedServicesResolveAsync).ConfigureAwait(false);
         await Run("productivity: E10's buckets add up and E79's four factors multiply out", ProductivityResolvesAsync).ConfigureAwait(false);
+        await Run("performanceflow: a shift driven through E116 lands in E10 with no code between", PerformanceFlowResolvesAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -1240,6 +1242,93 @@ internal static class Program
         Assert(
             Math.Abs(report.OverallEquipmentEfficiency - (450d / 1_440d)) < 1e-9,
             $"OEE came out {report.OverallEquipmentEfficiency}, not 450 theoretical minutes in a day");
+    }
+
+    private static async Task PerformanceFlowResolvesAsync()
+    {
+        const string tool = "EQUIPMENT";
+
+        var services = new ServiceCollection();
+        var clock = new SmokeClock(new DateTimeOffset(2026, 3, 1, 6, 0, 0, TimeSpan.Zero));
+
+        services.AddSingleton<TimeProvider>(clock);
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddPerformanceTracking(tracker =>
+            {
+                tracker.AddModule(tool);
+                tracker.AddModule("PM1");
+            })
+            .AddProductivityTracking()
+            .AddPerformanceProductivityBridge(
+                tool,
+                options => options.BlockedStates["NO_MATERIAL"] = EquipmentState.Standby);
+
+        await using var provider = services.BuildServiceProvider();
+
+        var bridge = provider.GetRequiredService<PerformanceProductivityBridge>();
+        var performance = provider.GetRequiredService<PerformanceTracker>();
+        var productivity = provider.GetRequiredService<ProductivityTracker>();
+
+        Assert(bridge.IsAttached, "the bridge resolved detached");
+        Assert(bridge.ModuleId == tool, $"the bridge follows '{bridge.ModuleId}', not '{tool}'");
+
+        // Already in line, which only a resolve can show: an idle module on a scheduled tool is
+        // standby, and E10 would otherwise sit in non-scheduled until the first transition.
+        Assert(
+            productivity.State == EquipmentState.Standby,
+            $"E10 resolved {productivity.State}, not Standby");
+
+        var missing = 0;
+
+        bridge.MappingMissing += (_, _) => missing++;
+
+        clock.Tick(TimeSpan.FromHours(2));
+        Assert(
+            performance.BeginTask(tool, "RECIPE-7", PerformanceTaskTypes.Process).IsAccepted,
+            "the module could not begin its task");
+
+        // The task type is the intent, so this needed no mapping at all.
+        Assert(
+            productivity.State == EquipmentState.Productive,
+            $"a Process task left E10 in {productivity.State}, not Productive");
+
+        clock.Tick(TimeSpan.FromHours(10));
+        Assert(performance.Block(tool, "NO_MATERIAL").IsAccepted, "the module could not be blocked");
+        Assert(
+            productivity.State == EquipmentState.Standby,
+            $"a mapped NO_MATERIAL left E10 in {productivity.State}, not Standby");
+
+        clock.Tick(TimeSpan.FromHours(2));
+
+        // And the reason changing, which E116 reports without moving - the half a bridge watching
+        // only transitions would miss entirely.
+        Assert(performance.Block(tool, "INTERLOCK").IsAccepted, "the reason could not change");
+        Assert(
+            productivity.State == EquipmentState.UnscheduledDowntime,
+            $"an unmapped INTERLOCK left E10 in {productivity.State}, not UnscheduledDowntime");
+
+        Assert(missing == 1, $"{missing} mapping(s) reported missing, not one");
+
+        clock.Tick(TimeSpan.FromHours(10));
+
+        var report = productivity.Report();
+
+        Assert(report.Total == TimeSpan.FromHours(24), $"the window is {report.Total}, not a day");
+        Assert(report.Productive == TimeSpan.FromHours(10), $"productive came out {report.Productive}");
+        Assert(report.Standby == TimeSpan.FromHours(4), $"standby came out {report.Standby}");
+        Assert(
+            report.UnscheduledDowntime == TimeSpan.FromHours(10),
+            $"downtime came out {report.UnscheduledDowntime}");
+        Assert(report.Failures == 1, $"{report.Failures} failure(s), not one");
+
+        // Nobody touched the E10 tracker in any of that.
+        Assert(
+            report.NonScheduled + report.UnscheduledDowntime + report.ScheduledDowntime
+            + report.Engineering + report.Standby + report.Productive == report.Total,
+            "E10's six buckets do not add up to the window");
     }
 
     /// <summary>A clock the smoke test moves by hand, so a day takes no time to measure.</summary>

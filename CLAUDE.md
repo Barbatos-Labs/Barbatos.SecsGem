@@ -7,7 +7,7 @@ signature is a breaking change in somebody's fab.
 ## Repository map
 
 ```
-src/          twenty-one shipping packages, one folder each (+ README.md, API-REFERENCE.md)
+src/          twenty-two shipping packages, one folder each (+ README.md, API-REFERENCE.md)
 src/Shared/   compile-linked source, not a package: the serialization hub registration
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
@@ -29,19 +29,25 @@ Core  <-  Hsms  <-  Gem
                                      (E87, E90, E94, E40, on Objects: their attributes are
                                      stream 14; E90 and E94 have no messages at all, E87
                                      borrows S3F17, and E40 has stream 16 of its own)
-                                            ^-- MaterialFlow   (the E87-E90 and E40-E90 joins, and
-                                                the only package here that depends on several
-                                                standards: none of those may depend on another)
+                                            ^-- MaterialFlow   (the E87-E90 and E40-E90 joins)
                                  ^-- PerformanceTracking  (E116, on Objects and on nothing else
                                      here: not a material standard, no messages, and no mapping
                                      onto E10 - that one is the factory's to make, not ours)
             ^----  Productivity   (E10 + E79, on Hsms for one thing: the container's TimeProvider.
                                    No messages, no items, no object type - these two standards
                                    define measurements, so there is nothing to put on a wire.
-                                   Deliberately NOT on PerformanceTracking: see above.)
+                                   Deliberately NOT on PerformanceTracking: see below.)
+                       ^-- PerformanceFlow  (the E116-E10 join, on PerformanceTracking and
+                           Productivity)
   ^-- Serialization.{Sml,Json,Xml,Ini}
   ^-- Mapper  <-- SourceGenerators (analyzer only)
 ```
+
+**Two join packages**, `MaterialFlow` and `PerformanceFlow`, and they are the only packages here
+that depend on several standards. The rule both keep: **none of the standards a join package joins
+may depend on another.** A join lives in its own package precisely so the standards it connects
+stay usable apart, and so the conventions it has to invent are visible in one place instead of
+buried in whichever package got there first.
 
 - `Core` must never reference a socket, a pipe transport or `Microsoft.Extensions.*`.
   Its only third-party dependency is `CommunityToolkit.HighPerformance`.

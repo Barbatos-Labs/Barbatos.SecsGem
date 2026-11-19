@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.PerformanceFlow</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.PerformanceFlow</RootNamespace>
+    <PackageTags>secs;e116;e10;e79;ept;oee;availability;utilisation;equipment;performance;fab300</PackageTags>
+    <Description>The join between the equipment-performance standards for .NET, which neither of them makes itself. E116 says what a chamber is doing this minute and E10 says what the tool was for the shift, and nothing carries the first into the second - so a fab runs both and types the second one in by hand, which is where a day's availability stops being a measurement. This maps one module's EPT state onto the tool's six E10 states and drives the accounting, with every convention replaceable. Three things only a fab can say, and all three are asked for: which module is the tool, what the machine's task types and blocked reason codes mean in E10's terms, and whether the tool is scheduled at all. What it does not ask for is the part the machine already recorded - a task type is the intent E10 wants, so a Process task is productive time and an Engineering task is engineering time in both standards' own words. Where a default cannot be avoided it is the one that cannot flatter the tool: an unmapped reason is charged to unscheduled downtime and reported every time, because an unmapped reason is a problem and should look like one. Depends on Barbatos.SecsGem.PerformanceTracking and Barbatos.SecsGem.Productivity, which stay independent of each other.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+    <!-- The two standards this joins. Neither may depend on the other - that is what makes this a
+         third package rather than a method on one of them, the same rule MaterialFlow follows. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.PerformanceTracking\Barbatos.SecsGem.PerformanceTracking.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Productivity\Barbatos.SecsGem.Productivity.csproj" />
+  </ItemGroup>
+
+</Project>

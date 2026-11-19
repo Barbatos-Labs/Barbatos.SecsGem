@@ -16,6 +16,7 @@ using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.MaterialFlow;
 using Barbatos.SecsGem.Objects;
+using Barbatos.SecsGem.PerformanceFlow;
 using Barbatos.SecsGem.PerformanceTracking;
 using Barbatos.SecsGem.Substrates;
 using Barbatos.SecsGem.WaferMap;
@@ -99,7 +100,8 @@ internal static class Program
         ProcessJobHost ProcessHost,
         CarrierSubstrateBridge Bridge,
         PerformanceTracker Performance,
-        SampleClock Clock);
+        SampleClock Clock,
+        PerformanceProductivityBridge Flow);
 
     /// <summary>
     /// A clock the sample moves by hand.
@@ -471,6 +473,26 @@ internal static class Program
         // shift. One tracker, because E10 measures a piece of equipment and this is one.
         _productivity = new ProductivityTracker(moduleClock);
 
+        // And the join between them, on the module that is the tool. The two mapping dictionaries
+        // are the whole of what a fab has to say: the task types E116 already records carry the
+        // intent, and the blocked reason codes are this machine's own words.
+        var performanceFlow = new PerformanceProductivityBridge(
+            performance,
+            _productivity,
+            MachineModule,
+            new PerformanceProductivityOptions
+            {
+                BlockedStates =
+                {
+                    ["NO_MATERIAL"] = EquipmentState.Standby,
+                    ["NO_OPERATOR"] = EquipmentState.Standby,
+                    ["INTERLOCK"] = EquipmentState.UnscheduledDowntime,
+                },
+                TaskStates = { [PerformanceTaskTypes.Maintenance] = EquipmentState.ScheduledDowntime },
+            });
+
+        performanceFlow.Attach();
+
         performance.AddModule(MachineModule);
         performance.AddModule(ChamberModule);
 
@@ -606,7 +628,8 @@ internal static class Program
                     processHost,
                     bridge,
                     performance,
-                    moduleClock),
+                    moduleClock,
+                    performanceFlow),
                 cts.Token);
 
             Console.WriteLine();
@@ -1865,6 +1888,71 @@ internal static class Program
                     Console.WriteLine($"   S1F3   -> the host reads Availability = {published:F4}");
                     ok &= Math.Abs(published - shiftReport.AvailabilityEfficiency) < 1e-6;
                 }
+
+                Console.WriteLine();
+                Console.WriteLine("-- and then nobody types it in: E116 drives E10 --");
+                Console.WriteLine();
+
+                // Everything above moved the E10 tracker by hand. This moves nothing but E116, on
+                // the module that is the tool, and the shift follows - which is the whole of what
+                // the join is for.
+                flow.Flow.MappingMissing += (_, args) => Console.WriteLine(
+                    $"   [flow] nothing maps {args.PerformanceState}"
+                    + (args.TaskType.Length > 0 ? $" '{args.TaskType}'" : string.Empty)
+                    + (args.BlockedReason.Length > 0 ? $" '{args.BlockedReason}'" : string.Empty)
+                    + $", so it is charged to {args.Charged}");
+
+                ok &= tool.Reset().IsAccepted;
+                ok &= flow.Flow.Apply().IsAccepted;
+
+                Console.WriteLine($"   the tool is {tool.State} because {MachineModule} is idle and the shift is staffed");
+
+                (string What, Action Do, int Hours)[] followed =
+                [
+                    ("the machine starts a lot",
+                        () => flow.Performance.BeginTask(MachineModule, StartedProgram, PerformanceTaskTypes.Process),
+                        9),
+                    ("the next carrier is late",
+                        () => flow.Performance.Block(MachineModule, "NO_MATERIAL", "the load port is empty"),
+                        3),
+                    ("and then somebody opens the door",
+                        () => flow.Performance.Block(MachineModule, "INTERLOCK", "maintenance hatch"),
+                        1),
+                    ("the door is shut again",
+                        () => flow.Performance.Unblock(MachineModule),
+                        10),
+                    ("and the lot is finished",
+                        () => flow.Performance.EndTask(MachineModule),
+                        1),
+                ];
+
+                foreach (var (what, act, hours) in followed)
+                {
+                    act();
+
+                    Console.WriteLine($"   {what,-34} -> E10 is now {tool.State}");
+                    flow.Clock.Advance(TimeSpan.FromHours(hours));
+                }
+
+                var followedReport = tool.Report();
+
+                Console.WriteLine();
+                Console.WriteLine(
+                    $"   {followedReport.Productive} producing, {followedReport.Standby} on standby, "
+                    + $"{followedReport.UnscheduledDowntime} broken - and nobody touched the E10 tracker");
+                Console.WriteLine(
+                    $"   available {followedReport.Availability:P1}, "
+                    + $"{followedReport.Failures} failure(s), MTTR {followedReport.MeanTimeToRepair}");
+
+                // The interlock is the point. E116 never moved for it - a blocked module stays
+                // blocked - and E10 had to, because a door somebody opened is the tool's fault and
+                // a late carrier is not.
+                ok &= followedReport.Total == TimeSpan.FromHours(24)
+                    && followedReport.Productive == TimeSpan.FromHours(19)
+                    && followedReport.Standby == TimeSpan.FromHours(4)
+                    && followedReport.UnscheduledDowntime == TimeSpan.FromHours(1)
+                    && followedReport.Failures == 1
+                    && followedReport.Repairs == 1;
             }
 
             Console.WriteLine();

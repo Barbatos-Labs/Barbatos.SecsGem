@@ -22,6 +22,7 @@ One page per package, generated per release:
 - [`Barbatos.SecsGem.MaterialFlow`](src/Barbatos.SecsGem.MaterialFlow/API-REFERENCE.md)
 - [`Barbatos.SecsGem.PerformanceTracking`](src/Barbatos.SecsGem.PerformanceTracking/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Productivity`](src/Barbatos.SecsGem.Productivity/API-REFERENCE.md)
+- [`Barbatos.SecsGem.PerformanceFlow`](src/Barbatos.SecsGem.PerformanceFlow/API-REFERENCE.md)
 - [`Barbatos.SecsGem`](src/Barbatos.SecsGem/API-REFERENCE.md) (metapackage - no API of its own)
 
 ## Namespaces
@@ -44,5 +45,6 @@ One page per package, generated per release:
 | `Barbatos.SecsGem.MaterialFlow` | MaterialFlow | The joins between E87, E90 and E40: a slot map becomes substrates, and a job's ending reaches them |
 | `Barbatos.SecsGem.PerformanceTracking` | PerformanceTracking | SEMI E116: a machine's modules, their three EPT states, the task a block keeps, and where the time went; no messages of its own |
 | `Barbatos.SecsGem.Productivity` | Productivity | SEMI E10 and E79: the six equipment states, their roll-ups, the RAM metrics and OEE; no wire presence at all |
+| `Barbatos.SecsGem.PerformanceFlow` | PerformanceFlow | The join between E116 and E10/E79: a module's EPT state drives the tool's six states, by way of the task type that records the intent |
 | `Barbatos.SecsGem.Serialization.Sml` / `.Json` / `.Xml` / `.Ini` | the four spokes | format readers and writers |
-| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Objects, Carriers, Substrates, ControlJobs, ProcessJobs, MaterialFlow, PerformanceTracking, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddControlJobs`, `AddProcessJobEquipment`, `AddCarrierSubstrateBridge`, `AddProcessJobSubstrateBridge`, `AddPerformanceTracking`, `AddEnhancedServices`, `AddProductivityTracking`, `AddSecsSml`, ... |
+| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, Material, Objects, Carriers, Substrates, ControlJobs, ProcessJobs, MaterialFlow, PerformanceTracking, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddMaterialHost`, `AddControlJobs`, `AddProcessJobEquipment`, `AddCarrierSubstrateBridge`, `AddProcessJobSubstrateBridge`, `AddPerformanceTracking`, `AddEnhancedServices`, `AddProductivityTracking`, `AddPerformanceProductivityBridge`, `AddSecsSml`, ... |
