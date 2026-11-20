@@ -69,8 +69,8 @@ public class CarrierHostingTests
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
-        // Five carrier primaries and seven of object services. A machine that registered only the
-        // first five would answer every action and never give up a slot map.
+        // Seven carrier primaries and eleven of object services. A machine that registered only
+        // the actions would answer every S3F17 and never give up a slot map.
         foreach (var (stream, function) in CarrierEquipment.HandledMessages)
         {
             Assert.True(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
@@ -81,7 +81,7 @@ public class CarrierHostingTests
             Assert.True(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
         }
 
-        Assert.Equal(5, CarrierEquipment.HandledMessages.Count);
+        Assert.Equal(7, CarrierEquipment.HandledMessages.Count);
         Assert.Equal(11, ObjectServices.HandledMessages.Count);
     }
 

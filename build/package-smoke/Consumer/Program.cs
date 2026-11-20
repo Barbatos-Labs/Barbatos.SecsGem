@@ -712,6 +712,13 @@ internal static class Program
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
+        // The two added in the chapter that read E87's remaining stream 3: declared out of the
+        // packed assembly, which is the only place a declaration list that did not travel shows
+        // up as a message nobody answers.
+        Assert(
+            router.TryGetHandler(3, 21, out _) && router.TryGetHandler(3, 27, out _),
+            "S3F21 or S3F27 has no handler, so the equipment will answer S9F5 for a request it implements");
+
         Assert(
             router.TryGetHandler(3, 17, out _) && router.TryGetHandler(3, 33, out _),
             "the router is missing a carrier primary, so AddCarrierEquipment did not declare them");

@@ -50,8 +50,10 @@ public sealed class CarrierEquipment
     public static IReadOnlyList<(byte Stream, byte Function)> HandledMessages { get; } =
     [
         (3, 17),   // Carrier Action Request
+        (3, 21),   // Storage Port Status Request
         (3, 23),   // Carrier Location Request
         (3, 25),   // Carrier ID Read Request
+        (3, 27),   // Slot Map Request
         (3, 29),   // Carrier Reservation Request
         (3, 33),   // Carrier Out Request
     ];
@@ -130,6 +132,24 @@ public sealed class CarrierEquipment
                 return Reply(18, "CarrierActionAcknowledge", CarrierCodec.ActionResultBody(result));
             }
 
+            case 21:
+            {
+                var portId = CarrierCodec.TryReadPort(transaction.Message.Item);
+                var port = portId is null ? null : _manager.FindPort(portId.Value);
+
+                // Like S3F24, S3F22 has no acknowledgement code in it, so a port this machine does
+                // not have is the zero-length list rather than a status nobody can act on.
+                return Reply(
+                    22,
+                    "StoragePortStatusData",
+                    port is null
+                        ? SecsItem.L()
+                        : CarrierCodec.PortStatusBody(
+                            port.PortId,
+                            port.TransferState.ToString(),
+                            port.AssociatedCarrierId ?? string.Empty));
+            }
+
             case 23:
             {
                 var carrierId = CarrierCodec.TryReadText(transaction.Message.Item);
@@ -169,6 +189,23 @@ public sealed class CarrierEquipment
                     carrier is null || carrier.IdStatus is CarrierIdStatus.IdNotRead
                         ? CarrierCodec.IdReadBody(CarrierRequestAcknowledgement.Denied, string.Empty)
                         : CarrierCodec.IdReadBody(CarrierRequestAcknowledgement.Accepted, carrier.CarrierId));
+            }
+
+            case 27:
+            {
+                var carrierId = CarrierCodec.TryReadText(transaction.Message.Item);
+                var carrier = carrierId is null ? null : _manager.FindCarrier(carrierId);
+
+                // A carrier whose map nobody has agreed answers the zero-length list, not an
+                // empty map: E87 gives the slot map a state machine precisely so that "not read"
+                // and "read as empty" are different answers, and a host that got zero bytes for
+                // an unverified carrier would have no way to tell which it had.
+                return Reply(
+                    28,
+                    "SlotMapData",
+                    carrier is null || carrier.SlotMapStatus is not CarrierSlotMapStatus.SlotMapVerificationOk
+                        ? SecsItem.L()
+                        : CarrierCodec.SlotMapBody(carrier.CarrierId, carrier.SlotMap));
             }
 
             case 29:

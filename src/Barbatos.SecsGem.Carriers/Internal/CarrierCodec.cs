@@ -188,6 +188,137 @@ internal static class CarrierCodec
         return true;
     }
 
+    /// <summary>S3F22 - Storage Port Status Data.</summary>
+    /// <param name="portId">Which port.</param>
+    /// <param name="status">What <c>PORTSTATUS</c> carries - see the remarks.</param>
+    /// <param name="carrierId">The carrier on it, or empty.</param>
+    /// <returns>The body.</returns>
+    /// <remarks>
+    /// <para>
+    /// <c>PORTSTATUS</c> has no dictionary entry, so its format is this library's reading and the
+    /// reading is not a guess: it is an <c>A</c> item carrying a
+    /// <see cref="PortTransferState"/> by name, which is <strong>byte for byte the
+    /// <c>TransferState</c> attribute this same package already serves over stream 14</strong>
+    /// from <see cref="CarrierObjectProvider"/>. A test asserts the two agree, so the two ways a
+    /// host can ask this machine what a port is doing cannot drift apart.
+    /// </para>
+    /// <para>
+    /// Of a port's four state machines it is the transfer state because that is the one E87 calls
+    /// what a material handler actually looks at, and because it is the one <c>CARRIERID</c>
+    /// beside it is about: a port that can be unloaded has something on it.
+    /// </para>
+    /// </remarks>
+    internal static SecsItem PortStatusBody(byte portId, string status, string carrierId)
+        => SecsItem.L(
+            SecsItem.U1(portId).Named("PTN"),
+            SecsItem.A(status).Named("PORTSTATUS"),
+            SecsItem.A(carrierId).Named("CARRIERID"));
+
+    /// <summary>Reads S3F22. A zero-length list means the machine does not have that port.</summary>
+    /// <param name="body">What came back.</param>
+    /// <param name="status">What <c>PORTSTATUS</c> carried, as text, whatever it was.</param>
+    /// <param name="portId">Which port it is about.</param>
+    /// <param name="carrierId">The carrier on it.</param>
+    /// <returns><see langword="true"/> when the body was one this reader understands.</returns>
+    /// <remarks>
+    /// The text comes back as it arrived rather than parsed into an enum here. An undefined item
+    /// read through a tolerant reader must not turn an unfamiliar word into
+    /// <see cref="PortTransferState.OutOfService"/> just because that is the zero of the enum -
+    /// another vendor's port status would then arrive as a port nobody may use.
+    /// </remarks>
+    internal static bool TryReadPortStatus(
+        SecsItem? body,
+        out string status,
+        out byte portId,
+        out string carrierId)
+    {
+        status = string.Empty;
+        portId = 0;
+        carrierId = string.Empty;
+
+        if (body is null || !body.IsList)
+        {
+            return false;
+        }
+
+        if (body.Count == 0)
+        {
+            return true;
+        }
+
+        if (body.Count < 3)
+        {
+            return false;
+        }
+
+        portId = TryReadPort(body.Items[0]) ?? 0;
+        status = Text(body.Items[1]);
+        carrierId = Text(body.Items[2]);
+
+        return true;
+    }
+
+    /// <summary>S3F28 - Slot Map Data.</summary>
+    /// <param name="carrierId">Which carrier.</param>
+    /// <param name="slotMap">One byte a slot.</param>
+    /// <returns>The body.</returns>
+    /// <remarks>
+    /// <c>SLOTMAP</c> has no dictionary entry either, and this one needed no choosing at all: a
+    /// <c>B</c> item of one byte a slot is what <see cref="Carrier.SlotMap"/> already holds and
+    /// what <see cref="CarrierObjectProvider"/> already serves as the <c>SlotMap</c> attribute
+    /// over stream 14. The codes inside stay the equipment's, as they are everywhere else in this
+    /// package.
+    /// </remarks>
+    internal static SecsItem SlotMapBody(string carrierId, ReadOnlyMemory<byte> slotMap)
+        => SecsItem.L(
+            SecsItem.A(carrierId).Named("CARRIERID"),
+            SecsItem.B([.. slotMap.Span]).Named("SLOTMAP"));
+
+    /// <summary>Reads S3F28. A zero-length list means the machine does not have that carrier.</summary>
+    /// <param name="body">What came back.</param>
+    /// <param name="carrierId">Which carrier it is about.</param>
+    /// <param name="slotMap">The bytes, or empty.</param>
+    /// <returns><see langword="true"/> when the body was one this reader understands.</returns>
+    /// <remarks>
+    /// The bytes are copied out rather than handed on, and that copy is the one line here no test
+    /// can reach: the item's memory may be pooled and the caller disposes the reply before it
+    /// looks, so handing on a view would read whatever the pool was used for next - which is a
+    /// bug that passes a thousand times and then does not. A test could only catch it by relying
+    /// on when the allocator reuses a buffer, which is the flaky kind this repository does not
+    /// write.
+    /// </remarks>
+    internal static bool TryReadSlotMap(SecsItem? body, out string carrierId, out ReadOnlyMemory<byte> slotMap)
+    {
+        carrierId = string.Empty;
+        slotMap = default;
+
+        if (body is null || !body.IsList)
+        {
+            return false;
+        }
+
+        if (body.Count == 0)
+        {
+            return true;
+        }
+
+        if (body.Count < 2)
+        {
+            return false;
+        }
+
+        carrierId = Text(body.Items[0]);
+
+        // Copied out rather than handed on: the item's memory may be pooled and is gone when the
+        // reply is disposed, and every other reader in this package hands back a value the caller
+        // can keep.
+        slotMap = body.Items[1].Format is SecsFormat.Binary
+            ? (ReadOnlyMemory<byte>)body.Items[1].GetMemory<byte>().ToArray()
+            : default;
+
+        return true;
+    }
+
     /// <summary>S3F26 - Carrier ID Read Acknowledge.</summary>
     internal static SecsItem IdReadBody(CarrierRequestAcknowledgement acknowledgement, string carrierId)
         => SecsItem.L(

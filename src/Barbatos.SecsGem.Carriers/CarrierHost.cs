@@ -184,6 +184,100 @@ public sealed class CarrierHost
         return location;
     }
 
+    /// <summary>Asks what a port is doing and what is on it - S3F21, answered by S3F22.</summary>
+    /// <param name="portId">Which port.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The status, or <see langword="null"/> when the machine does not have that port.</returns>
+    /// <exception cref="SecsException">The reply was not storage port status data.</exception>
+    /// <remarks>
+    /// <c>PORTSTATUS</c> has no dictionary entry, so <see cref="CarrierPortStatus.Status"/> hands
+    /// back whatever text arrived and <see cref="CarrierPortStatus.TransferState"/> is this
+    /// library's reading of it, <see langword="null"/> when the word is not one of E87's four.
+    /// Another vendor's equipment is entitled to a vocabulary of its own, and reading an
+    /// unfamiliar word as the zero of the enum would turn it into a port nobody may use.
+    /// </remarks>
+    public async ValueTask<CarrierPortStatus?> ReadPortStatusAsync(
+        byte portId,
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(3, 21, replyExpected: true)
+            {
+                Name = "StoragePortStatusRequest",
+                Item = CarrierCodec.PortBody(portId),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!CarrierCodec.TryReadPortStatus(reply.Item, out var status, out var reported, out var carrierId))
+        {
+            throw new SecsException("S3F22 did not carry storage port status data.");
+        }
+
+        if (status.Length == 0 && carrierId.Length == 0 && reported == 0)
+        {
+            return null;
+        }
+
+        return new CarrierPortStatus
+        {
+            PortId = reported,
+            Status = status,
+            TransferState = Enum.TryParse<PortTransferState>(status, out var parsed) ? parsed : null,
+            CarrierId = carrierId,
+        };
+    }
+
+    /// <summary>Asks for a carrier's slot map - S3F27, answered by S3F28.</summary>
+    /// <param name="carrierId">Which carrier.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>One byte a slot, or <see langword="null"/> when the machine will not say.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="carrierId"/> is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply was not slot map data.</exception>
+    /// <remarks>
+    /// <para>
+    /// <see langword="null"/> covers both of E87's reasons for not answering: there is no such
+    /// carrier, or its slot map has not been agreed. The machine is not obliged to distinguish
+    /// them, because S3F28 has no acknowledgement code - and the distinction a host actually needs
+    /// is between "not read" and "read as empty", which this keeps.
+    /// </para>
+    /// <para>
+    /// The codes inside are the equipment's, as they are everywhere else E87 touches a slot map.
+    /// This library reads nothing into them; <c>Barbatos.SecsGem.MaterialFlow</c> is where one
+    /// convention about them is written down.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<ReadOnlyMemory<byte>?> ReadSlotMapAsync(
+        string carrierId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(carrierId);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(3, 27, replyExpected: true)
+            {
+                Name = "SlotMapRequest",
+                Item = CarrierCodec.CarrierIdBody(carrierId),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!CarrierCodec.TryReadSlotMap(reply.Item, out var reported, out var slotMap))
+        {
+            throw new SecsException("S3F28 did not carry slot map data.");
+        }
+
+        // Two statements rather than a conditional, and not for taste. ReadOnlyMemory<byte> has an
+        // implicit conversion from byte[], so `reported.Length == 0 ? null : slotMap` gives the
+        // conditional a natural type of ReadOnlyMemory<byte> - the null goes through (byte[])null
+        // and arrives as an *empty map* inside a nullable that has a value. That is precisely the
+        // distinction this method promises to keep, inverted, and it compiles without a warning.
+        if (reported.Length == 0)
+        {
+            return null;
+        }
+
+        return slotMap;
+    }
+
     /// <summary>Asks what carrier is on a port - S3F25, answered by S3F26.</summary>
     /// <param name="portId">Which port.</param>
     /// <param name="cancellationToken">Cancels the work.</param>

@@ -36,10 +36,53 @@ What *is* checkable, and was checked:
 | `ACKC3` | two codes, defined |
 | `CARRIERACTION` | an `A` item: free text, which is why the action names here are strings and not an enum |
 | `CARRIERID`, `PTN`, `ERRCODE`, `ERRTEXT`, `LOC` | all defined |
-| S3F17/F18, F23/F24, F25/F26, F29/F30, F33/F34 | every item defined; these five are implemented |
-| S3F19/F20, F21/F22, F27/F28, F31/F32 | need `CARRIERSTATUS`, `PORTSTATUS` or `SLOTMAP`, which have **no definition at all** |
+| S3F17/F18, F23/F24, F25/F26, F29/F30, F33/F34 | every item defined; all five implemented |
+| S3F21/F22, F27/F28 | need `PORTSTATUS` and `SLOTMAP`, which have **no definition at all** - implemented anyway, and [the next section](#two-transactions-whose-item-nobody-defined) says on what grounds |
+| S3F19/F20, F31/F32 | not implemented, and for two different reasons: see [what is not here yet](#what-is-not-here-yet) |
 
-Those last four are not missing. See [Attributes](#attributes-the-slot-map-among-them).
+Stream 3 is one of the nine streams the catalogue has **no definitions for at all** -
+`SecsCatalog.TryGetStream(3, out var s)` then `s.Provenance` says so. That is not a veto, and the
+[`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) README explains why: it means
+check the stream against the item dictionary and against its standard's own subject matter. This
+one passes both, which is why E87 ships and stream 17 does not.
+
+## Two transactions whose item nobody defined
+
+S3F22 carries `PORTSTATUS` and S3F28 carries `SLOTMAP`, and neither name appears anywhere in the
+catalogue's item dictionary. They are implemented regardless, and the reading is not a guess:
+**this same package already serves both values as stream 14 attributes**, so there was a reading to
+check against rather than one to invent.
+
+```csharp
+var status = await host.ReadPortStatusAsync(1);
+
+status.Status;          // "ReadyToUnload" - what PORTSTATUS carried, as text
+status.TransferState;   // PortTransferState.ReadyToUnload - this library's reading of it
+status.CarrierId;       // CAR-001
+
+var map = await host.ReadSlotMapAsync("CAR-001");   // 25 bytes, or null
+```
+
+**`PORTSTATUS` is the transfer state**, out of a port's four state machines, because that is the one
+E87 calls what a material handler actually looks at - and because it is the one the `CARRIERID`
+beside it is about: a port that can be unloaded has something on it. It goes out as an `A` item
+holding the state's name, byte for byte the `TransferState` attribute stream 14 already serves, and
+a test asserts the two agree so the machine cannot answer differently depending on which question
+it was asked.
+
+**`SLOTMAP` needed no choosing at all**: a `B` item of one byte a slot is what `Carrier.SlotMap`
+already holds and what stream 14 already serves. The codes inside stay the equipment's, as they are
+everywhere else E87 touches a slot map.
+
+**An unfamiliar status word comes back as text with no reading.** `PORTSTATUS` being undefined means
+another vendor's equipment is entitled to a vocabulary of its own, so `TransferState` is `null`
+rather than `OutOfService` when the word is not one of E87's four. `OutOfService` is the zero of the
+enum, and a port nobody may use is a thing a host acts on.
+
+**Not read and read as empty are different answers.** S3F28 gives the zero-length list for a carrier
+the machine does not have *and* for one whose slot map nobody has agreed - E87 gives the slot map a
+state machine precisely so those are distinguishable - and an agreed map that is genuinely empty
+comes back as zero bytes. So `null` means "will not say" and an empty value means "nothing in it".
 
 ## The seven state machines
 
@@ -139,9 +182,9 @@ services.AddSecsGem(builder.Configuration)
     .RunAsHostedService();
 ```
 
-One call registers both halves of E87: the five carrier primaries **and** the eleven of object
+One call registers both halves of E87: the seven carrier primaries **and** the eleven of object
 services, because the attributes are stream 14's business. A machine that registered only the
-first five would answer every action and never give up a slot map.
+actions would answer every S3F17 and never give up a slot map.
 
 Then the machine drives its own states as its hardware does things:
 
@@ -270,8 +313,15 @@ the same box has no right answer.
 
 ## What is not here yet
 
-- **The E87 messages that need an undefined item**: S3F19/F20, S3F21/F22, S3F27/F28, S3F31/F32.
-  Their content is on stream 14 instead, which is where E87 puts it.
+- **S3F19/F20, Carrier Status.** `CARRIERSTATUS` is one item, and a carrier here has *three* state
+  machines - identifier, slot map, access. Stream 14 serves all three, separately and by name, and
+  nothing in E87 or in this package's own reading crowns one of them "the" status. S3F22 was
+  implementable because E87 does say which of a port's four states is the operative one; this has
+  no equivalent sentence, so a single value would be this library choosing for a fab.
+- **S3F31/F32, Storage Status.** Not an item problem: the request is empty, which means *tell me
+  about all of your storage locations*, and this package has none. A `LoadPort` is a load port, and
+  there is no `LOC`-addressable storage for a carrier to be sitting in. That is a model to design,
+  not a message to encode.
 - Writing the snapshot anywhere. `Capture` hands back a plain object and this package depends on no
   serializer; where it goes is the application's, the same way its container is.
 - `ContentMap`, as distinct from `SlotMap`. One byte per slot covers what a machine knows; naming

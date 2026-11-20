@@ -144,6 +144,41 @@ public sealed class CarrierActionRequest
     public string Argument { get; init; } = string.Empty;
 }
 
+/// <summary>
+/// What a port is doing and what is on it - S3F22.
+/// </summary>
+/// <remarks>
+/// Two readings of one item, because <c>PORTSTATUS</c> has no dictionary entry.
+/// <see cref="Status"/> is the text that arrived, kept whatever it says, and
+/// <see cref="TransferState"/> is this library's reading of it when the word is one of E87's
+/// four. A host that talks to equipment from more than one vendor reads the first; a host that
+/// knows it is talking to this library reads the second.
+/// </remarks>
+public sealed class CarrierPortStatus
+{
+    /// <summary>Which port - <c>PTN</c>.</summary>
+    public required byte PortId { get; init; }
+
+    /// <summary>What <c>PORTSTATUS</c> carried, as it arrived.</summary>
+    public required string Status { get; init; }
+
+    /// <summary>This library's reading of it, or <see langword="null"/> when the word is not one of E87's four.</summary>
+    /// <remarks>
+    /// Never silently <see cref="PortTransferState.OutOfService"/>: that is the zero of the enum,
+    /// and an unfamiliar status reading as a port nobody may use is the kind of mistake a host
+    /// acts on.
+    /// </remarks>
+    public PortTransferState? TransferState { get; init; }
+
+    /// <summary>The carrier on the port, or empty when there is none.</summary>
+    public string CarrierId { get; init; } = string.Empty;
+
+    /// <summary>Returns the port, its status and what is on it.</summary>
+    /// <returns>For example <c>port 1 ReadyToUnload (CAR-001)</c>.</returns>
+    public override string ToString()
+        => CarrierId.Length == 0 ? $"port {PortId} {Status}" : $"port {PortId} {Status} ({CarrierId})";
+}
+
 /// <summary>What the machine answered - S3F18.</summary>
 public sealed class CarrierActionResult
 {

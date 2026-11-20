@@ -144,12 +144,31 @@ on S3F24 - which carries a carrier and a location and has no code to refuse with
 | `NotifyCarrierAsync` | `ValueTask<CarrierActionResult> NotifyCarrierAsync(string carrierId, CancellationToken = default)` | S3F17 |
 | `BindCarrierAsync` | `ValueTask<CarrierActionResult> BindCarrierAsync(string carrierId, byte portId, CancellationToken = default)` | S3F17 |
 | `ReserveAtPortAsync` | `ValueTask<CarrierActionResult> ReserveAtPortAsync(string carrierId, byte portId, CancellationToken = default)` | S3F17; says why when refused |
+| `ReadPortStatusAsync` | `ValueTask<CarrierPortStatus?> ReadPortStatusAsync(byte portId, CancellationToken = default)` | S3F21; `null` means no such port |
 | `FindCarrierAsync` | `ValueTask<uint?> FindCarrierAsync(string carrierId, CancellationToken = default)` | S3F23; `null` means no such carrier |
 | `ReadCarrierIdAsync` | `ValueTask<string?> ReadCarrierIdAsync(byte portId, CancellationToken = default)` | S3F25; `null` means nothing there, or the label is not read |
+| `ReadSlotMapAsync` | `ValueTask<ReadOnlyMemory<byte>?> ReadSlotMapAsync(string carrierId, CancellationToken = default)` | S3F27; `null` means no such carrier, or the map is not agreed. Empty means agreed and empty. |
 | `ReserveAsync` | `ValueTask<CarrierRequestAcknowledgement> ReserveAsync(string carrierId, byte portId, CancellationToken = default)` | S3F29; cannot say why |
 | `CarrierOutAsync` | `ValueTask<CarrierRequestAcknowledgement> CarrierOutAsync(string carrierId, CancellationToken = default)` | S3F33 |
 
 A reply with no acknowledgement code throws `SecsException`, never `Accepted`.
+
+## `CarrierPortStatus`
+
+`public sealed class CarrierPortStatus`. What S3F22 carries, with the undefined item kept twice.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `PortId` | `required byte { get; init; }` | `PTN`. |
+| `Status` | `required string { get; init; }` | What `PORTSTATUS` carried, as it arrived. |
+| `TransferState` | `PortTransferState? { get; init; }` | This library's reading of it, `null` when the word is not one of E87's four - never silently `OutOfService`, which is the zero of the enum. |
+| `CarrierId` | `string { get; init; }` | The carrier on the port, or empty. |
+| `ToString()` | `override string` | `port 1 ReadyToUnload (CAR-001)`. |
+
+`PORTSTATUS` has no dictionary entry, so the text is kept and the reading is offered rather than
+forced. The [README](README.md#two-transactions-whose-item-nobody-defined) explains why this
+library reads the transfer state out of a port's four state machines, and on what grounds it reads
+anything at all.
 
 ## `CarrierObjectProvider`
 

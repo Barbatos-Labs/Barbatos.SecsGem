@@ -1449,9 +1449,24 @@ internal static class Program
             Console.WriteLine($"   S3F23  -> {CarrierName} is at location {await flow.Host.FindCarrierAsync(CarrierName, cancellationToken)}");
             Console.WriteLine($"   S3F25  -> port 1 holds {await flow.Host.ReadCarrierIdAsync(1, cancellationToken) ?? "nothing it will name"}");
 
-            // And the slot map, over stream 14 - which is where E87 puts it, and why this package
-            // does not implement S3F27. Twenty-five slots carried as an attribute, no format
-            // invented for them.
+            // S3F22 carries PORTSTATUS, which the catalogue defines nowhere. This library reads it
+            // as the transfer state - the one of a port's four states E87 calls what a material
+            // handler looks at - and keeps the text beside the reading, because another vendor's
+            // machine is entitled to a word of its own.
+            var portStatus = await flow.Host.ReadPortStatusAsync(1, cancellationToken);
+
+            Console.WriteLine(
+                $"   S3F21  -> {portStatus}, read as {portStatus?.TransferState?.ToString() ?? "a word this library does not know"}");
+            ok &= portStatus?.TransferState == PortTransferState.TransferBlocked
+                && portStatus.CarrierId == CarrierName;
+
+            // And the slot map twice, which is the whole provenance argument in two lines: SLOTMAP
+            // is undefined too, so S3F28's bytes are only defensible because this same package
+            // already serves them as a stream 14 attribute. If the two ever disagreed, one of them
+            // would be wrong and a host would get a different answer depending on which it asked.
+            var overStream3 = await flow.Host.ReadSlotMapAsync(CarrierName, cancellationToken);
+
+            Console.WriteLine($"   S3F27  -> {overStream3?.Length ?? 0} slot(s), one byte each");
             if (objects is not null)
             {
                 await objects.GetAttributesAsync(
@@ -1467,8 +1482,15 @@ internal static class Program
                         Console.WriteLine(
                             $"   S14F1  -> {CarrierName}: {slots.Value.Count} slots, "
                             + $"{count.Value.FirstValueOrDefault<byte>()} substrates, {status.Value.GetString()}");
+
+                        // The two routes, side by side. Asserted here rather than printed,
+                        // because the interesting thing is that there is nothing to see.
+                        ok &= overStream3 is { } bytes
+                            && bytes.Span.SequenceEqual(slots.Value.GetMemory<byte>().Span);
                     },
                     cancellationToken);
+
+                Console.WriteLine("   and S3F28 and the stream 14 attribute agree, byte for byte");
             }
 
             Console.WriteLine();
