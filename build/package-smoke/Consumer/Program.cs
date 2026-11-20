@@ -560,7 +560,8 @@ internal static class Program
         equipmentServices
             .AddSecsGem()
             .UseInMemoryTransport()
-            .AddMaterialEquipment();
+            .AddMaterialEquipment()
+            .AddMaterialHandoff();
 
         await using var equipmentProvider = equipmentServices.BuildServiceProvider();
 
@@ -575,6 +576,31 @@ internal static class Program
         Assert(
             !equipmentRouter.TryGetHandler(3, 5, out _),
             "the equipment claimed S3F5, which is a message it is the one that sends");
+
+        // Stream 4's handoff, which is neither end of anything: the same nine primaries are
+        // declared wherever AddMaterialHandoff is called, and this end also sends all nine.
+        _ = equipmentProvider.GetRequiredService<MaterialHandoff>();
+
+        Assert(
+            MaterialHandoff.HandledMessages.Count == 9,
+            $"the packed handoff declares {MaterialHandoff.HandledMessages.Count} primaries, not all nine of stream 4");
+
+        foreach (var (stream, function) in MaterialHandoff.HandledMessages)
+        {
+            Assert(
+                equipmentRouter.TryGetHandler(stream, function, out _),
+                $"S{stream}F{function} has no handler, so AddMaterialHandoff did not declare the handoff");
+        }
+
+        // And the enums the dictionary gave its own tables of values to, out of the packed
+        // assembly: an equipment-specific code must not arrive as acceptance.
+        Assert(
+            (byte)MaterialSendAcknowledgement.WillAccept == 0 && (byte)MaterialSendAcknowledgement.Other == 5,
+            "RSACK's codes did not travel as E5 numbers them");
+
+        Assert(
+            (byte)MaterialReceiveAcknowledgement.Granted == 0 && (byte)MaterialReceiveAcknowledgement.Other == 2,
+            "RRACK's codes did not travel as E5 numbers them");
 
         var hostServices = new ServiceCollection();
 

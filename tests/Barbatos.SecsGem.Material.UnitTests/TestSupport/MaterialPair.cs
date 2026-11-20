@@ -42,6 +42,8 @@ internal sealed class MaterialPair : IAsyncDisposable
         MaterialHost host,
         MaterialEquipment equipment,
         MaterialInMemorySource source,
+        MaterialHandoff sender,
+        MaterialHandoff receiver,
         ConcurrentQueue<(byte Stream, byte Function)> askedOfEquipment,
         ConcurrentQueue<(byte Stream, byte Function)> askedOfHost)
     {
@@ -54,6 +56,8 @@ internal sealed class MaterialPair : IAsyncDisposable
         Host = host;
         Equipment = equipment;
         Source = source;
+        Sender = sender;
+        Receiver = receiver;
 
         Running = Task.WhenAll(
             hostLink.RunAsync(_cts.Token),
@@ -68,6 +72,18 @@ internal sealed class MaterialPair : IAsyncDisposable
 
     /// <summary>Gets the inventory behind the equipment.</summary>
     public MaterialInMemorySource Source { get; }
+
+    /// <summary>Gets the handoff end on the host's link.</summary>
+    /// <remarks>
+    /// Called the sender because a test has to call it something, and <strong>the names are the
+    /// test's choice rather than the link's</strong>: stream 4's handoff is symmetric, so either
+    /// end may offer material and either may ask for it. One test swaps the two to prove that is
+    /// true of this implementation and not just of the catalogue.
+    /// </remarks>
+    public MaterialHandoff Sender { get; }
+
+    /// <summary>Gets the handoff end on the equipment's link.</summary>
+    public MaterialHandoff Receiver { get; }
 
     /// <summary>Gets the host's connection.</summary>
     public HsmsConnection HostLink { get; }
@@ -116,6 +132,8 @@ internal sealed class MaterialPair : IAsyncDisposable
         // test has no container.
         MaterialEquipment? pendingEquipment = null;
         MaterialHost? pendingHost = null;
+        MaterialHandoff? pendingSender = null;
+        MaterialHandoff? pendingReceiver = null;
 
         ConcurrentQueue<(byte Stream, byte Function)> askedOfEquipment = new();
         ConcurrentQueue<(byte Stream, byte Function)> askedOfHost = new();
@@ -144,11 +162,33 @@ internal sealed class MaterialPair : IAsyncDisposable
             });
         }
 
+        // And stream 4 on both routers, with the same nine primaries each - which is the whole
+        // point of it: the catalogue marks every handoff row as travelling either way, so neither
+        // end is the one that answers.
+        foreach (var (stream, function) in MaterialHandoff.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) =>
+            {
+                askedOfEquipment.Enqueue((transaction.S, transaction.F));
+
+                return Answer(transaction, token, equipmentAnswer, pendingReceiver!.HandleAsync);
+            });
+
+            hostRoutes.OnPrimary(stream, function, (transaction, token) =>
+            {
+                askedOfHost.Enqueue((transaction.S, transaction.F));
+
+                return Answer(transaction, token, hostAnswer, pendingSender!.HandleAsync);
+            });
+        }
+
         var equipmentLink = new HsmsConnection(options, passive, equipmentRoutes.Build(), clock);
         var hostLink = new HsmsConnection(options, active, hostRoutes.Build(), clock);
 
         pendingEquipment = new MaterialEquipment(inventory, equipmentLink);
         pendingHost = new MaterialHost(hostLink);
+        pendingSender = new MaterialHandoff(hostLink);
+        pendingReceiver = new MaterialHandoff(equipmentLink);
 
         return new MaterialPair(
             active,
@@ -158,6 +198,8 @@ internal sealed class MaterialPair : IAsyncDisposable
             pendingHost,
             pendingEquipment,
             inventory,
+            pendingSender,
+            pendingReceiver,
             askedOfEquipment,
             askedOfHost);
     }

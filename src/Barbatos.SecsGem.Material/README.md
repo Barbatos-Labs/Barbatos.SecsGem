@@ -1,8 +1,9 @@
 # Barbatos.SecsGem.Material
 
-Material status - SECS-II stream 3 - for **.NET 8, 9 and 10**: what the machine holds and where,
-how long it has left, material found and lost, location and transfer requests, status changes and
-movement events. Both ends, and in this stream both ends send.
+Material status and material handoff - SECS-II **streams 3 and 4** - for **.NET 8, 9 and 10**:
+what the machine holds and where, how long it has left, material found and lost, location and
+transfer requests, status changes and movement events, and the interlocked handshake that moves a
+piece of material from one end to the other. Both ends, and in these streams both ends send.
 
 > Part of **[Barbatos.SecsGem](https://github.com/Barbatos-Labs/Barbatos.SecsGem)** - a modern, allocation-conscious SECS-II / HSMS-SS / GEM stack
 > for .NET 8, 9 and 10.
@@ -160,6 +161,74 @@ Each returns what the host answered. A reply that carries no acknowledgement cod
 `SecsException` and never `Accepted`: a reader that takes the first byte of an empty body gets
 nought, and nought is `ACKC3` accepted.
 
+## The interlocked handoff, stream 4
+
+Stream 3 says what material is where. **Stream 4 moves it**, one offer and one acceptance at a
+time:
+
+```csharp
+var handoff = provider.GetRequiredService<MaterialHandoff>();
+
+if (await handoff.OfferAsync(portId: 1, materialId: "LOT-7") == MaterialSendAcknowledgement.WillAccept)
+{
+    await handoff.ReportAsync(MaterialHandoffStep.SendMaterial, 1, "LOT-7");        // no reply exists
+    await handoff.ReportAsync(MaterialHandoffStep.HandshakeComplete, 1, "LOT-7");
+}
+```
+
+**One type, not two, and the catalogue is why.** Every other message pair in this stack has a
+direction, which is how this repository ends up with a `…Host` and an `…Equipment` that answer each
+other's primaries. All eleven rows of S4F1 to S4F18 are marked as travelling **either** way,
+because the two parties to a handoff are a *sender* and a *receiver* of material - which may be a
+machine and a handling system, or two machines, and need not involve a host at all. So
+`MaterialHandoff` is the first type here that is neither end of anything: both ends of a link call
+`AddMaterialHandoff()`, both declare the same nine primaries, and a test runs the whole handshake
+in each direction.
+
+**Seven of the nine primaries have no reply at all.** E5 gives S4F3, F5, F7, F9, F11, F13 and F15
+no secondary, so `ReportAsync` posts them and there is no T3 to wait on: what tells a sender it was
+heard is the next step coming back, which is what *interlocked* means. Only the offer and the
+request to receive are answered, and those two have methods of their own because their answers have
+different types.
+
+| | |
+| --- | --- |
+| S4F1 / F2 | an offer of material, answered with `RSACK` |
+| S4F17 / F18 | a request to be sent material, answered with `RRACK` |
+| S4F3, F5, F15 | sending, finished, received - the happy path, unanswered |
+| S4F7 | the offer is withdrawn |
+| S4F9, F11, F13 | stuck at the sending end, stuck at the receiving end, never finished |
+
+### For once, nothing is inferred
+
+Stream 4 is the **best-covered stream this package's siblings had not implemented**: 27 rows, and
+every item name in all of them is defined in the dictionary - which is true of no other stream
+here, the implemented ones included. `PTN` is a `U1[1]`, `MID` an `A[n]`, and both acknowledgements
+arrive **with their own tables of values**, so these enums are quoted rather than read off a
+format:
+
+```
+RSACK  0 will accept | 1 invalid port | 2 port occupied | 3 busy | 4 not in remote mode | 5-63 equipment
+RRACK  0 granted     | 1 denied                                                        | 2-63 equipment
+```
+
+Those four refusals are worth sending. A bare denial is what the rest of this stream has, and it
+sends somebody to a log file; "port occupied" does not. The equipment-specific ranges read as
+`Other` with the arriving code logged, the same rule `MaterialGrant` keeps - and never as the zero
+of the enum, which here would turn somebody else's refusal into *will accept*.
+
+What the source does **not** mark as a definition is any of the 27 rows, exactly as for stream 3.
+So the bodies are read off the item lists the way the rest of this package's are.
+
+### The sequence is documented and not enforced
+
+This package will send the steps in any order it is asked to. That is the same choice it makes
+about stream 3 and the opposite of the one
+[`Barbatos.SecsGem.Carriers`](../Barbatos.SecsGem.Carriers/README.md) makes about E87, and the
+difference is what there is to check against: E87 defines state machines, and stream 4 is 27
+message rows with **no state model anywhere in this reference**. A package that invented one would
+be enforcing its own rules while appearing to enforce E5's.
+
 ## A denial cannot say why
 
 `ACKC3` has two codes - accepted and denied - and there is no error code anywhere in the material
@@ -176,7 +245,16 @@ in minutes would be read wrong by a factor of sixty with nothing on screen to sh
 
 ## What is not here yet
 
-- **S3F17 to S3F34**, the carrier and storage half of the stream. See above: that is E87's.
+- **S3F17 to S3F34**, the carrier and storage half of that stream. See above: that is E87's.
+- **S4F19 to S4F26**, stream 4's transfer *jobs* - and this one is a model rather than a format.
+  Every item is defined, so the bodies are encodable; what is missing is the behaviour. The two
+  job standards in this stack, E94 and E40, each own a state machine their standard defines, and a
+  transfer job has none anywhere in this reference. Its command is also the `CPNAME`/`CPVAL` shape
+  that [`Barbatos.SecsGem.Objects`](../Barbatos.SecsGem.Objects/README.md) already carries for
+  S2F49, so a second route to it would be two ways to say one thing.
+- **S4F27 to S4F41**, the handoff commands - and they *depend* on the transfer jobs above:
+  every one of them is addressed by a `TRLINK`, which is created by S4F19. Without the job there
+  is nothing for a link to name, so this half cannot go in before the other one.
 - A source that outlives the process. `MaterialInMemorySource` is in memory, as it says; the
   interface is five methods and a database behind it is an afternoon.
 - `QUA` has no code table in the catalogue, so a quantity is a byte and nothing here interprets it.

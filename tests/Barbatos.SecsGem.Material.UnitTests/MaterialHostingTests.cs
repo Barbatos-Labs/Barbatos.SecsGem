@@ -161,6 +161,50 @@ public class MaterialHostingTests
         Assert.All(all, pair => Assert.True(pair.Function % 2 == 1, $"S3F{pair.Function} is not a primary"));
     }
 
+    /// <summary>The handoff registration is the one both ends call.</summary>
+    /// <remarks>
+    /// Stream 4's handshake is symmetric, so there is no equipment half and no host half of it:
+    /// <c>AddMaterialHandoff</c> declares all nine primaries wherever it is called, and it
+    /// composes with either of the stream 3 registrations because the two streams share no
+    /// declaration.
+    /// </remarks>
+    [Fact]
+    public async Task The_handoff_declares_all_nine_at_whichever_end_registers_it()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddMaterialEquipment()
+            .AddMaterialHandoff()
+            .AddMaterialHandoff();
+
+        await using var provider = services.BuildServiceProvider();
+
+        _ = provider.GetRequiredService<MaterialHandoff>();
+
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        foreach (var (stream, function) in MaterialHandoff.HandledMessages)
+        {
+            Assert.True(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
+        }
+
+        // And stream 3's equipment half is still there beside it.
+        foreach (var (stream, function) in MaterialEquipment.HandledMessages)
+        {
+            Assert.True(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
+        }
+
+        Assert.Equal(9, MaterialHandoff.HandledMessages.Count);
+        Assert.All(MaterialHandoff.HandledMessages, pair => Assert.True(pair.Function % 2 == 1, $"S4F{pair.Function} is not a primary"));
+
+        // The handoff is a singleton like the other two, so an application can hold the one whose
+        // answer delegates it set.
+        Assert.Same(provider.GetRequiredService<MaterialHandoff>(), provider.GetRequiredService<MaterialHandoff>());
+    }
+
     /// <summary>Either registration called twice is harmless.</summary>
     /// <remarks>
     /// It was not: the services were idempotent through <c>TryAdd</c> and the route declarations

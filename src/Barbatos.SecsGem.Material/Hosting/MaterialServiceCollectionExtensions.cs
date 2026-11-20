@@ -89,4 +89,36 @@ public static class MaterialServiceCollectionExtensions
 
         return builder;
     }
+
+    /// <summary>Adds the interlocked material handoff - stream 4's S4F1 to S4F18, for either end.</summary>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// Registers <see cref="MaterialHandoff"/> and a handler for every pair in
+    /// <see cref="MaterialHandoff.HandledMessages"/> - all nine primaries, which is also every
+    /// primary this end sends. <strong>Both ends of a link call this same method</strong>: the
+    /// catalogue marks all eleven rows as travelling either way, because a handoff is between a
+    /// sender and a receiver of material rather than between a host and a machine.
+    /// </para>
+    /// <para>
+    /// Composes with <see cref="AddMaterialEquipment(ISecsGemBuilder)"/> or
+    /// <see cref="AddMaterialHost"/> on the same connection - stream 3 and stream 4 declare
+    /// nothing in common - and works on its own, for a machine that hands material over and
+    /// answers no status questions about it.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddMaterialHandoff(this ISecsGemBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton(provider => new MaterialHandoff(
+            provider.GetRequiredService<HsmsConnection>(),
+            provider.GetService<ILogger<MaterialHandoff>>()));
+
+        builder.DeclareOnce(MaterialHandoff.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<MaterialHandoff>().HandleAsync(transaction, token));
+
+        return builder;
+    }
 }

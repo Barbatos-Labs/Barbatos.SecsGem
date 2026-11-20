@@ -327,6 +327,18 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingMaterial!.HandleAsync(transaction, token));
         }
 
+        // And stream 4's handoff, which is the one capability here with no host half and no
+        // equipment half: every row of it is marked as travelling either way, because a handoff is
+        // between a sender and a receiver of material. So the same nine primaries go on both
+        // routers, and the same type sits at both ends.
+        MaterialHandoff? pendingSendingEnd = null;
+        MaterialHandoff? pendingReceivingEnd = null;
+
+        foreach (var (stream, function) in MaterialHandoff.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingReceivingEnd!.HandleAsync(transaction, token));
+        }
+
         // And object services. The machine has the objects, so the machine declares the stream;
         // the host below only asks, which needs nothing declared at all.
         ObjectServices? pendingObjects = null;
@@ -386,6 +398,14 @@ internal static class Program
             hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingMaterialHost!.HandleAsync(transaction, token));
         }
 
+        // The other half of the handoff's registration, here because this is where the host's
+        // router exists. Both ends declare the same nine primaries, which is the one list in this
+        // stack that is both what a type sends and what it answers.
+        foreach (var (stream, function) in MaterialHandoff.HandledMessages)
+        {
+            hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingSendingEnd!.HandleAsync(transaction, token));
+        }
+
         // And two of stream 16, which is the only thing any of E87, E90, E94 or E40 gives a host
         // to answer: a process job changed state, and here is the whole queue.
         ProcessJobHost? pendingProcessHost = null;
@@ -417,6 +437,15 @@ internal static class Program
 
         var materialEquipment = new MaterialEquipment(inventory, equipmentLink);
         var materialHost = new MaterialHost(hostLink);
+
+        // One at each end of the same link. The machine end refuses port 2, which is how E5's four
+        // named reasons earn their place: a bare denial would say nothing.
+        var sendingEnd = new MaterialHandoff(hostLink);
+        var receivingEnd = new MaterialHandoff(equipmentLink);
+
+        receivingEnd.AnswerOffer = (portId, _) => portId == 1
+            ? MaterialSendAcknowledgement.WillAccept
+            : MaterialSendAcknowledgement.PortOccupied;
 
         // The machine as objects: a chamber with two attributes and a load port with one. The
         // types and the attribute names are this machine's own - E5 does not define object types,
@@ -615,6 +644,8 @@ internal static class Program
         pendingMapHost = mapHost;
         pendingMaterial = materialEquipment;
         pendingMaterialHost = materialHost;
+        pendingSendingEnd = sendingEnd;
+        pendingReceivingEnd = receivingEnd;
         pendingObjects = equipmentObjects;
         pendingEnhanced = new EnhancedServicesEquipment(chamberData);
         pendingCarriers = carrierEquipment;
@@ -652,6 +683,8 @@ internal static class Program
                 mapHost,
                 materialEquipment,
                 materialHost,
+                sendingEnd,
+                receivingEnd,
                 hostObjects,
                 enhancedHost,
                 new MaterialDemo(
@@ -786,6 +819,8 @@ internal static class Program
                 mapHost: null,
                 materialEquipment: null,
                 materialHost: null,
+                sendingEnd: null,
+                receivingEnd: null,
                 objects: provider.GetRequiredService<ObjectServices>(),
 
                 // Over a socket the equipment is the other sample, which does not serve E39's
@@ -843,6 +878,8 @@ internal static class Program
         WaferMapHost? mapHost,
         MaterialEquipment? materialEquipment,
         MaterialHost? materialHost,
+        MaterialHandoff? sendingEnd,
+        MaterialHandoff? receivingEnd,
         ObjectServices? objects,
         EnhancedServicesHost? enhanced,
         MaterialDemo? flow,
@@ -1243,6 +1280,51 @@ internal static class Program
 
             Console.WriteLine($"   S3F9  -> {StartedLot} is now at {after?.Location.ToString(CultureInfo.InvariantCulture) ?? "nowhere"}");
             ok &= after?.Location == 9;
+        }
+
+        if (sendingEnd is not null && receivingEnd is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and hands a piece of material over, which is stream 4 --");
+            Console.WriteLine();
+
+            // Stream 4 is the one capability here with no host half and no equipment half: every
+            // row of the handshake travels either way, because the two parties are a sender and a
+            // receiver of material. Both ends are the same type, and this demonstration only
+            // calls one of them the sender.
+            MaterialHandoffEventArgs? heard = null;
+
+            receivingEnd.HandoffReported += (_, args) => heard = args;
+
+            var offered = await sendingEnd.OfferAsync(1, StartedLot, cancellationToken);
+
+            Console.WriteLine($"   S4F1  -> port 1: RSACK={offered}");
+            ok &= offered == MaterialSendAcknowledgement.WillAccept;
+
+            // The same offer on a port the receiving end will not take, which is where E5's four
+            // named refusals earn their place: the rest of this stream can only say "denied".
+            var refused = await sendingEnd.OfferAsync(2, StartedLot, cancellationToken);
+
+            Console.WriteLine($"   S4F1  -> port 2: RSACK={refused}");
+            ok &= refused == MaterialSendAcknowledgement.PortOccupied;
+
+            // And the seven steps E5 gives no reply at all, so there is nothing to wait for: the
+            // interlock is the next step coming back, not an acknowledgement.
+            await sendingEnd.ReportAsync(MaterialHandoffStep.SendMaterial, 1, StartedLot, cancellationToken);
+            await WaitUntilAsync(
+                () => heard?.Step == MaterialHandoffStep.SendMaterial,
+                "the receiving end to hear the material being sent");
+
+            Console.WriteLine($"   S4F3  -> {heard}");
+
+            await receivingEnd.ReportAsync(MaterialHandoffStep.MaterialReceived, 1, StartedLot, cancellationToken);
+            await sendingEnd.ReportAsync(MaterialHandoffStep.HandshakeComplete, 1, StartedLot, cancellationToken);
+            await WaitUntilAsync(
+                () => heard?.Step == MaterialHandoffStep.HandshakeComplete,
+                "the handshake to finish");
+
+            Console.WriteLine($"   S4F5  -> {heard}");
+            ok &= heard?.MaterialId == StartedLot;
         }
 
         if (objects is not null)

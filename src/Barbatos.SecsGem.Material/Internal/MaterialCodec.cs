@@ -258,6 +258,77 @@ internal static class MaterialCodec
     }
 
     /// <summary>S3F15 - Materials Multi-block Inquire. One bare <c>DATAID</c>.</summary>
+    /// <summary>S4F1, F3, F5, F7, F9, F11, F13, F15 and F17 - all nine carry the same two items.</summary>
+    /// <param name="portId">Which port - <c>PTN</c>.</param>
+    /// <param name="materialId">Which piece of material - <c>MID</c>.</param>
+    /// <returns>The body.</returns>
+    /// <remarks>
+    /// <para>
+    /// Nothing inferred: <c>PTN</c> is a <c>U1[1]</c> and <c>MID</c> an <c>A[n]</c> in the
+    /// dictionary, and every item name in all 27 rows of stream 4 is defined - which is true of no
+    /// other stream this package or its siblings touch. What the source does not mark as a
+    /// definition is any of the rows, exactly as for stream 3, so the <em>shape</em> is read off
+    /// the item list: two items in the order the catalogue lists them.
+    /// </para>
+    /// <para>
+    /// A port here is written as a port and not as a zero-length item for "no port", unlike S3F17
+    /// in the carrier half: every one of these nine messages is <em>about</em> a port, so there is
+    /// no absent one to express.
+    /// </para>
+    /// </remarks>
+    internal static SecsItem HandoffBody(byte portId, string materialId)
+        => SecsItem.L(
+            SecsItem.U1(portId).Named("PTN"),
+            SecsItem.A(materialId).Named("MID"));
+
+    /// <summary>Reads any of the nine handoff primaries.</summary>
+    /// <param name="body">The body.</param>
+    /// <param name="portId">Which port it is about.</param>
+    /// <param name="materialId">Which piece of material, or empty.</param>
+    /// <returns><see langword="true"/> when the body was one this reader understands.</returns>
+    /// <remarks>
+    /// A bare <c>PTN</c> with no material reads as a port and an empty identifier, because a
+    /// handoff step is about a port first: a machine that names the port and leaves the material
+    /// out has still said which interlock it means, and dropping the message would stall a
+    /// handshake over an item E5 does not say is required.
+    /// </remarks>
+    internal static bool TryReadHandoff(SecsItem? body, out byte portId, out string materialId)
+    {
+        portId = 0;
+        materialId = string.Empty;
+
+        if (body is null)
+        {
+            return false;
+        }
+
+        if (!body.IsList)
+        {
+            if (!TryReadUnsigned(body, out var bare))
+            {
+                return false;
+            }
+
+            portId = (byte)Math.Min(bare, byte.MaxValue);
+
+            return true;
+        }
+
+        if (body.Count == 0 || !TryReadUnsigned(body.Items[0], out var port))
+        {
+            return false;
+        }
+
+        portId = (byte)Math.Min(port, byte.MaxValue);
+
+        if (body.Count > 1)
+        {
+            materialId = Text(body.Items[1]);
+        }
+
+        return true;
+    }
+
     internal static SecsItem DataIdBody(uint dataId) => SecsItem.U4(dataId).Named("DATAID");
 
     /// <summary>Reads a bare <c>DATAID</c>.</summary>
