@@ -10,6 +10,9 @@ and what each default means, is in [`README.md`](README.md); this page is member
 - [`ProcessJobSubstrateBridge`](#processjobsubstratebridge)
 - [`ProcessJobSubstrateOptions`](#processjobsubstrateoptions)
 - [`ProcessJobSubstrateResult`](#processjobsubstrateresult)
+- [`ControlJobCarrierBridge`](#controljobcarrierbridge)
+- [`ControlJobCarrierOptions`](#controljobcarrieroptions)
+- [`ControlJobCarrierResult`](#controljobcarrierresult)
 - [Events](#events)
 - [Registration](#registration)
 
@@ -151,11 +154,79 @@ instead: the option changes who accounts for them, not whether anybody has to.
 
 `Check` fills only `Unexpected`.
 
+## `ControlJobCarrierBridge`
+
+`sealed class`. Tells a control job when the carriers it named have arrived and when they are
+finished with, and tells those carriers when the job has taken them and let them go.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| constructor | `ControlJobCarrierBridge(CarrierManager carriers, ControlJobManager jobs, ControlJobCarrierOptions? options = null)` | A `null` options takes every default. |
+| `Options` | `ControlJobCarrierOptions { get; }` | The conventions this bridge follows. |
+| `IsAttached` | `bool { get; }` | Whether it is listening to the **carrier** manager. There is nothing to ask about the job manager. |
+| `Attach` | `void Attach()` | Listens to the carrier manager, so a job's material announces itself. Attaching twice listens once. |
+| `Detach` | `void Detach()` | Stops listening. Whatever it has already told either side stays told. |
+| `Check` | `ControlJobCarrierResult Check(string controlJobId)` | Whether the material is ready, and which carrier is holding it up. Changes nothing. |
+| `Ready` | `ControlJobCarrierResult Ready(string controlJobId)` | Tells E94 the material is ready, if it is. Quiet when it is not. |
+| `Finish` | `ControlJobCarrierResult Finish(string controlJobId)` | Tells E94 the material is all dealt with, if it is. Raises `Stalled` for the one case that never will be. |
+| `ClaimCarriers` | `ControlJobCarrierResult ClaimCarriers(string controlJobId)` | `BeginAccess` for each carrier of a running job. Only `IsActive`. |
+| `ReleaseCarriers` | `ControlJobCarrierResult ReleaseCarriers(string controlJobId)` | `EndAccess` for each carrier of a job that has ended, the way it ended. |
+| `Readied` | `event EventHandler<ControlJobCarrierEventArgs>?` | When the quorum was met and E94 was told - whatever E94 then said. |
+| `Finished` | `event EventHandler<ControlJobCarrierEventArgs>?` | The same at the other end. |
+| `Stalled` | `event EventHandler<ControlJobCarrierEventArgs>?` | Every carrier accounted for and one of them stopped, so this bridge will not call it a completed lot. |
+
+**It attaches to one manager and that is the design**, not an omission. Both managers raise inside
+their own lock, so a bridge that listened to both would take their two locks in two orders - the
+one deadlock a stack like this can build for itself. `ClaimCarriers` and `ReleaseCarriers` hold no
+lock when they begin: they read the job, E94's lock is released, and only then do they call E87.
+See the README's lock section.
+
+| What happened | What the bridge does |
+| --- | --- |
+| the last carrier of a `Selected` job is agreed | `MaterialReady`, so an automatic job runs and a host-initiated one waits |
+| the last carrier of an `Executing` job is `CarrierComplete` | `MaterialFinished`, completion `Completed` |
+| every carrier accounted for and one `CarrierStopped` | nothing, and `Stalled` says why - the host's `STOP` or `ABORT` is the honest ending |
+| a carrier arrives that the current job never named | nothing at all |
+| any of this while no job is selected or running | nothing at all |
+
+## `ControlJobCarrierOptions`
+
+`sealed class`.
+
+| Member | Type | Default | What it decides |
+| --- | --- | --- | --- |
+| `IsCarrier` | `Func<string, bool>` | `_ => true` | Which of a job's identifiers name E87 carriers at all |
+| `RequiresCarrierAtPort` | `bool` | `true` | Whether a verified carrier must be docked to count as arrived |
+| `ReadiesWhenCarriersVerified` | `bool` | `true` | Whether an attached bridge starts the lot itself |
+| `FinishesWhenCarriersComplete` | `bool` | `true` | Whether an attached bridge ends it itself |
+| `CountsStoppedCarriers` | `bool` | `false` | Whether a `CarrierStopped` carrier counts as dealt with |
+| `EndsCarriersEarly` | `Func<ControlJobCompletion, bool>` | `c => c is not Completed` | Which endings leave a carrier `CarrierStopped` |
+
+`IsCarrier` is a predicate rather than a flag because E87 cannot tell an identifier it is not
+responsible for from a carrier that has not arrived yet. Anything the predicate calls a carrier and
+the manager does not have is treated as **on its way**, and the lot waits.
+
+## `ControlJobCarrierResult`
+
+`sealed class`. `IsAccepted` (`required bool`), `Reason` (`string`), `ControlJobId`
+(`required string`), `Carriers` (`IReadOnlyList<string>` - the ones that satisfied what was asked),
+`Refused` (`IReadOnlyDictionary<string, string>` - carrier to why not, the tolerated foreign ones
+included) and `Count` (`Carriers.Count`).
+
+For `Ready` and `Finish`, `IsAccepted` and `Reason` are **E94's own answer** once the carriers have
+agreed - so a job that refuses the transition on its own grounds comes back here saying so, with
+the carriers it found still listed. For `ClaimCarriers` and `ReleaseCarriers`, `IsAccepted` is
+false only when nothing was attempted; the per-carrier outcomes are the two lists.
+
 ## Events
 
-`CarrierSubstrateEventArgs` and `ProcessJobSubstrateEventArgs` each carry the `Result`. Nothing is
-raised for an outright refusal: an event that announced work nobody did would be worse than
-silence.
+`CarrierSubstrateEventArgs`, `ProcessJobSubstrateEventArgs` and `ControlJobCarrierEventArgs` each
+carry the `Result`. Nothing is raised for an outright refusal: an event that announced work nobody
+did would be worse than silence.
+
+`ControlJobCarrierBridge.Readied` and `Finished` are the exception worth naming - they are raised
+when the quorum was met even if E94 then refused, because "the material arrived and the job would
+not take it" is the one refusal somebody has to act on.
 
 ## Registration
 
@@ -165,11 +236,13 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extension on `ISecsGemBuil
 | --- | --- |
 | `AddCarrierSubstrateBridge(Action<CarrierSubstrateOptions>? configure = null)` | `CarrierSubstrateOptions`, `CarrierSubstrateBridge`, and the bridge is attached as soon as it is resolved. |
 | `AddProcessJobSubstrateBridge(Action<ProcessJobSubstrateOptions>? configure = null)` | `ProcessJobSubstrateOptions`, `ProcessJobSubstrateBridge`, attached the same way. |
+| `AddControlJobCarrierBridge(Action<ControlJobCarrierOptions>? configure = null)` | `ControlJobCarrierOptions`, `ControlJobCarrierBridge`, attached the same way - to the carrier manager only. |
 
 The first needs `CarrierManager` and `SubstrateTracker` in the container, the second
-`ProcessJobManager` and `SubstrateTracker` - so call each after the registrations that put those
-there. A graph missing one fails to resolve that bridge, which is the right moment to find out: the
-alternative is a machine that reads slot maps and silently tracks nothing, or one whose stopped
-jobs quietly leave a lot half tracked.
+`ProcessJobManager` and `SubstrateTracker`, the third `CarrierManager` and `ControlJobManager` - so
+call each after the registrations that put those there. A graph missing one fails to resolve that
+bridge, which is the right moment to find out: the alternative is a machine that reads slot maps
+and silently tracks nothing, one whose stopped jobs quietly leave a lot half tracked, or one whose
+carriers all arrive and whose lot never starts.
 
-Either called twice adds one bridge. Neither declares a message of its own.
+Any of them called twice adds one bridge. None declares a message of its own.

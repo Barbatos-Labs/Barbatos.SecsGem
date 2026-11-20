@@ -113,7 +113,10 @@ The rules this package keeps:
   deletion wearing a reorder's clothes.
 
 `MaterialReady` is the machine's own transition, not a host command, and the one place
-`StartMethod` decides anything: an automatic job starts there, a host-initiated one waits.
+`StartMethod` decides anything: an automatic job starts there, a host-initiated one waits. What
+*calls* it is the application, or
+[`Barbatos.SecsGem.MaterialFlow`](../Barbatos.SecsGem.MaterialFlow/README.md) on a machine that
+also implements E87 - see below.
 
 Thread safety: one lock around every transition, with the event raised inside it after the state
 has moved. A handler reading the job sees the state the event announces, and must not call back in.
@@ -210,9 +213,18 @@ services.AddSecsGem(builder.Configuration)
 ```
 
 Three providers, one stream, one connection. `ControlJob.Carriers` is a list of plain strings
-rather than E87 carrier objects, deliberately: correlating a control job's material with the
-carriers a machine has read is the application's business, and a library that did it for you would
-be guessing.
+rather than E87 carrier objects, deliberately: a machine can run control jobs over whatever
+material model it has, and a package that insisted on E87 would be useless to one that does not
+implement it.
+
+Correlating the two is therefore not this package's business - but it is
+[`Barbatos.SecsGem.MaterialFlow`](../Barbatos.SecsGem.MaterialFlow/README.md)'s, which depends on
+both and on neither's behalf. That is where `MaterialReady` and `MaterialFinished` get called
+from on a machine that has both, and where the questions E94 cannot answer - whether an
+identifier names a carrier at
+all, whether a verified carrier has to be at a port, what a stopped carrier does to a lot - are
+options rather than guesses. Nothing in *this* package knows E87 exists, which is the property
+that makes the join possible at all.
 
 ## Events
 

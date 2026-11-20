@@ -4,6 +4,7 @@
 // All Rights Reserved.
 
 using Barbatos.SecsGem.Carriers;
+using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.MaterialFlow;
 using Barbatos.SecsGem.ProcessJobs;
@@ -12,12 +13,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
-/// <summary>Joins SEMI E87 to SEMI E90 on a connection built by <c>AddSecsGem</c>.</summary>
+/// <summary>Joins the material-flow standards to each other on a connection built by <c>AddSecsGem</c>.</summary>
 /// <remarks>
-/// One method, and it declares no message of its own: the join is behaviour between two state
-/// machines, not a transaction. Both standards must already be registered -
-/// <c>AddCarrierEquipment</c> and <c>AddSubstrateTracking</c> - because a bridge with one end is
-/// not one.
+/// One method per join, and none of them declares a message of its own: a join is behaviour
+/// between state machines, not a transaction. Both standards of a join must already be registered
+/// - <c>AddCarrierEquipment</c>, <c>AddSubstrateTracking</c>, <c>AddProcessJobEquipment</c>,
+/// <c>AddControlJobs</c> - because a bridge with one end is not one.
 /// </remarks>
 public static class MaterialFlowServiceCollectionExtensions
 {
@@ -108,6 +109,60 @@ public static class MaterialFlowServiceCollectionExtensions
                 services.GetRequiredService<ProcessJobManager>(),
                 services.GetRequiredService<SubstrateTracker>(),
                 services.GetRequiredService<ProcessJobSubstrateOptions>());
+
+            bridge.Attach();
+
+            return bridge;
+        });
+
+        return builder;
+    }
+
+    /// <summary>Adds the control-job to carrier bridge, listening for the material a job named.</summary>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <param name="configure">The conventions: what counts as ready, and what an ending does to the carriers.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// Registers <see cref="ControlJobCarrierOptions"/> and
+    /// <see cref="ControlJobCarrierBridge"/>, and attaches the bridge to the carrier manager as
+    /// soon as it is resolved - so a selected job whose carriers arrive and verify starts without
+    /// another line of code.
+    /// </para>
+    /// <para>
+    /// It needs <see cref="CarrierManager"/> and <see cref="ControlJobManager"/> in the container,
+    /// so call it after <c>AddCarrierEquipment</c> and <c>AddControlJobs</c>. The three bridges in
+    /// this package are independent: a machine may have any of them, all of them or none.
+    /// </para>
+    /// <para>
+    /// <strong>It attaches to the carrier manager only</strong>, which is not an omission - see
+    /// <see cref="ControlJobCarrierBridge"/> for why a bridge that listened to both managers would
+    /// take their two locks in two orders. The other direction is
+    /// <see cref="ControlJobCarrierBridge.ClaimCarriers"/> and
+    /// <see cref="ControlJobCarrierBridge.ReleaseCarriers"/>, which the application calls.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddControlJobCarrierBridge(
+        this ISecsGemBuilder builder,
+        Action<ControlJobCarrierOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton(_ =>
+        {
+            var options = new ControlJobCarrierOptions();
+
+            configure?.Invoke(options);
+
+            return options;
+        });
+
+        builder.Services.TryAddSingleton(services =>
+        {
+            var bridge = new ControlJobCarrierBridge(
+                services.GetRequiredService<CarrierManager>(),
+                services.GetRequiredService<ControlJobManager>(),
+                services.GetRequiredService<ControlJobCarrierOptions>());
 
             bridge.Attach();
 

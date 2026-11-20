@@ -91,6 +91,8 @@ internal static class Program
     /// waited twenty real minutes to show twenty minutes of etching would not be a demonstration.
     /// It is the same seam a test uses, which is the point worth taking away.
     /// </param>
+    /// <param name="Flow">The E116-E10 join, which turns those modules into a shift.</param>
+    /// <param name="CarrierJobs">The E87-E94 join, which tells a lot that its boxes turned up.</param>
     private sealed record MaterialDemo(
         CarrierHost Host,
         CarrierManager Machine,
@@ -101,7 +103,8 @@ internal static class Program
         CarrierSubstrateBridge Bridge,
         PerformanceTracker Performance,
         SampleClock Clock,
-        PerformanceProductivityBridge Flow);
+        PerformanceProductivityBridge Flow,
+        ControlJobCarrierBridge CarrierJobs);
 
     /// <summary>
     /// A clock the sample moves by hand.
@@ -540,6 +543,21 @@ internal static class Program
 
         jobFlow.Attach();
 
+        // And the third, between E87 and E94: a control job finding out that the carriers it
+        // named have turned up. The two defaults left alone are the two that matter - every
+        // identifier a job names is taken for a carrier, so material that has not arrived holds
+        // the lot up, and a stopped carrier does not quietly complete it.
+        var carrierJobs = new ControlJobCarrierBridge(carrierManager, controlJobs);
+
+        carrierJobs.Attach();
+
+        carrierJobs.Readied += (_, args) => Console.WriteLine(
+            $"   [cj] {args.Result.ControlJobId}: {args.Result.Count} carrier(s) in"
+            + (args.Result.IsAccepted ? " -> the lot may run" : $" and the job says no ({args.Result.Reason})"));
+
+        carrierJobs.Stalled += (_, args) => Console.WriteLine(
+            $"   [cj] {args.Result.ControlJobId} will not finish by itself: {args.Result.Reason}");
+
         // The three lines E40 wants and no library can write for you: a state change becomes an
         // S16F11, sent off the manager's lock, with the two values copied inside the handler
         // because the arguments are only alive there.
@@ -629,7 +647,8 @@ internal static class Program
                     bridge,
                     performance,
                     moduleClock,
-                    performanceFlow),
+                    performanceFlow,
+                    carrierJobs),
                 cts.Token);
 
             Console.WriteLine();
@@ -1505,9 +1524,18 @@ internal static class Program
                 ok &= selected == ObjectAcknowledgement.Successful;
 
                 // And then the one transition no host command can stand in for: the carriers are
-                // in and the wafers are mapped. This job starts itself, because nobody asked for a
-                // host-initiated one - which is the only thing StartMethod decides.
-                ok &= flow.Jobs.MaterialReady(JobName).IsAccepted;
+                // in and the wafers are mapped. The E87-E94 join is what decides that, and this
+                // is the one case it cannot see for itself - this lot's carrier arrived long
+                // before anybody asked for the lot, so there is no carrier transition left to
+                // notice. Hence the call, which is quiet when the material is not there and so
+                // needs no condition around it. The section at the end shows the other order,
+                // where nobody calls anything.
+                ok &= flow.CarrierJobs.Ready(JobName).IsAccepted;
+
+                // Not that the join was guessing: it found the carrier, at its port, with both
+                // verifications agreed - and this job starts itself because nobody asked for a
+                // host-initiated one, which is the only thing StartMethod decides.
+                ok &= flow.CarrierJobs.Check(JobName).Count == 1;
 
                 await objects.GetAttributesAsync(
                     JobName,
@@ -1953,6 +1981,92 @@ internal static class Program
                     && followedReport.UnscheduledDowntime == TimeSpan.FromHours(1)
                     && followedReport.Failures == 1
                     && followedReport.Repairs == 1;
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("-- and a second lot, asked for before its boxes arrive: E87 drives E94 --");
+            Console.WriteLine();
+
+            {
+                // The other order, and the one a fab usually runs in: the host asks for a lot and
+                // the material handler brings the boxes afterwards. Nothing in this section calls
+                // the control job manager at all after Select - the join does it.
+                const string NextJob = "CJ-2";
+                const string LeftBox = "CAR-002";
+                const string RightBox = "CAR-003";
+
+                machine.AddPort(2);
+                machine.SetServiceStatus(2, inService: true);
+                machine.SetTransferState(2, PortTransferState.ReadyToLoad);
+                machine.AddPort(3);
+                machine.SetServiceStatus(3, inService: true);
+                machine.SetTransferState(3, PortTransferState.ReadyToLoad);
+
+                ok &= flow.Jobs.Create(NextJob, [LeftBox, RightBox]).IsAccepted;
+                ok &= flow.Jobs.Select(NextJob).IsAccepted;
+
+                // Nothing has arrived, so the answer names both boxes rather than starting.
+                var waiting = flow.CarrierJobs.Check(NextJob);
+
+                Console.WriteLine($"   [cj] {NextJob} selected, and {waiting.Refused.Count} of 2 carrier(s) are not here yet");
+                ok &= !waiting.IsAccepted && waiting.Refused.Count == 2;
+
+                // One box up. Still one short, and the join says nothing: a quorum is the point.
+                machine.PlaceCarrier(2, LeftBox);
+                machine.ReadCarrierId(LeftBox, verified: true);
+                machine.ReadSlotMap(LeftBox, SlotMap, verified: true);
+
+                Console.WriteLine($"   [cj] {LeftBox} in, and {NextJob} is {flow.Jobs.Find(NextJob)?.State} - one box short");
+                ok &= flow.Jobs.Find(NextJob)?.State == ControlJobState.Selected;
+
+                // And the second. This is the line the whole package is for.
+                machine.PlaceCarrier(3, RightBox);
+                machine.ReadCarrierId(RightBox, verified: true);
+                machine.ReadSlotMap(RightBox, SlotMap, verified: true);
+
+                Console.WriteLine($"   [cj] {RightBox} in, and {NextJob} is {flow.Jobs.Find(NextJob)?.State} - nobody called E94");
+                ok &= flow.Jobs.Find(NextJob)?.State == ControlJobState.Executing;
+
+                // The other direction is a method, and the README says why: both managers raise
+                // inside their own lock, so only one of the two may listen.
+                ok &= flow.CarrierJobs.ClaimCarriers(NextJob).Count == 2;
+
+                // One box finishes and one is stopped - a jammed robot, a wafer somebody pulled.
+                machine.EndAccess(LeftBox);
+                machine.EndAccess(RightBox, stopped: true);
+
+                // So the lot does not complete itself, and the bridge has already printed why:
+                // MaterialFinished records Completed, and a stopped box says the opposite.
+                Console.WriteLine($"   [cj] {NextJob} is still {flow.Jobs.Find(NextJob)?.State}, waiting for the host");
+                ok &= flow.Jobs.Find(NextJob)?.State == ControlJobState.Executing;
+
+                // Which the host does, with the ending that tells the truth. On the machine side
+                // here rather than over an S14F9 - that path is two hundred lines up, and what
+                // this section is about is which of these calls nobody had to make.
+                ok &= flow.Jobs.Command(NextJob, ControlJobCommands.Abort).IsAccepted;
+
+                Console.WriteLine($"   [cj] the host aborts it, and {NextJob} ended {flow.Jobs.Find(NextJob)?.Completion}");
+                ok &= flow.Jobs.Find(NextJob)?.Completion == ControlJobCompletion.Aborted;
+
+                // And now the other direction, which here has nothing to do - the point worth
+                // keeping. The machine let both boxes go itself, and that is what ended the job,
+                // so the job's ending has nothing left to carry back. E87 says so for each of
+                // them rather than pretending: an access that is already over cannot be ended.
+                var released = flow.CarrierJobs.ReleaseCarriers(NextJob);
+
+                Console.WriteLine(
+                    $"   [cj] {released.Count} carrier(s) to release, {released.Refused.Count} already done with "
+                    + $"- {LeftBox} is {machine.FindCarrier(LeftBox)?.AccessStatus}, "
+                    + $"{RightBox} is {machine.FindCarrier(RightBox)?.AccessStatus}");
+
+                // ReleaseCarriers earns its keep the other way round: a host that aborts a lot
+                // while the machine still holds the boxes. Then these two would be InAccess and
+                // both would come back stopped. Which direction ran first is the whole difference,
+                // and neither standard can tell on its own.
+                ok &= released.Count == 0
+                    && released.Refused.Count == 2
+                    && machine.FindCarrier(LeftBox)?.AccessStatus == CarrierAccessStatus.CarrierComplete
+                    && machine.FindCarrier(RightBox)?.AccessStatus == CarrierAccessStatus.CarrierStopped;
             }
 
             Console.WriteLine();

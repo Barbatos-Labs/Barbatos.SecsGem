@@ -7,6 +7,8 @@ standards makes itself:
   and they are forgotten again when the carrier is done with.
 - **E40 to E90**: a process job's ending reaches the wafers it was running, so a stopped job stops
   the work in progress and skips what nobody got to.
+- **E87 to E94**: a control job finds out that the carriers it named have arrived and been agreed,
+  which is the one transition E94 leaves to the machine and cannot see for itself.
 
 > Part of **[Barbatos.SecsGem](https://github.com/Barbatos-Labs/Barbatos.SecsGem)** - a modern, allocation-conscious SECS-II / HSMS-SS / GEM stack
 > for .NET 8, 9 and 10.
@@ -17,10 +19,10 @@ standards makes itself:
 dotnet add package Barbatos.SecsGem.MaterialFlow
 ```
 
-Depends on `Barbatos.SecsGem.Carriers`, `Barbatos.SecsGem.Substrates` and
-`Barbatos.SecsGem.ProcessJobs`. It is the only package in this repository that depends on several
-standards at once, and that is the whole reason it exists. The two bridges are independent: a
-machine may have either, both or neither.
+Depends on `Barbatos.SecsGem.Carriers`, `Barbatos.SecsGem.Substrates`,
+`Barbatos.SecsGem.ProcessJobs` and `Barbatos.SecsGem.ControlJobs` - four standards, none of which
+depends on another, which is the whole reason this package exists. The three bridges are
+independent: a machine may have any of them, all of them or none.
 
 ## Why this is a package and not a method
 
@@ -199,16 +201,122 @@ nothing is tracking and the machine would process material it cannot account for
 *refuse* the transition, because it hears about it afterwards; it raises `MaterialMissing`, and a
 host that wants to refuse calls `Check` before it tells the machine to set the job up.
 
-## What neither bridge does
+## The third join: a lot learning that its boxes turned up
 
-- **They do not touch a wire.** Both are state machines meeting; every test in this package's suite
-  runs without a link, and the package declares no message. A join that invented a transaction
-  would be inventing a standard.
+E94 gives a control job two transitions the machine makes rather than the host - *its material is
+ready*, and *its material is all dealt with*. The E94 package has both of them,
+`MaterialReady` and `MaterialFinished`, and **nothing that calls either**, because E94 does not say
+what the material is. E87 does: a carrier at a port, its identifier agreed, its slot map agreed.
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddCarrierEquipment(manager => manager.AddPort(1))
+    .AddControlJobs()
+    .AddControlJobCarrierBridge()
+    .RunAsHostedService();
+```
+
+From then on a selected job starts when the last of its carriers is agreed, and not before:
+
+```csharp
+jobs.Create("CJ-1", ["CAR-001", "CAR-002"]);
+jobs.Select("CJ-1");
+
+carriers.PlaceCarrier(1, "CAR-001");
+carriers.ReadCarrierId("CAR-001", verified: true);
+carriers.ReadSlotMap("CAR-001", slotMap, verified: true);
+
+jobs.Find("CJ-1")!.State;      // Selected - one box short
+
+carriers.PlaceCarrier(2, "CAR-002");
+carriers.ReadCarrierId("CAR-002", verified: true);
+carriers.ReadSlotMap("CAR-002", slotMap, verified: true);
+
+jobs.Find("CJ-1")!.State;      // Executing
+```
+
+And when a job will not start, the answer says which box:
+
+```csharp
+var answer = bridge.Check("CJ-1");
+
+answer.IsAccepted;   // false
+answer.Carriers;     // CAR-001
+answer.Refused;      // CAR-002 -> "carrier 'CAR-002' is not verified: identifier WaitingForHost, ..."
+```
+
+This bullet used to read *"They do not bridge E94 ... correlating them is a decision with more than
+one sensible answer, and until one of them is clearly the usual one this package is not the place
+to guess."* That is still true of the parts a fab has to decide, and those are now
+`ControlJobCarrierOptions` rather than a refusal. What turned out to need no guessing is the shape:
+E94 asks whether the material is ready, E87 is the only thing in this stack that can answer, and
+the answer is a quorum over a list of identifiers E94 already keeps.
+
+| Option | Default | What it decides |
+| --- | --- | --- |
+| `IsCarrier` | everything is | Which of a job's identifiers name E87 carriers at all |
+| `RequiresCarrierAtPort` | `true` | Whether a verified carrier has to be docked to count as arrived |
+| `ReadiesWhenCarriersVerified` | `true` | Whether the last carrier to be agreed starts the lot |
+| `FinishesWhenCarriersComplete` | `true` | Whether the last carrier to be finished ends the lot |
+| `CountsStoppedCarriers` | `false` | Whether a stopped carrier counts as dealt with |
+| `EndsCarriersEarly` | anything but `Completed` | Which endings leave a carrier `CarrierStopped` |
+
+**`IsCarrier` is a predicate and not a flag, and that is the one thing this bridge got wrong
+first.** It began life as `RequiresEveryCarrier`, a flag meaning "tolerate identifiers you do not
+know", for the machine whose jobs name a reticle as well as a box. But the carrier manager cannot
+tell an identifier it is not responsible for from **a carrier that has not arrived yet** - both are
+simply absent from it. So the flag also tolerated a lot whose second carrier was still on a
+conveyor somewhere, and started it. A negative control found that by deleting the flag's effect and
+watching six tests fail instead of one. A predicate puts the distinction where the only thing that
+knows it lives, which is how the fab spells its own material:
+
+```csharp
+.AddControlJobCarrierBridge(options =>
+    options.IsCarrier = id => id.StartsWith("CAR-", StringComparison.Ordinal))
+```
+
+Everything the default does not know about is therefore a carrier that has not turned up, and the
+lot waits. That is the cautious way round in every one of these: `RequiresCarrierAtPort` is on
+because a carrier a host merely said was coming is not material anybody can process, and
+`CountsStoppedCarriers` is off because `MaterialFinished` records `Completed` and a stopped carrier
+says the opposite.
+
+### A stopped carrier does not quietly finish a lot
+
+Every carrier accounted for and one of them stopped is **not** a completed lot, so the job stays
+where it is and waits for the host to stop or abort it - which is the ending that tells the truth.
+The bridge does not keep that to itself, because a job that quietly never ends is worse than one
+that complains:
+
+```csharp
+bridge.Stalled += (_, args) => log.LogWarning(
+    "control job {Job} is waiting on {Reason}", args.Result.ControlJobId, args.Result.Reason);
+```
+
+### The other direction is called, not listened for
+
+`ClaimCarriers` puts a running job's carriers into access and `ReleaseCarriers` ends that access
+the way the job ended - complete for a completed job, stopped for every other ending:
+
+```csharp
+bridge.ClaimCarriers("CJ-1");            // both carriers InAccess
+// ... the lot runs, and the host aborts it ...
+jobs.Command("CJ-1", ControlJobCommands.Abort);
+bridge.ReleaseCarriers("CJ-1");          // both carriers CarrierStopped
+```
+
+Those are methods and not an event subscription, and the next section is why.
+
+## What none of the bridges does
+
+- **They do not touch a wire.** All three are state machines meeting; every test in this package's
+  suite runs without a link, and the package declares no message. A join that invented a
+  transaction would be inventing a standard.
 - **They do not schedule anything.** Which wafer goes to a chuck, and when, is the machine's.
-- **They do not bridge E94.** A control job's carriers are a list of identifiers in that package,
-  deliberately. A control job is a lot and a carrier is a box; correlating them is a decision with
-  more than one sensible answer, and until one of them is clearly the usual one this package is not
-  the place to guess.
+- **They do not join E94 to E90.** A control job is a lot and a wafer is a wafer, and between them
+  sit E87's box and E40's job, both of which are already joined here. Going straight from one to
+  the other would be a fourth convention duplicating two that exist.
 - **They keep no history.** `Close` forgets, and E90's own `SubstrateStateChanged` event is where an
   application builds a history in whatever it already stores.
 
@@ -216,14 +324,48 @@ host that wants to refuse calls `Check` before it tells the machine to set the j
 
 Each bridge holds a lock of its own only over its own bookkeeping; the work is calls into two
 managers that each hold theirs. Attached, a bridge runs **inside the lock of the manager it
-listens to** - the carrier one is called from `CarrierStateChanged`, the process job one from
-`JobStateChanged` - and from there it calls the substrate tracker. So the order is always the other
-standard first and **substrates last**, and never the other way.
+listens to** - the carrier-to-substrate one is called from `CarrierStateChanged`, the process job
+one from `JobStateChanged`, the control-job one from `CarrierStateChanged` again - and from there
+it calls the other manager. So there are exactly two orders in this package, **substrates last**
+and **control jobs last**, and never the other way round.
 
-That is the rule to keep if an application adds handlers of its own, and the reason both bridges go
-the same direction: the substrate tracker is the one thing both of them touch, so as long as
-nothing calls back out of it, two locks can never be taken in two orders. That is the one deadlock
-a stack like this can build for itself, and this package is the only place where its locks meet.
+That is the rule to keep if an application adds handlers of its own. Two locks taken in two orders
+is the one deadlock a stack like this can build for itself, and this package is the only place
+where its locks meet.
+
+### Why one bridge is half event and half method
+
+The E87-to-E94 bridge subscribes to the carrier manager and **not** to the control job manager,
+which is not an omission. Both managers raise their events *inside their own lock*, and both say so
+in their own documentation: queue the work, do not call back in. So a handler of
+`CarrierStateChanged` holds E87's lock and takes E94's, and a handler of `JobStateChanged` would
+hold E94's and take E87's. On a machine those are two real threads - the link's receive loop
+carrying a host command into the job manager, and the machine's own control software reading a
+carrier at a port - and a bridge that listened to both would be the deadlock above, built by the
+very package that exists to prevent it.
+
+So the direction that listens is the one whose trigger nobody outside can see: a job's material
+becomes ready when the **last** of its carriers is agreed, and only something watching every
+transition knows which one that was. The other direction's triggers are calls the application just
+made itself - `Start`, `Command(ABORT)` - so `ClaimCarriers` and `ReleaseCarriers` are methods, and
+they hold no lock at all when they begin: they read the job, E94's lock is released, and only then
+do they call E87.
+
+An application that wants a host-driven ending to reach the carriers by itself puts the job
+identifier on a queue from its own `JobStateChanged` handler and calls `ReleaseCarriers` from
+outside it - which is what both managers already ask of every handler they have.
+
+**The rule costs exactly one thing, and here it is.** A job selected when its carriers are
+*already* at their ports and agreed has no carrier transition left to happen, so nothing wakes the
+bridge and the job sits in `Selected`. Noticing that would mean listening for the selection, which
+is the direction that cannot listen. So call `Ready` once after selecting:
+
+```csharp
+jobs.Select("CJ-1");
+bridge.Ready("CJ-1");     // quiet when the material is not there, so it needs no condition
+```
+
+That is the whole of it. Both orders then work: material first, or lot first.
 
 ## Documentation
 

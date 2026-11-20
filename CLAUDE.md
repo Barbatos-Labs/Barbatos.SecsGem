@@ -29,7 +29,8 @@ Core  <-  Hsms  <-  Gem
                                      (E87, E90, E94, E40, on Objects: their attributes are
                                      stream 14; E90 and E94 have no messages at all, E87
                                      borrows S3F17, and E40 has stream 16 of its own)
-                                            ^-- MaterialFlow   (the E87-E90 and E40-E90 joins)
+                                            ^-- MaterialFlow   (the E87-E90, E40-E90 and
+                                                                E87-E94 joins)
                                  ^-- PerformanceTracking  (E116, on Objects and on nothing else
                                      here: not a material standard, no messages, and no mapping
                                      onto E10 - that one is the factory's to make, not ours)
@@ -47,7 +48,15 @@ Core  <-  Hsms  <-  Gem
 that depend on several standards. The rule both keep: **none of the standards a join package joins
 may depend on another.** A join lives in its own package precisely so the standards it connects
 stay usable apart, and so the conventions it has to invent are visible in one place instead of
-buried in whichever package got there first.
+buried in whichever package got there first. A new join between standards one of them already
+joins goes **into that package**, not into a new one - `MaterialFlow` holds three.
+
+A join package also owns the lock order between the managers it connects, because that is a fact
+about the pair and about nothing else. Every manager in this repository raises its events inside
+its own lock and says so. So a bridge may listen to **one** of the two it joins, never both: one
+that listened to both would hold each manager's lock while taking the other's, in two orders, from
+two real threads. The direction that listens is the one whose trigger nothing outside can see;
+the other direction is methods, which hold no lock when they begin.
 
 - `Core` must never reference a socket, a pipe transport or `Microsoft.Extensions.*`.
   Its only third-party dependency is `CommunityToolkit.HighPerformance`.

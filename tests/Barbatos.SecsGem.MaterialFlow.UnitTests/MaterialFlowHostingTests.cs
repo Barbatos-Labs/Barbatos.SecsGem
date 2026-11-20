@@ -4,6 +4,7 @@
 // All Rights Reserved.
 
 using Barbatos.SecsGem.Carriers;
+using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Substrates;
@@ -231,6 +232,122 @@ public class MaterialFlowHostingTests
     }
 
     [Fact]
+    public async Task A_control_job_bridge_resolves_attached_so_a_lot_starts_itself()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddCarrierEquipment(manager =>
+            {
+                manager.AddPort(1);
+                manager.SetServiceStatus(1, inService: true);
+                manager.SetTransferState(1, PortTransferState.ReadyToLoad);
+            })
+            .AddControlJobs(jobs => jobs.Create("CJ-1", ["CAR-001"]))
+            .AddControlJobCarrierBridge();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var bridge = provider.GetRequiredService<ControlJobCarrierBridge>();
+
+        Assert.True(bridge.IsAttached);
+        Assert.Same(bridge, provider.GetRequiredService<ControlJobCarrierBridge>());
+
+        var jobs = provider.GetRequiredService<ControlJobManager>();
+        var carriers = provider.GetRequiredService<CarrierManager>();
+
+        Assert.True(jobs.Select("CJ-1").IsAccepted);
+        Assert.True(carriers.PlaceCarrier(1, "CAR-001").IsAccepted);
+        Assert.True(carriers.ReadCarrierId("CAR-001", verified: true).IsAccepted);
+        Assert.True(carriers.ReadSlotMap("CAR-001", SlotMap, verified: true).IsAccepted);
+
+        // A carrier arrived, was agreed, and the lot is running - with no application code
+        // between the two standards.
+        Assert.Equal(ControlJobState.Executing, jobs.Find("CJ-1")!.State);
+    }
+
+    [Fact]
+    public async Task The_control_job_conventions_come_from_the_registration()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddCarrierEquipment()
+            .AddControlJobs()
+            .AddControlJobCarrierBridge(options => options.RequiresCarrierAtPort = false);
+
+        await using var provider = services.BuildServiceProvider();
+
+        var bridge = provider.GetRequiredService<ControlJobCarrierBridge>();
+
+        Assert.False(bridge.Options.RequiresCarrierAtPort);
+        Assert.True(bridge.Options.IsCarrier("CAR-001"));
+        Assert.Same(provider.GetRequiredService<ControlJobCarrierOptions>(), bridge.Options);
+    }
+
+    [Fact]
+    public async Task A_control_job_bridge_with_no_carrier_manager_says_so_when_it_is_resolved()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddControlJobs()
+            .AddControlJobCarrierBridge();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var thrown = Assert.Throws<InvalidOperationException>(
+            () => provider.GetRequiredService<ControlJobCarrierBridge>());
+
+        Assert.Contains(nameof(CarrierManager), thrown.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_registration_adds_no_message_of_its_own()
+    {
+        static ISecsGemBuilder Compose(IServiceCollection services)
+            => services
+                .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+                .UseInMemoryTransport(isActive: false)
+                .AddCarrierEquipment()
+                .AddControlJobs();
+
+        var without = new ServiceCollection();
+        var with = new ServiceCollection();
+
+        Compose(without);
+        Compose(with).AddControlJobCarrierBridge();
+
+        await using var alone = without.BuildServiceProvider();
+        await using var bridged = with.BuildServiceProvider();
+
+        var bare = alone.GetRequiredService<ISecsMessageRouter>();
+        var joined = bridged.GetRequiredService<ISecsMessageRouter>();
+
+        Assert.NotNull(bridged.GetRequiredService<ControlJobCarrierBridge>());
+
+        // Both ends declare what they declare - E87's S3F17, E94's stream 14 - and the join
+        // declares nothing, because a join is behaviour and not a transaction. Comparing the two
+        // graphs is the honest form of that claim: asserting an empty router would be false about
+        // the container and would say nothing at all about this registration.
+        foreach (var stream in new byte[] { 1, 2, 3, 6, 14, 16, 17 })
+        {
+            for (byte function = 1; function < 64; function += 2)
+            {
+                Assert.Equal(
+                    bare.TryGetHandler(stream, function, out _),
+                    joined.TryGetHandler(stream, function, out _));
+            }
+        }
+    }
+
+    [Fact]
     public void A_null_builder_is_rejected()
     {
         Assert.Throws<ArgumentNullException>(
@@ -238,5 +355,8 @@ public class MaterialFlowHostingTests
 
         Assert.Throws<ArgumentNullException>(
             () => MaterialFlowServiceCollectionExtensions.AddProcessJobSubstrateBridge(null!));
+
+        Assert.Throws<ArgumentNullException>(
+            () => MaterialFlowServiceCollectionExtensions.AddControlJobCarrierBridge(null!));
     }
 }

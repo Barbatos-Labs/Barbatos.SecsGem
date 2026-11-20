@@ -4,8 +4,8 @@
     <PackageId>Barbatos.SecsGem.MaterialFlow</PackageId>
     <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
     <RootNamespace>Barbatos.SecsGem.MaterialFlow</RootNamespace>
-    <PackageTags>secs;e87;e90;e40;carrier;substrate;slotmap;processjob;wafer;fab300;materialflow</PackageTags>
-    <Description>The joins between the material-flow standards for .NET, which none of them makes itself. E87 to E90: a carrier's verified slot map becomes one tracked substrate per occupied slot, forgotten again when the carrier is done - with the naming, the occupancy rule and the destination all replaceable. E40 to E90: a process job's ending reaches the wafers it was running, so a stopped job stops the work in progress and skips what nobody got to, instead of leaving a lot half tracked for ever. Depends on Barbatos.SecsGem.Carriers, Barbatos.SecsGem.Substrates and Barbatos.SecsGem.ProcessJobs, which stay independent of each other.</Description>
+    <PackageTags>secs;e87;e90;e40;e94;carrier;substrate;slotmap;processjob;controljob;wafer;fab300;materialflow</PackageTags>
+    <Description>The joins between the material-flow standards for .NET, which none of them makes itself. E87 to E90: a carrier's verified slot map becomes one tracked substrate per occupied slot, forgotten again when the carrier is done - with the naming, the occupancy rule and the destination all replaceable. E40 to E90: a process job's ending reaches the wafers it was running, so a stopped job stops the work in progress and skips what nobody got to, instead of leaving a lot half tracked for ever. E87 to E94: a control job learns that the carriers it named have arrived and are verified, which is the one transition E94 leaves to the machine and cannot see for itself, and a job that has ended lets those carriers go the way it ended. Depends on Barbatos.SecsGem.Carriers, Barbatos.SecsGem.Substrates, Barbatos.SecsGem.ProcessJobs and Barbatos.SecsGem.ControlJobs, which stay independent of each other.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,12 +14,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The only package in this repository that depends on several standards at once, which is
-         the whole reason it exists: none of E87, E90 and E40 may depend on another, so the joins
-         between them cannot live in any of them. -->
+    <!-- Four standards, none of which may depend on another, which is the whole reason this
+         package exists: the joins between them cannot live in any of them. All four sit on
+         Objects and on nothing else here, so the rule is checked by their own csproj files. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Carriers\Barbatos.SecsGem.Carriers.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Substrates\Barbatos.SecsGem.Substrates.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.ProcessJobs\Barbatos.SecsGem.ProcessJobs.csproj" />
+    <!-- E94, joined to E87 rather than to E90: a control job's material is a list of carrier
+         identifiers, so the only standard here that can say whether it has arrived is E87. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.ControlJobs\Barbatos.SecsGem.ControlJobs.csproj" />
   </ItemGroup>
 
 </Project>

@@ -99,6 +99,7 @@ internal static class Program
         await Run("objects: E39's other stream answers per object, beside GEM's own nine functions of it", EnhancedServicesResolveAsync).ConfigureAwait(false);
         await Run("productivity: E10's buckets add up and E79's four factors multiply out", ProductivityResolvesAsync).ConfigureAwait(false);
         await Run("performanceflow: a shift driven through E116 lands in E10 with no code between", PerformanceFlowResolvesAsync).ConfigureAwait(false);
+        await Run("materialflow: a control job waits for its carriers and starts on the last one", ControlJobCarrierResolvesAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -1329,6 +1330,100 @@ internal static class Program
             report.NonScheduled + report.UnscheduledDowntime + report.ScheduledDowntime
             + report.Engineering + report.Standby + report.Productive == report.Total,
             "E10's six buckets do not add up to the window");
+    }
+
+    /// <summary>
+    /// The E87-E94 join, out of the packed assemblies: a lot that waits for its boxes.
+    /// </summary>
+    /// <remarks>
+    /// Worth a smoke check of its own because this join spans two package boundaries that a
+    /// <c>ProjectReference</c> build cannot see - <c>MaterialFlow</c> gained a dependency on
+    /// <c>ControlJobs</c> in this chapter, and a <c>.nuspec</c> that forgot it would restore and
+    /// then fail here rather than in the suite.
+    /// </remarks>
+    private static async Task ControlJobCarrierResolvesAsync()
+    {
+        const string job = "CJ-1";
+        const string left = "CAR-001";
+        const string right = "CAR-002";
+
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddCarrierEquipment(manager =>
+            {
+                foreach (var portId in (byte[])[1, 2])
+                {
+                    manager.AddPort(portId);
+                    manager.SetServiceStatus(portId, inService: true);
+                    manager.SetTransferState(portId, PortTransferState.ReadyToLoad);
+                }
+            })
+            .AddControlJobs(jobs => jobs.Create(job, [left, right]))
+            .AddControlJobCarrierBridge();
+
+        await using var provider = services.BuildServiceProvider();
+
+        var bridge = provider.GetRequiredService<ControlJobCarrierBridge>();
+        var carriers = provider.GetRequiredService<CarrierManager>();
+        var jobs = provider.GetRequiredService<ControlJobManager>();
+
+        Assert(bridge.IsAttached, "the bridge resolved detached");
+        Assert(jobs.Select(job).IsAccepted, "the job could not be selected");
+
+        byte[] slotMap = [1, 1, 0, 1];
+
+        Arrive(1, left);
+
+        // One box short, and this is the claim: a quorum, not the first carrier through the door.
+        Assert(
+            jobs.Find(job)!.State == ControlJobState.Selected,
+            $"one carrier left the job {jobs.Find(job)!.State}, not Selected");
+
+        var waiting = bridge.Check(job);
+
+        Assert(!waiting.IsAccepted, "the material counted as ready with one carrier missing");
+        Assert(
+            waiting.Refused.TryGetValue(right, out var why) && why.Contains("has not arrived", StringComparison.Ordinal),
+            $"the missing carrier was reported as '{(waiting.Refused.TryGetValue(right, out var text) ? text : "nothing")}'");
+
+        Arrive(2, right);
+
+        Assert(
+            jobs.Find(job)!.State == ControlJobState.Executing,
+            $"both carriers left the job {jobs.Find(job)!.State}, not Executing");
+
+        Assert(bridge.ClaimCarriers(job).Count == 2, "the job could not claim both carriers");
+
+        var stalls = 0;
+
+        bridge.Stalled += (_, _) => stalls++;
+
+        Assert(carriers.EndAccess(left).IsAccepted, "the first carrier could not be finished");
+        Assert(carriers.EndAccess(right, stopped: true).IsAccepted, "the second carrier could not be stopped");
+
+        // A stopped box does not quietly complete a lot, and it does not pass in silence either.
+        Assert(stalls == 1, $"{stalls} stall(s) reported, not one");
+        Assert(
+            jobs.Find(job)!.State == ControlJobState.Executing,
+            $"a stopped carrier left the job {jobs.Find(job)!.State}, not Executing");
+
+        Assert(
+            jobs.Command(job, ControlJobCommands.Abort).IsAccepted,
+            "the host could not abort the job");
+
+        Assert(
+            jobs.Find(job)!.Completion == ControlJobCompletion.Aborted,
+            $"the job ended {jobs.Find(job)!.Completion}, not Aborted");
+
+        void Arrive(byte portId, string carrierId)
+        {
+            Assert(carriers.PlaceCarrier(portId, carrierId).IsAccepted, $"{carrierId} could not be placed");
+            Assert(carriers.ReadCarrierId(carrierId, verified: true).IsAccepted, $"{carrierId}'s label could not be read");
+            Assert(carriers.ReadSlotMap(carrierId, slotMap, verified: true).IsAccepted, $"{carrierId} could not be mapped");
+        }
     }
 
     /// <summary>A clock the smoke test moves by hand, so a day takes no time to measure.</summary>
