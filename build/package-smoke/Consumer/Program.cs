@@ -292,6 +292,18 @@ internal static class Program
         // both halves of that file - the message table and the item dictionary - so a resource
         // that packed only part of itself would show up here rather than as a wrong answer later.
         Assert(SecsCatalog.TryGetStream(16, out var sixteen), "stream 16 is not in the catalogue");
+        // The dictionary's half of the same question, also computed at load time from the packed
+        // resource: 213 of the 375 definitions are named by no message, and a stocker standard
+        // came apart on two of them.
+        Assert(
+            SecsCatalog.Provenance.UnusedDefinitions.Count == 213
+                && SecsCatalog.Provenance.UndefinedDataItems.Count == 74,
+            $"the catalogue provenance came out as '{SecsCatalog.Provenance}'");
+
+        Assert(
+            SecsCatalog.TryGetDataItem("LOCID", out var locationId) && locationId!.IsNamedByNoMessage,
+            "LOCID is either missing from the packed dictionary or reported as named by a message");
+
         Assert(
             sixteen!.Provenance.IsEntirelyRepresentative,
             $"S16 reports {sixteen.Provenance.DefinedCount} defined message(s), not none");

@@ -2329,6 +2329,24 @@ internal static class Program
             Console.WriteLine($"   {report}");
         }
 
+        // The footnote above is one stream's provenance. This is the whole table's, which is the
+        // question to ask before quoting the reference at anybody - and the half of it no stream
+        // can show, because an item no message names is invisible from every stream at once.
+        Console.WriteLine($"   catalogue: {SecsCatalog.Provenance}");
+
+        // What that number costs somebody. LOCID is defined, with a format, and no message in the
+        // reference names it - so there is nothing to read it in: no neighbours, no direction, no
+        // reply. It is why a stocker standard of its own is not a package here, and the Catalog
+        // README has the rest of the argument.
+        if (SecsCatalog.TryGetDataItem("LOCID", out var locationId))
+        {
+            Console.WriteLine(
+                $"   and {locationId} is defined and named by no message"
+                + $" - one of {SecsCatalog.Provenance.UnusedDefinitions.Count}");
+
+            ok &= locationId!.IsNamedByNoMessage;
+        }
+
         return ok;
     }
 

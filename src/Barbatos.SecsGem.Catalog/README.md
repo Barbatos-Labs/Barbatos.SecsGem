@@ -180,6 +180,63 @@ the same reason.
 reference. `TryGetDataItem` returns `false` for them. The count is pinned by a test, so a refresh
 has to be looked at rather than skimmed.
 
+### 213 definitions are named by no message, which is the other direction
+
+```csharp
+SecsCatalog.Provenance;
+// 20 streams, 524 messages (405 representative), 375 items: 213 unused, 74 undefined
+
+SecsCatalog.TryGetDataItem("LOCID", out var item);
+item.IsNamedByNoMessage;   // true
+```
+
+Ask a stream how firm it is before implementing against it; ask this before **quoting the reference
+at anybody**. The two are different questions, and this one cannot be assembled out of the
+per-stream measures: whether a definition is attached to any message at all is a fact about the
+whole table, because an item nothing names is invisible from every stream at once.
+
+| | |
+| --- | --- |
+| 375 | item definitions |
+| 236 | distinct item names the messages use |
+| **162** | both defined and used |
+| **213** | defined, and named by no message |
+| **74** | named by a message, and defined nowhere |
+
+So both unanchored sets are larger than the anchored one, and that is worth knowing before anybody
+treats a dictionary entry as a specification.
+
+**It is evidence, not a verdict.** A definition no message names may simply be an item this
+reference documented without documenting its transactions, and several are exactly that:
+`CARRIERSPEC`, `CATTRID`, `CATTRDATA`, `PORTACTION` and `PODID` are E87's object items, and
+[`Barbatos.SecsGem.Carriers`](../Barbatos.SecsGem.Carriers/README.md) ships on other grounds -
+stream 3's carrier half and the stream 14 object services, neither of which needs those five names.
+What the flag does rule out is reading such an item **in context**, because the reference supplies
+no context: no neighbours, no direction, no reply.
+
+### The storage service standard that this measurement sank
+
+E88 - a stocker, as a standard of its own - was asked for and is not here, and the reason is a
+measurement rather than a preference:
+
+- **No stream in the catalogue carries a storage service.** Twenty streams and 524 messages, and
+  nothing names a stocker, a zone, a shelf or a storage capacity.
+- **The two items it would be built on are defined and named by nothing.** `LOCID` (an `A` item)
+  and `SLOTID` (a `U1`) are both in the 213. That is the same signature stream 17's control job
+  items have, and it means there is no message to read either item *in*.
+- **The storage model this stack has already exists**, in `Barbatos.SecsGem.Carriers`, because
+  S3F31 demanded one: that transaction means *tell me about all of your storage locations*, so a
+  package implementing it needed somewhere for a carrier to be that is not a load port. A second
+  storage model in a second package would mean a machine with two answers about one shelf, and
+  E87's stream 3 cannot hand storage over to E88 while S3F31/F32 is still its transaction to
+  answer.
+
+So a stocker here is a `CarrierStorageLocation`, addressed by `LOC`, reported by S3F31 and readable
+as a stream 14 object - and what E88 adds on top of that, zones and capacities and a storage
+service's own commands, is not in this reference in any form. That is a standard to buy and read,
+not one to extrapolate, and [stream 17](#stream-17-is-the-one-that-failed-that-check) is what
+extrapolating looks like when somebody else has done it.
+
 ## Not a structural template
 
 `DataItems` is a list of names, in the order they appear in the body. It does **not** record

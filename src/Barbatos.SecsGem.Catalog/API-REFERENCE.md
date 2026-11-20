@@ -7,6 +7,7 @@ Namespace `Barbatos.SecsGem.Catalog`. Concepts, provenance and the caveats that 
 - [`SecsCatalogExtensions`](#secscatalogextensions)
 - [`SecsStreamInfo`](#secsstreaminfo)
 - [`SecsStreamProvenance`](#secsstreamprovenance)
+- [`SecsCatalogProvenance`](#secscatalogprovenance)
 - [`SecsMessageInfo`](#secsmessageinfo)
 - [`SecsMessageDirection`](#secsmessagedirection)
 - [`SecsDataItemInfo`](#secsdataiteminfo)
@@ -27,6 +28,7 @@ something.
 | `Streams` | `static IReadOnlyList<SecsStreamInfo> { get; }` | 20 of them, ordered by number. There is no S11. |
 | `Messages` | `static IReadOnlyList<SecsMessageInfo> { get; }` | 524, ordered by stream then function. |
 | `DataItems` | `static IReadOnlyList<SecsDataItemInfo> { get; }` | 375, ordered by name. |
+| `Provenance` | `static SecsCatalogProvenance { get; }` | How much of the table is anchored to the rest of it. Ask this before quoting the reference at anybody; ask `SecsStreamInfo.Provenance` before implementing against one stream. |
 | `TryGetStream` | `static bool TryGetStream(byte stream, out SecsStreamInfo? info)` | |
 | `TryGetMessage` | `static bool TryGetMessage(byte stream, byte function, out SecsMessageInfo? info)` | |
 | `TryGetDataItem` | `static bool TryGetDataItem(string name, out SecsDataItemInfo? info)` | Ordinal and case-sensitive, as E5 writes the names. `false` for the 74 names that appear in bodies without a dictionary entry. |
@@ -84,6 +86,25 @@ actually documented - the question to ask before writing a codec against it.
 | `IsEntirelyRepresentative` | `bool { get; }` | The source documented none of it. True for nine streams. |
 | `ToString()` | `override string` | `S16 28 message(s), 0 defined, 5 undefined item name(s)`. |
 
+## `SecsCatalogProvenance`
+
+`sealed class`. The same question for the whole table, and it cannot be assembled out of the
+per-stream measures: whether a definition is named by **any** message is a fact about every stream
+at once. 375 definitions, 236 names the messages use, 162 both - so each unanchored set is larger
+than the anchored one.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `StreamCount` | `int { get; }` | 20. |
+| `MessageCount` | `int { get; }` | 524, and the sum of the streams' own counts - a test asserts that. |
+| `RepresentativeCount` | `int { get; }` | 405. |
+| `DefinedCount` | `int { get; }` | `MessageCount - RepresentativeCount`. |
+| `DataItemCount` | `int { get; }` | 375 definitions. |
+| `NamedDataItemCount` | `int { get; }` | 236 distinct names the messages use. Empty names are dropped, which is one of **two lines here no test reaches**: no row in this data has a trailing comma in its item list. |
+| `UndefinedDataItems` | `IReadOnlyList<string> { get; }` | The 74 names used with no definition, ordered. Exactly the union of every stream's list, asserted. |
+| `UnusedDefinitions` | `IReadOnlyList<string> { get; }` | The 213 definitions no message names, ordered. The **second line no test reaches** is that ordering - the reference lists its dictionary alphabetically already - and removing the same sort from `UndefinedDataItems` does fail, so the assertion is sound and the input is what cannot tell the two apart. |
+| `ToString()` | `override string` | `20 streams, 524 messages (405 representative), 375 items: 213 unused, 74 undefined`. |
+
 ```csharp
 SecsCatalog.TryGetStream(16, out var stream);
 
@@ -138,6 +159,7 @@ nothing.
 | `Length` | `string { get; }` | A count, or **an empty string** for the 58 items the reference gives no length - `SVID` and `CEID` among them. Empty means "not stated", not "zero". |
 | `Codes` | `IReadOnlyList<SecsDataItemCode> { get; }` | Standard values, or empty. 88 of the 375 are coded. |
 | `IsCoded` | `bool { get; }` | |
+| `IsNamedByNoMessage` | `bool { get; }` | True for **213 of the 375**: the dictionary defines it and no message in the catalogue uses it. Evidence, not a verdict - E87's `CARRIERSPEC`, `CATTRID`, `CATTRDATA`, `PORTACTION` and `PODID` are all in here and E87 ships on other grounds. What it rules out is reading such an item *in context*, since the reference gives none. |
 | `MeaningOf` | `string? MeaningOf(string value)` | Exact match only: a value inside a documented range such as `7-63` is not found. |
 | `ToString()` | `override string` | `COMMACK B[1]`. |
 

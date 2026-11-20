@@ -53,6 +53,15 @@ public static class SecsCatalog
     /// <summary>Gets every data item, ordered by name.</summary>
     public static IReadOnlyList<SecsDataItemInfo> DataItems => Data.Items;
 
+    /// <summary>Gets how much of the catalogue is anchored to the rest of it.</summary>
+    /// <remarks>
+    /// Ask this before quoting the reference at anybody, and
+    /// <see cref="SecsStreamInfo.Provenance"/> before implementing against one stream. The two
+    /// answer different questions, and this one cannot be assembled out of the other: whether a
+    /// definition is named by any message at all is a fact about the whole table.
+    /// </remarks>
+    public static SecsCatalogProvenance Provenance => Data.Provenance;
+
     /// <summary>Finds a stream.</summary>
     /// <param name="stream">S.</param>
     /// <param name="info">The stream, when it is in the catalogue.</param>
@@ -154,6 +163,23 @@ public static class SecsCatalog
         // anything", and the second half needs the item table that was just loaded.
         var defined = items.Select(i => i.Name).ToHashSet(StringComparer.Ordinal);
 
+        // And one pass the other way, which no per-stream measure could do: an item that no
+        // message names is invisible from every stream at once, so the names are collected across
+        // the whole table and every item is rebuilt knowing whether anything names it. Empty
+        // names are dropped - a trailing comma in an item list is a gap in the row, not an item.
+        var used = messages
+            .SelectMany(message => message.DataItems)
+            .Where(name => name.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        items = [.. items.Select(item => new SecsDataItemInfo(
+            item.Name,
+            item.FormatToken,
+            item.Format,
+            item.Length,
+            item.Codes,
+            isNamedByNoMessage: !used.Contains(item.Name)))];
+
         foreach (var (number, name) in streamNames.OrderBy(pair => pair.Key))
         {
             var ofStream = messages.Where(m => m.Stream == number).OrderBy(m => m.Function).ToArray();
@@ -179,7 +205,15 @@ public static class SecsCatalog
             items.OrderBy(i => i.Name, StringComparer.Ordinal).ToArray(),
             byStream.ToFrozenDictionary(s => s.Number),
             messages.ToFrozenDictionary(m => Key(m.Stream, m.Function)),
-            items.ToFrozenDictionary(i => i.Name, StringComparer.Ordinal));
+            items.ToFrozenDictionary(i => i.Name, StringComparer.Ordinal),
+            new SecsCatalogProvenance(
+                byStream.Count,
+                messages.Count,
+                messages.Count(m => m.IsRepresentative),
+                items.Count,
+                used.Count,
+                [.. used.Where(name => !defined.Contains(name)).Order(StringComparer.Ordinal)],
+                [.. items.Where(item => item.IsNamedByNoMessage).Select(item => item.Name).Order(StringComparer.Ordinal)]));
     }
 
     private static SecsMessageInfo ReadMessage(string[] fields)
@@ -228,7 +262,8 @@ public static class SecsCatalog
         IReadOnlyList<SecsDataItemInfo> Items,
         FrozenDictionary<byte, SecsStreamInfo> ByStream,
         FrozenDictionary<ushort, SecsMessageInfo> ByMessage,
-        FrozenDictionary<string, SecsDataItemInfo> ByItem);
+        FrozenDictionary<string, SecsDataItemInfo> ByItem,
+        SecsCatalogProvenance Provenance);
 }
 
 /// <summary>Reads a message's catalogue entry straight off the message.</summary>

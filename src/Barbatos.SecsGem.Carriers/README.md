@@ -506,6 +506,13 @@ the same box has no right answer.
   coupling stream 14 to a stream 3 decision or duplicating the fallback - and a duplicate is wrong
   the moment somebody replaces the hook. The two routes that exist are S3F23 for one carrier, and
   the `StorageLocation` object's `CarrierID` for the other direction.
+- **A stocker as a standard of its own - E88.** The storage locations here are what S3F31 needs: a
+  `LOC`, a transfer state and what is in it. What E88 adds on top - zones, capacities, a storage
+  service's own commands - is not in the catalogue in any form, and the two items it would be
+  built on, `LOCID` and `SLOTID`, are defined and named by no message at all.
+  [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) has the measurement and the
+  rest of the argument, the short version of which is that a second storage model in a second
+  package would be two answers about one shelf.
 - **A reservation or an access mode for a storage location.** `ReserveAtPort` names a port, and
   S3F32 has room for one status. Both would be this library deciding what E87 left unsaid about a
   place it barely describes.

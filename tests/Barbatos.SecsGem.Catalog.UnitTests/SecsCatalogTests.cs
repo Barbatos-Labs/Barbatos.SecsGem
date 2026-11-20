@@ -534,9 +534,164 @@ public class SecsCatalogTests
             SecsCatalog.Messages.SelectMany(m => m.DataItems),
             item => item.StartsWith("CTLJOB", StringComparison.Ordinal));
 
+        // Hand-rolled when this was found, and now a measurement anybody can ask for: that scan
+        // above is what SecsDataItemInfo.IsNamedByNoMessage answers, for every item at once.
+        Assert.True(SecsCatalog.TryGetDataItem("CTLJOBID", out var identifier));
+        Assert.True(identifier!.IsNamedByNoMessage);
+        Assert.True(command.IsNamedByNoMessage);
+        Assert.Contains("CTLJOBID", SecsCatalog.Provenance.UnusedDefinitions);
+        Assert.Contains("CTLJOBCMD", SecsCatalog.Provenance.UnusedDefinitions);
+
         Assert.False(SecsCatalog.TryGetDataItem("CJID", out _));
         Assert.False(SecsCatalog.TryGetDataItem("CJACK", out _));
         Assert.False(SecsCatalog.TryGetDataItem("CJSTATE", out _));
+    }
+
+    /// <summary>The dictionary's half of the provenance question, which no stream can show.</summary>
+    /// <remarks>
+    /// <see cref="SecsStreamProvenance.UndefinedDataItems"/> asks whether a stream's bodies can be
+    /// read against anything. This asks the other direction - whether a definition is attached to
+    /// any message at all - and it is a fact about the whole table, because an item nothing names
+    /// is invisible from every stream at once. Both unanchored sets turn out to be larger than the
+    /// anchored one.
+    /// </remarks>
+    [Fact]
+    public void Most_of_the_dictionary_is_named_by_no_message()
+    {
+        var provenance = SecsCatalog.Provenance;
+
+        Assert.Equal(375, provenance.DataItemCount);
+        Assert.Equal(213, provenance.UnusedDefinitions.Count);
+        Assert.Equal(236, provenance.NamedDataItemCount);
+        Assert.Equal(74, provenance.UndefinedDataItems.Count);
+
+        // 162 items are both defined and used, and the two subtractions have to agree on that or
+        // one of the two passes over the table is wrong.
+        Assert.Equal(
+            provenance.DataItemCount - provenance.UnusedDefinitions.Count,
+            provenance.NamedDataItemCount - provenance.UndefinedDataItems.Count);
+        Assert.Equal(162, provenance.DataItemCount - provenance.UnusedDefinitions.Count);
+    }
+
+    [Fact]
+    public void The_two_lists_are_the_two_directions_and_never_overlap()
+    {
+        var provenance = SecsCatalog.Provenance;
+
+        // One is "used with no definition", the other "defined with nothing using it". A name in
+        // both would mean the loader disagreed with itself about what the dictionary holds.
+        Assert.Empty(provenance.UndefinedDataItems.Intersect(provenance.UnusedDefinitions, StringComparer.Ordinal));
+
+        Assert.Equal([.. provenance.UndefinedDataItems.Order(StringComparer.Ordinal)], provenance.UndefinedDataItems);
+        Assert.Equal([.. provenance.UnusedDefinitions.Order(StringComparer.Ordinal)], provenance.UnusedDefinitions);
+    }
+
+    [Fact]
+    public void The_catalogue_wide_undefined_list_is_exactly_what_the_streams_report()
+    {
+        string[] fromStreams = [.. SecsCatalog.Streams
+            .SelectMany(stream => stream.Provenance.UndefinedDataItems)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)];
+
+        // The same measurement assembled two ways, which is the only check available on either.
+        Assert.Equal(fromStreams, SecsCatalog.Provenance.UndefinedDataItems);
+    }
+
+    [Fact]
+    public void The_flag_and_the_list_say_the_same_thing_about_every_item()
+    {
+        string[] flagged = [.. SecsCatalog.DataItems
+            .Where(item => item.IsNamedByNoMessage)
+            .Select(item => item.Name)
+            .Order(StringComparer.Ordinal)];
+
+        Assert.Equal(SecsCatalog.Provenance.UnusedDefinitions, flagged);
+
+        // And the flag agrees with the message table item by item, which is what it claims.
+        var used = SecsCatalog.Messages
+            .SelectMany(message => message.DataItems)
+            .Where(name => name.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var item in SecsCatalog.DataItems)
+        {
+            Assert.Equal(!used.Contains(item.Name), item.IsNamedByNoMessage);
+        }
+    }
+
+    [Fact]
+    public void The_counts_agree_with_the_streams()
+    {
+        var provenance = SecsCatalog.Provenance;
+
+        Assert.Equal(SecsCatalog.Streams.Count, provenance.StreamCount);
+        Assert.Equal(SecsCatalog.Messages.Count, provenance.MessageCount);
+        Assert.Equal(SecsCatalog.Streams.Sum(s => s.Provenance.MessageCount), provenance.MessageCount);
+        Assert.Equal(SecsCatalog.Streams.Sum(s => s.Provenance.RepresentativeCount), provenance.RepresentativeCount);
+        Assert.Equal(provenance.MessageCount - provenance.RepresentativeCount, provenance.DefinedCount);
+
+        Assert.Equal(
+            "20 streams, 524 messages (405 representative), 375 items: 213 unused, 74 undefined",
+            provenance.ToString());
+    }
+
+    /// <summary>Why a storage service standard got no package here.</summary>
+    /// <remarks>
+    /// The two items such a standard would be built on are both defined and both named by
+    /// nothing, and no stream in the catalogue carries a storage service at all. So there is no
+    /// message to read either item in - no neighbours, no direction, no reply - which is the one
+    /// thing a definition on its own cannot supply. The storage model this stack does have exists
+    /// because S3F31 demanded one, and it lives where that transaction is.
+    /// </remarks>
+    [Fact]
+    public void The_two_location_identifier_items_are_defined_and_named_by_nothing()
+    {
+        Assert.True(SecsCatalog.TryGetDataItem("LOCID", out var locationId));
+        Assert.True(SecsCatalog.TryGetDataItem("SLOTID", out var slotId));
+
+        Assert.True(locationId!.IsNamedByNoMessage);
+        Assert.True(slotId!.IsNamedByNoMessage);
+
+        // Defined, with a format each - which is exactly what makes them tempting.
+        Assert.Equal(SecsFormat.ASCII, locationId.Format);
+        Assert.Equal(SecsFormat.U1, slotId.Format);
+
+        // And the one location item that is named by messages is the other one, LOC, which is
+        // what stream 3 uses and what this stack's storage locations are addressed by.
+        Assert.True(SecsCatalog.TryGetDataItem("LOC", out var location));
+        Assert.False(location!.IsNamedByNoMessage);
+        Assert.Equal(SecsFormat.U4, location.Format);
+    }
+
+    /// <summary>A definition no message names is evidence, not a verdict.</summary>
+    /// <remarks>
+    /// E87's object items are all in the unused list, and E87 ships here regardless - on stream 3
+    /// and on the stream 14 object services, neither of which needs these five names. So the flag
+    /// rules out reading an item in context; it does not rule out the standard.
+    /// </remarks>
+    [Theory]
+    [InlineData("CARRIERSPEC")]
+    [InlineData("CATTRID")]
+    [InlineData("CATTRDATA")]
+    [InlineData("PORTACTION")]
+    [InlineData("PODID")]
+    public void E87s_own_object_items_are_named_by_nothing_either(string name)
+    {
+        Assert.True(SecsCatalog.TryGetDataItem(name, out var item));
+        Assert.True(item!.IsNamedByNoMessage);
+        Assert.Contains(name, SecsCatalog.Provenance.UnusedDefinitions);
+    }
+
+    [Fact]
+    public void An_item_both_defined_and_used_is_not_flagged()
+    {
+        foreach (var name in new[] { "CARRIERID", "PTN", "LOC", "CAACK", "ACKC3", "MID" })
+        {
+            Assert.True(SecsCatalog.TryGetDataItem(name, out var item), $"{name} should be defined");
+            Assert.False(item!.IsNamedByNoMessage, $"{name} is named by a message");
+            Assert.DoesNotContain(name, SecsCatalog.Provenance.UnusedDefinitions);
+        }
     }
 
     [Fact]

@@ -137,6 +137,106 @@ public sealed class SecsStreamProvenance
             + $"{UndefinedDataItems.Count} undefined item name(s)";
 }
 
+/// <summary>
+/// How much of the catalogue is anchored to the rest of it, counted once for the whole table.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="SecsStreamProvenance"/> answers "how firm is this stream", which is the question to
+/// ask before implementing against one. This answers a different one, and it cannot be assembled
+/// out of the per-stream measures: whether a definition is named by <em>any</em> message is a fact
+/// about the whole table, and so is the full list of names used with no definition behind them.
+/// </para>
+/// <para>
+/// The numbers are worth knowing before quoting this reference at anybody. Of 375 item
+/// definitions, <strong>213 are named by no message</strong>; of the 236 item names messages
+/// actually use, <strong>74 have no definition</strong>. So 162 items are both defined and used,
+/// and both unanchored sets are larger than the anchored one. Every message count here is the
+/// same arithmetic <see cref="SecsStreamProvenance"/> does per stream.
+/// </para>
+/// </remarks>
+public sealed class SecsCatalogProvenance
+{
+    internal SecsCatalogProvenance(
+        int streamCount,
+        int messageCount,
+        int representativeCount,
+        int dataItemCount,
+        int namedDataItemCount,
+        IReadOnlyList<string> undefinedDataItems,
+        IReadOnlyList<string> unusedDefinitions)
+    {
+        StreamCount = streamCount;
+        MessageCount = messageCount;
+        RepresentativeCount = representativeCount;
+        DataItemCount = dataItemCount;
+        NamedDataItemCount = namedDataItemCount;
+        UndefinedDataItems = undefinedDataItems;
+        UnusedDefinitions = unusedDefinitions;
+    }
+
+    /// <summary>Gets how many streams the catalogue has.</summary>
+    public int StreamCount { get; }
+
+    /// <summary>Gets how many messages it has.</summary>
+    public int MessageCount { get; }
+
+    /// <summary>Gets how many of those the source marks as a representative subset rather than a definition.</summary>
+    public int RepresentativeCount { get; }
+
+    /// <summary>Gets how many it documents as definitions.</summary>
+    public int DefinedCount => MessageCount - RepresentativeCount;
+
+    /// <summary>Gets how many items the dictionary defines.</summary>
+    public int DataItemCount { get; }
+
+    /// <summary>Gets how many distinct item names the messages use.</summary>
+    /// <remarks>
+    /// <para>
+    /// Not a subset of <see cref="DataItemCount"/> and not a superset: the two overlap by 162.
+    /// </para>
+    /// <para>
+    /// Empty names are not counted, and that filter is <strong>one of the two lines here no test
+    /// reaches</strong>: no row in the current data has a trailing comma in its item list, so
+    /// there is no empty name to drop. It stays because a refreshed reference with one would
+    /// otherwise report <c>""</c> as a name a message uses, and
+    /// <see cref="SecsCatalog.TryGetDataItem"/> would then be asked for an item called nothing.
+    /// </para>
+    /// </remarks>
+    public int NamedDataItemCount { get; }
+
+    /// <summary>Gets the item names messages use that the dictionary does not define, ordered.</summary>
+    /// <remarks>
+    /// The union of every stream's <see cref="SecsStreamProvenance.UndefinedDataItems"/>, and a
+    /// test asserts it is exactly that. <c>PORTSTATUS</c>, <c>SLOTMAP</c> and <c>CARRIERSTATUS</c>
+    /// are in here, which is why the packages that carry them say what each reading was checked
+    /// against.
+    /// </remarks>
+    public IReadOnlyList<string> UndefinedDataItems { get; }
+
+    /// <summary>Gets the definitions no message names, ordered.</summary>
+    /// <remarks>
+    /// <para>
+    /// The other direction, and the one nothing else in this package could ask. See
+    /// <see cref="SecsDataItemInfo.IsNamedByNoMessage"/> for what it does and does not prove.
+    /// </para>
+    /// <para>
+    /// The ordering here is <strong>the second line no test reaches</strong>: the reference lists
+    /// its dictionary alphabetically already, so sorting this list again cannot be observed from
+    /// the current data. The assertion is still sound rather than vacuous - removing the same sort
+    /// from <see cref="UndefinedDataItems"/> does fail it, because that list comes out of a hash
+    /// set and arrives in no order at all.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> UnusedDefinitions { get; }
+
+    /// <summary>Returns the counts.</summary>
+    /// <returns>For example <c>20 streams, 524 messages (405 representative), 375 items: 213 unused, 74 undefined</c>.</returns>
+    public override string ToString()
+        => $"{StreamCount} streams, {MessageCount} messages ({RepresentativeCount} representative), "
+            + $"{DataItemCount} items: {UnusedDefinitions.Count} unused, {UndefinedDataItems.Count} undefined";
+}
+
 /// <summary>One stream and function: what it is called, which way it goes, and what its body holds.</summary>
 public sealed class SecsMessageInfo
 {
@@ -238,13 +338,15 @@ public sealed class SecsDataItemInfo
         string formatToken,
         SecsFormat? format,
         string length,
-        IReadOnlyList<SecsDataItemCode> codes)
+        IReadOnlyList<SecsDataItemCode> codes,
+        bool isNamedByNoMessage = false)
     {
         Name = name;
         FormatToken = formatToken;
         Format = format;
         Length = length;
         Codes = codes;
+        IsNamedByNoMessage = isNamedByNoMessage;
     }
 
     /// <summary>Gets the item's name, for example <c>COMMACK</c>.</summary>
@@ -280,6 +382,29 @@ public sealed class SecsDataItemInfo
 
     /// <summary>Gets a value indicating whether this item has a table of standard values.</summary>
     public bool IsCoded => Codes.Count > 0;
+
+    /// <summary>Gets a value indicating whether no message in the catalogue names this item.</summary>
+    /// <remarks>
+    /// <para>
+    /// True for <strong>213 of the 375</strong> definitions, which is the dictionary's half of the
+    /// provenance question and the half no per-stream measure can show: an item nothing names is
+    /// invisible from every stream at once. <see cref="SecsStreamProvenance.UndefinedDataItems"/>
+    /// asks the other direction - names a message uses with no definition behind them - and the
+    /// two together say how much of this reference is anchored to the rest of it. Only 162
+    /// definitions are both defined and named.
+    /// </para>
+    /// <para>
+    /// <strong>It is evidence, not a verdict.</strong> A definition no message names may be an
+    /// item this particular reference documented without documenting its transactions, and
+    /// several are exactly that: <c>CARRIERSPEC</c>, <c>CATTRID</c>, <c>CATTRDATA</c>,
+    /// <c>PORTACTION</c> and <c>PODID</c> are E87's object items, and E87 is implemented here on
+    /// other grounds. What it does rule out is reading such an item <em>in context</em>, because
+    /// the reference supplies no context: there is no message to see its neighbours in, and no
+    /// direction, and no reply. That is what sank a storage service standard in this repository -
+    /// <c>LOCID</c> and <c>SLOTID</c> are defined, and nothing names either.
+    /// </para>
+    /// </remarks>
+    public bool IsNamedByNoMessage { get; }
 
     /// <summary>Finds the meaning of a value.</summary>
     /// <param name="value">The value, as text.</param>
