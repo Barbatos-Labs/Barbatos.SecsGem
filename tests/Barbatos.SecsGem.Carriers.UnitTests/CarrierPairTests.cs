@@ -371,6 +371,7 @@ public class CarrierPairTests
         await pair.Host.ReadCarrierIdAsync(1, CarrierPair.Token);
         await pair.Host.ReadSlotMapAsync("CAR-001", CarrierPair.Token);
         await pair.Host.ReserveAsync("CAR-001", 1, CarrierPair.Token);
+        await pair.Host.ReadStorageStatusAsync(CarrierPair.Token);
         await pair.Host.CarrierOutAsync("CAR-001", CarrierPair.Token);
 
         foreach (var message in CarrierEquipment.HandledMessages)

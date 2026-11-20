@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Barbatos.SecsGem.Carriers;
 
 /// <summary>
-/// The host side of carrier management: the five requests, and a method per action worth naming.
+/// The host side of carrier management: the eight requests, and a method per action worth naming.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -276,6 +276,38 @@ public sealed class CarrierHost
         }
 
         return slotMap;
+    }
+
+    /// <summary>Asks for every storage location - S3F31, answered by S3F32.</summary>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Every storage location the machine has, which is empty when it has none.</returns>
+    /// <exception cref="SecsException">The reply was not storage status data.</exception>
+    /// <remarks>
+    /// <para>
+    /// The one request in E87's half of stream 3 that names nothing: S3F31 has no items, so it
+    /// means <em>all of them</em>. That removes a distinction every other reader here has to keep
+    /// - an empty answer means the machine has no storage, not that it will not say, because there
+    /// was nothing named that it could be missing.
+    /// </para>
+    /// <para>
+    /// A storage location is not a load port. It is somewhere inside the machine, addressed by
+    /// <c>LOC</c>, and no E87 carrier action names one - a host can read storage and cannot drive
+    /// it. <see cref="ReadPortStatusAsync"/> is the one for a port.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<CarrierStorageStatus>> ReadStorageStatusAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(3, 31, replyExpected: true) { Name = "StorageStatusRequest" },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!CarrierCodec.TryReadStorageStatus(reply.Item, out var locations))
+        {
+            throw new SecsException("S3F32 did not carry storage status data.");
+        }
+
+        return locations;
     }
 
     /// <summary>Asks what carrier is on a port - S3F25, answered by S3F26.</summary>

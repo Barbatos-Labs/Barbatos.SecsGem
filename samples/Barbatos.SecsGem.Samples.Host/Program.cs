@@ -136,6 +136,15 @@ internal static class Program
     /// <summary>The carrier this sample walks through E87.</summary>
     private const string CarrierName = "CAR-001";
 
+    /// <summary>A second carrier, the one that sits on a shelf rather than on a port.</summary>
+    private const string ShelvedCarrier = "CAR-009";
+
+    /// <summary>A storage location: somewhere inside the machine that is not a port, addressed by <c>LOC</c>.</summary>
+    private const uint ShelfLocation = 101;
+
+    /// <summary>A second shelf, left empty, so that S3F31 has more than one thing to report.</summary>
+    private const uint SecondShelf = 102;
+
     /// <summary>Where this machine processes a wafer, as E90 names the place.</summary>
     private const string ChuckLocation = "CHUCK";
 
@@ -448,6 +457,14 @@ internal static class Program
 
         carrierManager.AddPort(1);
         carrierManager.SetServiceStatus(1, inService: true);
+
+        // And two storage locations, which are not ports: shelves inside the machine, addressed by
+        // LOC rather than by PTN. S3F21 asks about one port; S3F31 asks about all of these at once
+        // by naming nothing at all.
+        carrierManager.AddStorageLocation(ShelfLocation);
+        carrierManager.AddStorageLocation(SecondShelf);
+        carrierManager.SetStorageServiceStatus(ShelfLocation, inService: true);
+        carrierManager.SetStorageServiceStatus(SecondShelf, inService: true);
 
         // E90's state machines. The slots are locations, and so is the chuck the wafers are
         // processed on: anything that holds one substrate at a time is a location.
@@ -1492,6 +1509,36 @@ internal static class Program
 
                 Console.WriteLine("   and S3F28 and the stream 14 attribute agree, byte for byte");
             }
+
+            // S3F31 names nothing, which makes it the one request here whose empty answer would be
+            // an answer rather than a refusal. This machine has two shelves, so it lists two - and
+            // PORTSTATUS turns up a third time, this time with no stream 14 attribute to check it
+            // against. What it has instead is the word S3F22 already uses for the same state,
+            // printed above, which is why a shelf and a port must never disagree about it.
+            machine.SetStorageTransferState(ShelfLocation, PortTransferState.ReadyToLoad);
+            machine.StoreCarrier(ShelfLocation, ShelvedCarrier);
+
+            foreach (var shelf in await flow.Host.ReadStorageStatusAsync(cancellationToken))
+            {
+                Console.WriteLine($"   S3F31  -> {shelf}");
+            }
+
+            // The same box through S3F24, which has room for one number: one on a shelf reports the
+            // shelf. The default used to answer with the port alone, which would have made this
+            // nought - and nought is a location, so a box that is somewhere would have come back
+            // as being nowhere.
+            var shelved = await flow.Host.FindCarrierAsync(ShelvedCarrier, cancellationToken);
+
+            Console.WriteLine($"   S3F23  -> {ShelvedCarrier} is at location {shelved}");
+            ok &= shelved == ShelfLocation;
+
+            // And a carrier is in one place: the box on port 1 cannot also be put on a shelf.
+            machine.SetStorageTransferState(SecondShelf, PortTransferState.ReadyToLoad);
+
+            var twoPlaces = machine.StoreCarrier(SecondShelf, CarrierName);
+
+            Console.WriteLine($"   [machine] {CarrierName} onto a shelf as well: {twoPlaces.ErrorText}");
+            ok &= !twoPlaces.IsAccepted;
 
             Console.WriteLine();
             Console.WriteLine("-- and the wafers inside it, one at a time --");

@@ -704,7 +704,12 @@ internal static class Program
         services
             .AddSecsGem()
             .UseInMemoryTransport()
-            .AddCarrierEquipment(manager => manager.AddPort(1));
+            .AddCarrierEquipment(manager =>
+            {
+                manager.AddPort(1);
+                manager.AddStorageLocation(101);
+                manager.AddStorageLocation(102);
+            });
 
         await using var provider = services.BuildServiceProvider();
 
@@ -712,12 +717,12 @@ internal static class Program
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
-        // The two added in the chapter that read E87's remaining stream 3: declared out of the
+        // The three added in the chapters that read E87's remaining stream 3: declared out of the
         // packed assembly, which is the only place a declaration list that did not travel shows
         // up as a message nobody answers.
         Assert(
-            router.TryGetHandler(3, 21, out _) && router.TryGetHandler(3, 27, out _),
-            "S3F21 or S3F27 has no handler, so the equipment will answer S9F5 for a request it implements");
+            router.TryGetHandler(3, 21, out _) && router.TryGetHandler(3, 27, out _) && router.TryGetHandler(3, 31, out _),
+            "S3F21, S3F27 or S3F31 has no handler, so the equipment will answer S9F5 for a request it implements");
 
         Assert(
             router.TryGetHandler(3, 17, out _) && router.TryGetHandler(3, 33, out _),
@@ -757,6 +762,36 @@ internal static class Program
         Assert(carrier is not null, "the carrier went missing");
         Assert(carrier!.AccessStatus == CarrierAccessStatus.InAccess, $"the carrier is {carrier.AccessStatus}");
         Assert(carrier.SubstrateCount == 2, $"the slot map counted {carrier.SubstrateCount} substrates, not two");
+
+        // And the storage locations, which are places rather than ports. Checked through the
+        // packaged assembly because a carrier in one answers S3F24 with the shelf, and that
+        // default is the line of this chapter nothing else would notice if it travelled wrong.
+        Assert(manager.SetStorageServiceStatus(101, inService: true).IsAccepted, "the shelf refused to go in service");
+        Assert(
+            manager.SetStorageTransferState(101, PortTransferState.ReadyToLoad).IsAccepted,
+            "the shelf refused to be ready to load");
+        Assert(manager.StoreCarrier(101, "CAR-SHELF").IsAccepted, "the shelf refused a carrier it was ready for");
+        Assert(
+            manager.FindCarrier("CAR-SHELF")?.StorageLocation == 101,
+            "the carrier does not know which shelf it is in");
+
+        var stranded = manager.SetStorageServiceStatus(101, inService: false);
+
+        Assert(!stranded.IsAccepted, "an occupied shelf went out of service, stranding the carrier in it");
+
+        // A carrier is in one place: CAR-SMOKE is on port 1, so a shelf that is ready for it still
+        // will not take it.
+        Assert(manager.SetStorageServiceStatus(102, inService: true).IsAccepted, "the second shelf refused to go in service");
+        Assert(
+            manager.SetStorageTransferState(102, PortTransferState.ReadyToLoad).IsAccepted,
+            "the second shelf refused to be ready to load");
+
+        var twoPlaces = manager.StoreCarrier(102, "CAR-SMOKE");
+
+        Assert(!twoPlaces.IsAccepted, "a carrier on a port was put on a shelf as well");
+        Assert(
+            twoPlaces.ErrorText.Contains("one place", StringComparison.Ordinal),
+            $"the refusal said '{twoPlaces.ErrorText}'");
     }
 
     /// <summary>

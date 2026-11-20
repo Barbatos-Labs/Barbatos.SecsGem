@@ -42,6 +42,15 @@ public sealed class Carrier
     /// <remarks>A carrier can exist without a port: that is what <c>CarrierNotification</c> creates, a carrier the host says is coming.</remarks>
     public byte? PortId { get; internal set; }
 
+    /// <summary>Which storage location it is in, or <see langword="null"/> when it is not in one.</summary>
+    /// <remarks>
+    /// A carrier is in one place: this and <see cref="PortId"/> are never both set.
+    /// <see cref="CarrierManager.StoreCarrier"/> refuses a carrier that is on a port and
+    /// <see cref="CarrierManager.PlaceCarrier"/> refuses one that is in storage, so an application
+    /// reading both does not have to decide which of them to believe.
+    /// </remarks>
+    public uint? StorageLocation { get; internal set; }
+
     /// <summary>What is in each slot.</summary>
     /// <remarks>
     /// One byte per slot, and the codes are the machine's: E87 leaves the vocabulary to the
@@ -113,6 +122,68 @@ public sealed class LoadPort
     public bool IsInService => TransferState is not PortTransferState.OutOfService;
 }
 
+/// <summary>
+/// A place inside the equipment where a carrier may sit, addressed by <c>LOC</c> - E87.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Not a load port. A port is where a carrier crosses the boundary of the machine and is addressed
+/// by <c>PTN</c>; a storage location is somewhere inside it - a stocker shelf, a buffer, an
+/// internal station - and is addressed by <c>LOC</c>. Stream 3 keeps them apart the same way:
+/// S3F21 asks about a port by <c>PTN</c> and S3F31 asks about every storage location at once.
+/// </para>
+/// <para>
+/// <strong>One state machine, not four.</strong> A port has four; this has the transfer state and
+/// nothing else, because that is the only status S3F32 has room for and the only one E87 names for
+/// a location. There is no access mode (nobody is being told who may drive a shelf), no
+/// reservation (<c>ReserveAtPort</c> names a port), and no association state - what is in it is
+/// just <see cref="CarrierId"/>, since a second state machine saying the same thing could
+/// disagree with it.
+/// </para>
+/// <para>
+/// <strong>The transfer state is a <see cref="PortTransferState"/> on purpose.</strong> S3F32
+/// carries <c>PORTSTATUS</c>, the same item name S3F22 carries for a port, and an item means one
+/// thing in a message set. Giving a location a vocabulary of its own would be this library
+/// inventing a second meaning for an item that already has one here.
+/// </para>
+/// <para>
+/// As with <see cref="Carrier"/> and <see cref="LoadPort"/>, every state is read-only from outside
+/// and moves only through <see cref="CarrierManager"/>.
+/// </para>
+/// </remarks>
+public sealed class CarrierStorageLocation
+{
+    internal CarrierStorageLocation(uint location) => Location = location;
+
+    /// <summary>Which location this is - <c>LOC</c>.</summary>
+    public uint Location { get; }
+
+    /// <summary>What the location is ready to do.</summary>
+    /// <remarks>
+    /// Read it as a port's: <see cref="PortTransferState.OutOfService"/> is a shelf nobody may
+    /// use, <see cref="PortTransferState.ReadyToLoad"/> one a carrier may be put into,
+    /// <see cref="PortTransferState.ReadyToUnload"/> one whose carrier may be taken, and
+    /// <see cref="PortTransferState.TransferBlocked"/> the resting state in service.
+    /// </remarks>
+    public PortTransferState TransferState { get; internal set; } = PortTransferState.OutOfService;
+
+    /// <summary>The carrier in it, or <see langword="null"/> when it is empty.</summary>
+    public string? CarrierId { get; internal set; }
+
+    /// <summary>Gets a value indicating whether the location is in service at all.</summary>
+    public bool IsInService => TransferState is not PortTransferState.OutOfService;
+
+    /// <summary>Gets a value indicating whether there is a carrier in it.</summary>
+    public bool IsOccupied => CarrierId is not null;
+
+    /// <summary>Returns the location, its state and what is in it.</summary>
+    /// <returns>For example <c>location 101 ReadyToUnload (CAR-001)</c>.</returns>
+    public override string ToString()
+        => CarrierId is null
+            ? $"location {Location} {TransferState}"
+            : $"location {Location} {TransferState} ({CarrierId})";
+}
+
 /// <summary>A carrier changed state - E87.</summary>
 /// <remarks>
 /// <para>
@@ -158,6 +229,32 @@ public sealed class PortStateChangedEventArgs : EventArgs
 
     /// <summary>What it is.</summary>
     public required int Current { get; init; }
+}
+
+/// <summary>A storage location changed state - E87.</summary>
+/// <remarks>
+/// <para>
+/// Strongly typed, where <see cref="CarrierStateChangedEventArgs"/> and
+/// <see cref="PortStateChangedEventArgs"/> carry their states as <see cref="int"/>. Those two have
+/// to: three and four different enums cannot share one property. A storage location has one state
+/// machine, so there is nothing to cast.
+/// </para>
+/// <para>
+/// A carrier arriving in a location or leaving one is not an event of its own, for the same
+/// reason there is no association state machine: it moves the transfer state, and that is the
+/// transition a host hears. Read <see cref="CarrierStorageLocation.CarrierId"/> for what is in it.
+/// </para>
+/// </remarks>
+public sealed class StorageStateChangedEventArgs : EventArgs
+{
+    /// <summary>The location.</summary>
+    public required CarrierStorageLocation StorageLocation { get; init; }
+
+    /// <summary>What it was.</summary>
+    public required PortTransferState Previous { get; init; }
+
+    /// <summary>What it is.</summary>
+    public required PortTransferState Current { get; init; }
 }
 
 /// <summary>Which of a carrier's state machines an event is about.</summary>

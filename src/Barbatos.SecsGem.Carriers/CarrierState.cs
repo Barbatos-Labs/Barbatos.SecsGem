@@ -42,6 +42,10 @@ public sealed class CarrierSnapshot
     /// <remarks>Recorded, and not restored: where a box is sitting is something a machine senses.</remarks>
     public byte? PortId { get; init; }
 
+    /// <summary>Which storage location it was in, or <see langword="null"/>.</summary>
+    /// <remarks>Recorded, and not restored, for the same reason <see cref="PortId"/> is not.</remarks>
+    public uint? StorageLocation { get; init; }
+
     /// <summary>What was in each slot.</summary>
     /// <remarks>
     /// Recorded, and not restored. A list rather than an array, so that reading this property
@@ -96,6 +100,29 @@ public sealed class LoadPortSnapshot
     public string? ReservedForCarrierId { get; init; }
 }
 
+/// <summary>One storage location, as something that can be written down and read back.</summary>
+/// <remarks>
+/// A faithful record, as the other two are. One state machine, so one state: see
+/// <see cref="CarrierStorageLocation"/> for why a location has fewer of them than a port.
+/// </remarks>
+public sealed class CarrierStorageSnapshot
+{
+    /// <summary>Which location - <c>LOC</c>.</summary>
+    public required uint Location { get; init; }
+
+    /// <summary>What it was ready to do.</summary>
+    /// <remarks>
+    /// Only the in-service half of this is restored, exactly as for a port: whether a shelf is
+    /// usable at all is a decision somebody made, and whether a transfer may happen this second
+    /// is not.
+    /// </remarks>
+    public PortTransferState TransferState { get; init; }
+
+    /// <summary>The carrier that was in it, or <see langword="null"/>.</summary>
+    /// <remarks>Recorded, and not restored: what is in a storage location is sensed.</remarks>
+    public string? CarrierId { get; init; }
+}
+
 /// <summary>
 /// Everything <see cref="CarrierManager"/> holds, as one value.
 /// </summary>
@@ -109,6 +136,9 @@ public sealed class CarrierManagerSnapshot
 {
     /// <summary>The load ports, ordered by number.</summary>
     public IReadOnlyList<LoadPortSnapshot> Ports { get; init; } = [];
+
+    /// <summary>The storage locations, ordered by <c>LOC</c>.</summary>
+    public IReadOnlyList<CarrierStorageSnapshot> StorageLocations { get; init; } = [];
 
     /// <summary>The carriers.</summary>
     public IReadOnlyList<CarrierSnapshot> Carriers { get; init; } = [];
@@ -135,18 +165,18 @@ public sealed class CarrierRestoreReport
     /// <summary>Why nothing was attempted. Empty when something was.</summary>
     public string Reason { get; init; } = string.Empty;
 
-    /// <summary>The carriers and ports that came back, named.</summary>
+    /// <summary>The carriers, ports and storage locations that came back, named.</summary>
     public IReadOnlyList<string> Restored { get; init; } = [];
 
     /// <summary>What was not restored as recorded, and why.</summary>
     /// <remarks>
-    /// Keyed by carrier identifier or by <c>port 1</c>. Every entry is a rule in
+    /// Keyed by carrier identifier, by <c>port 1</c> or by <c>location 101</c>. Every entry is a rule in
     /// <see cref="CarrierManager.Restore"/> doing its job, not a problem with the snapshot.
     /// </remarks>
     public IReadOnlyDictionary<string, string> Adjusted { get; init; }
         = new Dictionary<string, string>(StringComparer.Ordinal);
 
-    /// <summary>Gets how many carriers and ports came back.</summary>
+    /// <summary>Gets how many carriers, ports and storage locations came back.</summary>
     public int Count => Restored.Count;
 
     internal static CarrierRestoreReport Denied(string reason)

@@ -8,24 +8,28 @@ using System.Globalization;
 namespace Barbatos.SecsGem.Carriers;
 
 /// <summary>
-/// The five stream 3 transactions E87 drives, written and read in one place.
+/// The eight stream 3 transactions E87 drives, written and read in one place.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>Why five and not thirteen.</strong> Stream 3's carrier half is S3F17 to S3F34. Three of
-/// those transactions need an item the catalogue has no entry for - <c>CARRIERSTATUS</c> on S3F20,
-/// <c>PORTSTATUS</c> on S3F22 and S3F32, <c>SLOTMAP</c> on S3F28 - so implementing them would mean
-/// inventing a wire format for a carrier's state and its slot map. E87 already says where those
-/// live: they are attributes of the carrier and load port objects, read over stream 14, where an
-/// attribute may be any item at all. So this package carries the five transactions whose every
-/// item is defined, and <see cref="CarrierObjectProvider"/> carries the rest properly.
+/// <strong>Why eight and not nine.</strong> Stream 3's carrier half is S3F17 to S3F34, nine
+/// request-and-reply pairs. Three of them need an item the catalogue has no entry for -
+/// <c>CARRIERSTATUS</c> on S3F20, <c>PORTSTATUS</c> on S3F22 and S3F32, <c>SLOTMAP</c> on S3F28 -
+/// and two of those three are carried anyway, because this package already serves the same values
+/// as stream 14 attributes and so had a reading to check against rather than one to invent. The
+/// one left out is S3F19/F20: <c>CARRIERSTATUS</c> is a single item where a carrier has three
+/// state machines, and nothing in E87 crowns one of them. <see cref="CarrierObjectProvider"/>
+/// serves all three by name instead.
 /// </para>
 /// <code>
 /// S3F17  L,3 { CARRIERACTION, CARRIERID, PTN }   the one that matters: every action, carrier and port
 /// S3F18  L,3 { CAACK, ERRCODE, ERRTEXT }         accepted, or refused with the state that refused it
+/// S3F21  PTN                  -&gt; S3F22  L,3 { PTN, PORTSTATUS, CARRIERID }
 /// S3F23  CARRIERID            -&gt; S3F24  L,2 { CARRIERID, LOC }
 /// S3F25  PTN                  -&gt; S3F26  L,2 { ACKC3, CARRIERID }
+/// S3F27  CARRIERID            -&gt; S3F28  L,2 { CARRIERID, SLOTMAP }
 /// S3F29  L,2 { CARRIERID, PTN } -&gt; S3F30  ACKC3
+/// S3F31  (nothing)            -&gt; S3F32  L,n { L,3 { LOC, PORTSTATUS, CARRIERID } }
 /// S3F33  CARRIERID            -&gt; S3F34  ACKC3
 /// </code>
 /// <para>
@@ -319,6 +323,85 @@ internal static class CarrierCodec
         return true;
     }
 
+    /// <summary>S3F32 - Storage Status Data.</summary>
+    /// <param name="locations">Every storage location the machine has, ordered by <c>LOC</c>.</param>
+    /// <returns>The body.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Plural, because the request names nothing.</strong> S3F31 has no items at all - it
+    /// means <em>tell me about all of your storage locations</em> - so the three items of the
+    /// reply have to repeat. An item list cannot say whether that is a list of three-element
+    /// entries or a flat run, so this writes <c>L,n { L,3 { ... } }</c>, the shape
+    /// <c>Barbatos.SecsGem.Material</c> settled on for S3F2 and S3F4 in this same stream for this
+    /// same reason.
+    /// </para>
+    /// <para>
+    /// <strong>A machine with no storage answers the empty list, and that is an answer.</strong>
+    /// Everywhere else in this codec a zero-length list means <em>this machine will not say</em> -
+    /// no such port, no such carrier, no agreed slot map. Here it means <em>I have no storage
+    /// locations</em>, because the request named nothing that could be missing.
+    /// </para>
+    /// <para>
+    /// <c>PORTSTATUS</c> is the item with no dictionary entry, and it is read here exactly as
+    /// <see cref="PortStatusBody"/> reads it: an <c>A</c> item carrying a
+    /// <see cref="PortTransferState"/> by name. One hop further from firm ground than S3F22 is,
+    /// and worth saying out loud - S3F22's reading is checked against the <c>TransferState</c>
+    /// attribute stream 14 serves, and there is no stream 14 attribute for a storage location to
+    /// check this against. What there is instead is the item name: <c>PORTSTATUS</c> means in
+    /// S3F32 what it means in S3F22, three transactions earlier in the same standard's half of
+    /// the same stream, and a test asserts the two bodies carry the same bytes for the same state.
+    /// </para>
+    /// </remarks>
+    internal static SecsItem StorageStatusBody(IReadOnlyList<(uint Location, string Status, string CarrierId)> locations)
+    {
+        var entries = new SecsItem[locations.Count];
+
+        for (var i = 0; i < locations.Count; i++)
+        {
+            entries[i] = SecsItem.L(
+                SecsItem.U4(locations[i].Location).Named("LOC"),
+                SecsItem.A(locations[i].Status).Named("PORTSTATUS"),
+                SecsItem.A(locations[i].CarrierId).Named("CARRIERID"));
+        }
+
+        return SecsItem.L(entries);
+    }
+
+    /// <summary>Reads S3F32. An empty list means the machine has no storage locations.</summary>
+    /// <param name="body">What came back.</param>
+    /// <param name="locations">The locations, in the order they arrived.</param>
+    /// <returns><see langword="true"/> when the body was one this reader understands.</returns>
+    /// <remarks>
+    /// The status text comes back as it arrived as well as read into an enum, for the reason
+    /// <see cref="TryReadPortStatus"/> gives: an undefined item must not turn another vendor's
+    /// vocabulary into <see cref="PortTransferState.OutOfService"/> just because that is the zero
+    /// of the enum.
+    /// </remarks>
+    internal static bool TryReadStorageStatus(SecsItem? body, out List<CarrierStorageStatus> locations)
+    {
+        locations = [];
+
+        if (body is null || !body.IsList)
+        {
+            return false;
+        }
+
+        foreach (var entry in Entries(body, 3))
+        {
+            var status = Text(entry[1]);
+
+            locations.Add(new CarrierStorageStatus
+            {
+                Location = UInt32(entry[0]) ?? 0,
+                Status = status,
+                TransferState = Enum.TryParse<PortTransferState>(status, out var parsed) ? parsed : null,
+                CarrierId = Text(entry[2]),
+            });
+        }
+
+        return true;
+    }
+
     /// <summary>S3F26 - Carrier ID Read Acknowledge.</summary>
     internal static SecsItem IdReadBody(CarrierRequestAcknowledgement acknowledgement, string carrierId)
         => SecsItem.L(
@@ -458,6 +541,48 @@ internal static class CarrierCodec
         }
 
         return string.Empty;
+    }
+
+    /// <summary>Splits a plural body into fixed-width entries, three ways.</summary>
+    /// <param name="body">The list.</param>
+    /// <param name="width">How many items an entry has.</param>
+    /// <returns>One array of <paramref name="width"/> items per entry.</returns>
+    /// <remarks>
+    /// A list of lists is what this package writes; a flat run of fields repeated and a single
+    /// bare entry are both things a machine may send instead, and an item list cannot say which
+    /// was meant. Deliberately a copy of what <c>Barbatos.SecsGem.Material</c> does for S3F2
+    /// rather than something shared: these two packages do not depend on each other, and a
+    /// shared helper would be the first thread of a dependency between two standards that have
+    /// nothing else to say to one another.
+    /// </remarks>
+    private static List<SecsItem[]> Entries(SecsItem body, int width)
+    {
+        List<SecsItem[]> entries = [];
+
+        if (body.Count == 0)
+        {
+            return entries;
+        }
+
+        if (body.Items[0].IsList)
+        {
+            foreach (var entry in body.Items)
+            {
+                if (entry.IsList && entry.Count >= width)
+                {
+                    entries.Add([.. entry.Items[..width]]);
+                }
+            }
+
+            return entries;
+        }
+
+        for (var i = 0; i + width <= body.Count; i += width)
+        {
+            entries.Add([.. body.Items[i..(i + width)]]);
+        }
+
+        return entries;
     }
 
     private static string Text(SecsItem item)

@@ -46,6 +46,7 @@ public sealed class CarrierManager
 {
     private readonly Dictionary<string, Carrier> _carriers = new(StringComparer.Ordinal);
     private readonly Dictionary<byte, LoadPort> _ports = [];
+    private readonly Dictionary<uint, CarrierStorageLocation> _storage = [];
 #if NET9_0_OR_GREATER
     private readonly Lock _gate = new();
 #else
@@ -59,6 +60,14 @@ public sealed class CarrierManager
     /// <summary>Raised after one of a load port's state machines moves.</summary>
     /// <remarks>Raised inside the manager's lock. Queue the work; do not call back in.</remarks>
     public event EventHandler<PortStateChangedEventArgs>? PortStateChanged;
+
+    /// <summary>Raised after a storage location's transfer state moves.</summary>
+    /// <remarks>
+    /// Raised inside the manager's lock. Queue the work; do not call back in. One event rather
+    /// than four, because a storage location has one state machine - see
+    /// <see cref="CarrierStorageLocation"/>.
+    /// </remarks>
+    public event EventHandler<StorageStateChangedEventArgs>? StorageStateChanged;
 
     /// <summary>Gets the carriers this machine knows about.</summary>
     public IReadOnlyCollection<Carrier> Carriers
@@ -80,6 +89,23 @@ public sealed class CarrierManager
             lock (_gate)
             {
                 return [.. _ports.Values];
+            }
+        }
+    }
+
+    /// <summary>Gets the storage locations, ordered by <c>LOC</c>.</summary>
+    /// <remarks>
+    /// Ordered, where <see cref="Ports"/> is not, because this is what S3F32 reports: a host that
+    /// asks twice and gets the same shelves in a different order has to sort them itself to see
+    /// whether anything moved.
+    /// </remarks>
+    public IReadOnlyCollection<CarrierStorageLocation> StorageLocations
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _storage.Values.OrderBy(location => location.Location)];
             }
         }
     }
@@ -110,6 +136,47 @@ public sealed class CarrierManager
         }
     }
 
+    /// <summary>Declares a storage location. Out of service until something says otherwise.</summary>
+    /// <param name="location">Which location - <c>LOC</c>.</param>
+    /// <returns>The location.</returns>
+    /// <remarks>
+    /// <para>
+    /// A shelf, a buffer, an internal station: somewhere inside the machine a carrier can sit that
+    /// is not a load port. Declared from configuration for the same reason ports are - a host
+    /// cannot invent one - and reported by S3F31, which asks for all of them at once and so has no
+    /// way of naming one that does not exist.
+    /// </para>
+    /// <para>
+    /// <strong>No host action reaches a storage location.</strong> Every carrier action E87 defines
+    /// names a <c>CARRIERID</c> or a <c>PTN</c>, never a <c>LOC</c>, so a host can read storage and
+    /// cannot drive it. The methods on this class are the machine's own hardware talking, which is
+    /// also why <see cref="SetStorageServiceStatus"/> has no action name in its refusals the way
+    /// <see cref="SetServiceStatus"/> has <c>ChangeServiceStatus</c>.
+    /// </para>
+    /// <para>
+    /// Nothing here stops a location being numbered like a port - <c>LOC</c> is a <c>U4</c> and
+    /// <c>PTN</c> a <c>U1</c>, and E87 says nothing about how a machine numbers its own places. It
+    /// matters only for S3F24, which answers with one <c>LOC</c> for either kind of place; see
+    /// <see cref="CarrierEquipment.LocationOf"/>, which is the hook for a machine whose numbering
+    /// overlaps.
+    /// </para>
+    /// </remarks>
+    public CarrierStorageLocation AddStorageLocation(uint location)
+    {
+        lock (_gate)
+        {
+            if (_storage.TryGetValue(location, out var existing))
+            {
+                return existing;
+            }
+
+            var declared = new CarrierStorageLocation(location);
+            _storage[location] = declared;
+
+            return declared;
+        }
+    }
+
     // --------------------------------------------------------- outliving the process
 
     /// <summary>Writes down everything this manager holds.</summary>
@@ -135,6 +202,12 @@ public sealed class CarrierManager
                     AssociatedCarrierId = port.AssociatedCarrierId,
                     ReservedForCarrierId = port.ReservedForCarrierId,
                 })],
+                StorageLocations = [.. _storage.Values.OrderBy(location => location.Location).Select(location => new CarrierStorageSnapshot
+                {
+                    Location = location.Location,
+                    TransferState = location.TransferState,
+                    CarrierId = location.CarrierId,
+                })],
                 Carriers = [.. _carriers.Values.Select(carrier => new CarrierSnapshot
                 {
                     CarrierId = carrier.CarrierId,
@@ -142,6 +215,7 @@ public sealed class CarrierManager
                     SlotMapStatus = carrier.SlotMapStatus,
                     AccessStatus = carrier.AccessStatus,
                     PortId = carrier.PortId,
+                    StorageLocation = carrier.StorageLocation,
                     SlotMap = [.. carrier.SlotMap.Span],
                     Capacity = carrier.Capacity,
                     SubstrateCount = carrier.SubstrateCount,
@@ -171,6 +245,13 @@ public sealed class CarrierManager
     /// resting state in service and not an error.
     /// </para>
     /// <para>
+    /// A storage location is a port's twin here: whether it is in service comes back, what it was
+    /// ready to do beyond that does not, and what was in it does not either - a shelf's contents
+    /// are sensed, so a machine that has just started has not sensed them. That is also why
+    /// <see cref="CarrierSnapshot.StorageLocation"/> is recorded and not restored, exactly like
+    /// <see cref="CarrierSnapshot.PortId"/>.
+    /// </para>
+    /// <para>
     /// A carrier's identity, lot, usage and capacity come back - a host said those. Its
     /// <see cref="CarrierIdStatus"/> and <see cref="CarrierSlotMapStatus"/> do not: they go back
     /// to <see cref="CarrierIdStatus.IdNotRead"/> and
@@ -190,9 +271,10 @@ public sealed class CarrierManager
     /// </para>
     /// <para>
     /// <strong>A snapshot does not invent hardware.</strong> Ports are declared with
-    /// <see cref="AddPort"/>, from configuration, so a port in the snapshot that this manager does
-    /// not have is reported and skipped rather than created: a machine that came back with a load
-    /// port its configuration no longer mentions would be a worse surprise than one that said so.
+    /// <see cref="AddPort"/> and storage locations with <see cref="AddStorageLocation"/>, both from
+    /// configuration, so one in the snapshot that this manager does not have is reported and
+    /// skipped rather than created: a machine that came back with a load port its configuration no
+    /// longer mentions would be a worse surprise than one that said so.
     /// </para>
     /// <para>
     /// Refused outright for a manager that already has carriers, because merging two beliefs about
@@ -247,6 +329,36 @@ public sealed class CarrierManager
                 }
 
                 restored.Add($"port {port.PortId}");
+            }
+
+            foreach (var location in snapshot.StorageLocations)
+            {
+                if (!_storage.TryGetValue(location.Location, out var shelf))
+                {
+                    adjusted[$"location {location.Location}"] =
+                        "the snapshot has this storage location and this manager does not; locations are "
+                        + "declared from configuration, so it was skipped rather than invented.";
+                    continue;
+                }
+
+                shelf.TransferState = location.TransferState is PortTransferState.OutOfService
+                    ? PortTransferState.OutOfService
+                    : PortTransferState.TransferBlocked;
+                shelf.CarrierId = null;
+
+                if (location.TransferState is not (PortTransferState.OutOfService or PortTransferState.TransferBlocked))
+                {
+                    adjusted[$"location {location.Location}"] =
+                        $"was {location.TransferState}; a restarted machine has sensed nothing, so it is "
+                        + $"{PortTransferState.TransferBlocked}.";
+                }
+                else if (location.CarrierId is not null)
+                {
+                    adjusted[$"location {location.Location}"] =
+                        $"had '{location.CarrierId}' in it; what is in a storage location is sensed, not remembered.";
+                }
+
+                restored.Add($"location {location.Location}");
             }
 
             foreach (var carrier in snapshot.Carriers)
@@ -320,6 +432,17 @@ public sealed class CarrierManager
         }
     }
 
+    /// <summary>Finds a storage location.</summary>
+    /// <param name="location">Which one - <c>LOC</c>.</param>
+    /// <returns>The location, or <see langword="null"/>.</returns>
+    public CarrierStorageLocation? FindStorageLocation(uint location)
+    {
+        lock (_gate)
+        {
+            return _storage.GetValueOrDefault(location);
+        }
+    }
+
     // ------------------------------------------------- what the machine itself does
 
     /// <summary>A carrier has been put on a port.</summary>
@@ -364,6 +487,16 @@ public sealed class CarrierManager
                 return CarrierActionResult.Refused(
                     CarrierAcknowledgement.CannotPerformNow,
                     $"port {portId} is reserved for '{port.ReservedForCarrierId}'.");
+            }
+
+            // A carrier is in one place. The mirror of the rule StoreCarrier keeps, and refused
+            // here rather than quietly moved: two answers to "where is CAR-001" is one more than
+            // S3F24 can give.
+            if (_carriers.TryGetValue(carrierId, out var stored) && stored.StorageLocation is { } held)
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.CannotPerformNow,
+                    $"carrier '{carrierId}' is in storage location {held}; a carrier is in one place.");
             }
 
             var carrier = GetOrCreate(carrierId);
@@ -490,6 +623,208 @@ public sealed class CarrierManager
             }
 
             MoveTransfer(port, target);
+
+            return CarrierActionResult.Ok;
+        }
+    }
+
+    /// <summary>A carrier has been put into a storage location.</summary>
+    /// <param name="location">Which location - <c>LOC</c>.</param>
+    /// <param name="carrierId">Which carrier.</param>
+    /// <returns>Whether it was allowed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="carrierId"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// The storage half of <see cref="PlaceCarrier"/>, and it keeps the same rule: allowed only
+    /// from <see cref="PortTransferState.ReadyToLoad"/>, because a carrier appearing somewhere
+    /// that was not ready for one is a material handling fault and accepting it quietly would
+    /// hide the fault.
+    /// </para>
+    /// <para>
+    /// <strong>A carrier is in one place.</strong> One that is on a load port, or already in
+    /// another location, is refused rather than moved: this manager would otherwise hold two
+    /// answers to "where is CAR-001" and S3F24 can give only one. The machine takes the carrier
+    /// off the port it is on - <see cref="RemoveCarrier"/> - and then stores it, which is also
+    /// the order the hardware does it in.
+    /// </para>
+    /// </remarks>
+    public CarrierActionResult StoreCarrier(uint location, string carrierId)
+    {
+        ArgumentNullException.ThrowIfNull(carrierId);
+
+        lock (_gate)
+        {
+            if (!_storage.TryGetValue(location, out var shelf))
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.InvalidData,
+                    $"there is no storage location {location}.");
+            }
+
+            if (shelf.TransferState is not PortTransferState.ReadyToLoad)
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.CannotPerformNow,
+                    $"storage location {location} is {shelf.TransferState} and a carrier may only be put into one that is {PortTransferState.ReadyToLoad}.");
+            }
+
+            // Looked up rather than created, because the refusals below must not leave a carrier
+            // behind that this manager did not have before the call.
+            if (_carriers.TryGetValue(carrierId, out var existing))
+            {
+                if (existing.PortId is { } port)
+                {
+                    return CarrierActionResult.Refused(
+                        CarrierAcknowledgement.CannotPerformNow,
+                        $"carrier '{carrierId}' is on port {port}; a carrier is in one place.");
+                }
+
+                if (existing.StorageLocation is { } held)
+                {
+                    return CarrierActionResult.Refused(
+                        CarrierAcknowledgement.CannotPerformNow,
+                        $"carrier '{carrierId}' is in storage location {held}; a carrier is in one place.");
+                }
+            }
+
+            var carrier = GetOrCreate(carrierId);
+
+            carrier.StorageLocation = location;
+            shelf.CarrierId = carrierId;
+
+            MoveStorage(shelf, PortTransferState.TransferBlocked);
+
+            return CarrierActionResult.Ok;
+        }
+    }
+
+    /// <summary>The carrier has been taken out of a storage location.</summary>
+    /// <param name="location">Which location - <c>LOC</c>.</param>
+    /// <returns>Whether it was allowed.</returns>
+    /// <remarks>Allowed only from <see cref="PortTransferState.ReadyToUnload"/>, for the same reason storing is allowed only from ready to load.</remarks>
+    public CarrierActionResult FetchCarrier(uint location)
+    {
+        lock (_gate)
+        {
+            if (!_storage.TryGetValue(location, out var shelf))
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.InvalidData,
+                    $"there is no storage location {location}.");
+            }
+
+            if (shelf.TransferState is not PortTransferState.ReadyToUnload)
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.CannotPerformNow,
+                    $"storage location {location} is {shelf.TransferState} and a carrier may only be taken out of one that is {PortTransferState.ReadyToUnload}.");
+            }
+
+            if (shelf.CarrierId is { } carrierId && _carriers.TryGetValue(carrierId, out var carrier))
+            {
+                carrier.StorageLocation = null;
+            }
+
+            shelf.CarrierId = null;
+
+            MoveStorage(shelf, PortTransferState.TransferBlocked);
+
+            return CarrierActionResult.Ok;
+        }
+    }
+
+    /// <summary>Moves a storage location between the three in-service transfer states.</summary>
+    /// <param name="location">Which location - <c>LOC</c>.</param>
+    /// <param name="state">What it is ready to do.</param>
+    /// <returns>Whether it was allowed.</returns>
+    /// <remarks>
+    /// The same three rules <see cref="SetTransferState"/> keeps for a port:
+    /// <see cref="PortTransferState.OutOfService"/> is a service decision and lives in
+    /// <see cref="SetStorageServiceStatus"/>, a location out of service refuses all three, and
+    /// ready to load and ready to unload each need the location to be in the matching condition -
+    /// there is nothing to take out of an empty shelf, and nowhere to put anything in a full one.
+    /// </remarks>
+    public CarrierActionResult SetStorageTransferState(uint location, PortTransferState state)
+    {
+        lock (_gate)
+        {
+            if (!_storage.TryGetValue(location, out var shelf))
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.InvalidData,
+                    $"there is no storage location {location}.");
+            }
+
+            if (state is PortTransferState.OutOfService)
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.InvalidData,
+                    $"{PortTransferState.OutOfService} is a service decision; use {nameof(SetStorageServiceStatus)}.");
+            }
+
+            if (!shelf.IsInService)
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.CannotPerformNow,
+                    $"storage location {location} is {PortTransferState.OutOfService}.");
+            }
+
+            if (state is PortTransferState.ReadyToUnload && !shelf.IsOccupied)
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.CannotPerformNow,
+                    $"storage location {location} has nothing in it to unload.");
+            }
+
+            if (state is PortTransferState.ReadyToLoad && shelf.IsOccupied)
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.CannotPerformNow,
+                    $"storage location {location} already has carrier '{shelf.CarrierId}' in it.");
+            }
+
+            MoveStorage(shelf, state);
+
+            return CarrierActionResult.Ok;
+        }
+    }
+
+    /// <summary>Puts a storage location in or out of service.</summary>
+    /// <param name="location">Which location - <c>LOC</c>.</param>
+    /// <param name="inService">Whether it is usable.</param>
+    /// <returns>Whether it was allowed.</returns>
+    /// <remarks>
+    /// A location holding a carrier cannot be taken out of service, the same rule
+    /// <see cref="SetServiceStatus"/> keeps for a port: the carrier would be stranded somewhere
+    /// nobody is allowed to touch. Unlike a port's, this is not reachable by a host - no E87
+    /// carrier action names a <c>LOC</c>.
+    /// </remarks>
+    public CarrierActionResult SetStorageServiceStatus(uint location, bool inService)
+    {
+        lock (_gate)
+        {
+            if (!_storage.TryGetValue(location, out var shelf))
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.InvalidData,
+                    $"there is no storage location {location}.");
+            }
+
+            if (!inService && shelf.IsOccupied)
+            {
+                return CarrierActionResult.Refused(
+                    CarrierAcknowledgement.CannotPerformNow,
+                    $"storage location {location} still has carrier '{shelf.CarrierId}' in it.");
+            }
+
+            var target = inService ? PortTransferState.TransferBlocked : PortTransferState.OutOfService;
+
+            if (shelf.TransferState == target)
+            {
+                return CarrierActionResult.Ok;
+            }
+
+            MoveStorage(shelf, target);
 
             return CarrierActionResult.Ok;
         }
@@ -1220,6 +1555,29 @@ public sealed class CarrierManager
             Previous = previous,
             Current = current,
         });
+
+    /// <summary>Moves a storage location, and raises after it has moved.</summary>
+    /// <remarks>
+    /// The same order as the port and carrier transitions, for the same reason: a handler reading
+    /// the location it was just told about has to see the state the event is announcing.
+    /// </remarks>
+    private void MoveStorage(CarrierStorageLocation location, PortTransferState next)
+    {
+        if (location.TransferState == next)
+        {
+            return;
+        }
+
+        var previous = location.TransferState;
+        location.TransferState = next;
+
+        StorageStateChanged?.Invoke(this, new StorageStateChangedEventArgs
+        {
+            StorageLocation = location,
+            Previous = previous,
+            Current = next,
+        });
+    }
 
     /// <summary>Counts the slots that hold something.</summary>
     /// <remarks>

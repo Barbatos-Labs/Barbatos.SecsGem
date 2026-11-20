@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Barbatos.SecsGem.Carriers;
 
 /// <summary>
-/// The equipment side of carrier management: the five requests a host sends, answered out of the
+/// The equipment side of carrier management: the eight requests a host sends, answered out of the
 /// state machines.
 /// </summary>
 /// <remarks>
@@ -23,7 +23,7 @@ namespace Barbatos.SecsGem.Carriers;
 /// <para>
 /// E87's carrier and port attributes do not come through here. They are object attributes on
 /// stream 14, and <see cref="CarrierObjectProvider"/> answers those - which is also where the
-/// slot map lives. A machine doing E87 properly declares both: these five, and object services.
+/// slot map lives. A machine doing E87 properly declares both: these eight, and object services.
 /// </para>
 /// </remarks>
 public sealed class CarrierEquipment
@@ -43,9 +43,12 @@ public sealed class CarrierEquipment
 
     /// <summary>Every primary this end answers.</summary>
     /// <remarks>
-    /// The five whose items the catalogue defines in full. S3F19, S3F21, S3F27 and S3F31 are not
-    /// here: each needs an item with no format - <c>CARRIERSTATUS</c>, <c>PORTSTATUS</c>,
-    /// <c>SLOTMAP</c> - and E87 carries all three as object attributes instead.
+    /// Eight of E87's nine. S3F19 is the one missing: <c>CARRIERSTATUS</c> is a single item where
+    /// a carrier has three state machines and nothing in E87 crowns one of them, so a value here
+    /// would be this library choosing for a fab. The other two undefined items -
+    /// <c>PORTSTATUS</c> on S3F22 and S3F32, <c>SLOTMAP</c> on S3F28 - are carried, because this
+    /// package already serves those same values as stream 14 attributes and so had a reading to
+    /// check against. <see cref="CarrierObjectProvider"/> serves all of them by name as well.
     /// </remarks>
     public static IReadOnlyList<(byte Stream, byte Function)> HandledMessages { get; } =
     [
@@ -55,17 +58,36 @@ public sealed class CarrierEquipment
         (3, 25),   // Carrier ID Read Request
         (3, 27),   // Slot Map Request
         (3, 29),   // Carrier Reservation Request
+        (3, 31),   // Storage Status Request
         (3, 33),   // Carrier Out Request
     ];
 
     /// <summary>Gets or sets where a carrier is, for the one request that asks.</summary>
     /// <remarks>
-    /// S3F24 wants a <c>LOC</c>, and a location is the machine's own numbering rather than
-    /// anything E87 defines - a port is not a location. A machine that tracks locations sets this
-    /// to its own lookup; the default reports the port a carrier is at, which is the best a
-    /// package that knows only about ports can do, and zero for a carrier that is not at one.
+    /// <para>
+    /// S3F24 wants a <c>LOC</c>, and E87 does not say what one is: a machine is free to report a
+    /// shelf, a load port or an internal station. The default reports the storage location a
+    /// carrier is in, falling back to the port it is at - the two places this package knows about
+    /// - and zero for a carrier that is at neither.
+    /// </para>
+    /// <para>
+    /// <strong>The order is the point, because zero is a location.</strong> This used to read
+    /// <c>carrier.PortId ?? 0u</c>, which was honest while a port was the only place a carrier
+    /// could be: a carrier the host has merely announced is nowhere, and S3F24 has no
+    /// acknowledgement code to say "I do not know" with. Once
+    /// <see cref="CarrierManager.AddStorageLocation"/> exists, that same expression starts
+    /// reporting a carrier sitting on a shelf as being nowhere - the shrug turns into a wrong
+    /// answer.
+    /// </para>
+    /// <para>
+    /// <c>LOC</c> is a <c>U4</c> and <c>PTN</c> a <c>U1</c>, and nothing in E87 stops a machine
+    /// numbering a shelf 1 while it also has a load port 1. This package cannot keep two number
+    /// spaces apart on a machine's behalf, and S3F24 has room for only one number: a machine whose
+    /// numbering overlaps replaces this, which is what it is for.
+    /// </para>
     /// </remarks>
-    public Func<Carrier, uint> LocationOf { get; set; } = carrier => carrier.PortId ?? 0u;
+    public Func<Carrier, uint> LocationOf { get; set; }
+        = carrier => carrier.StorageLocation ?? carrier.PortId ?? 0u;
 
     /// <summary>Answers one of the primaries in <see cref="HandledMessages"/>.</summary>
     /// <param name="transaction">The transaction.</param>
@@ -239,6 +261,28 @@ public sealed class CarrierEquipment
                     CarrierCodec.RequestResultBody(result.IsAccepted
                         ? CarrierRequestAcknowledgement.Accepted
                         : CarrierRequestAcknowledgement.Denied));
+            }
+
+            case 31:
+            {
+                // S3F31 carries nothing at all - "tell me about all of your storage locations" -
+                // so there is no body to read and nothing a host could have named that this
+                // machine might not have. Which makes the zero-length list an answer here rather
+                // than the refusal it is in S3F22, S3F24 and S3F28: a machine with no storage has
+                // none to report.
+                var locations = _manager.StorageLocations;
+                var reported = new (uint Location, string Status, string CarrierId)[locations.Count];
+                var next = 0;
+
+                foreach (var location in locations)
+                {
+                    reported[next++] = (
+                        location.Location,
+                        location.TransferState.ToString(),
+                        location.CarrierId ?? string.Empty);
+                }
+
+                return Reply(32, "StorageStatusData", CarrierCodec.StorageStatusBody(reported));
             }
 
             case 33:

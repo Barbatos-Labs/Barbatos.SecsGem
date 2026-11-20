@@ -15,7 +15,9 @@ namespace Barbatos.SecsGem.Carriers.UnitTests;
 /// sentence is the whole specification of these tests. A host's instructions - which ports are in
 /// service, who drives them, what a carrier's lot is, which port is reserved for what - survive a
 /// restart, because a restart does not change what anybody asked for. Everything the machine
-/// sensed is sensed again.
+/// sensed is sensed again. Carriers and ports, that is: a storage location keeps the same line,
+/// and those tests sit next to the rest of the storage model in
+/// <see cref="CarrierStorageTests"/>.
 /// </remarks>
 public class CarrierStateTests
 {

@@ -37,8 +37,8 @@ What *is* checkable, and was checked:
 | `CARRIERACTION` | an `A` item: free text, which is why the action names here are strings and not an enum |
 | `CARRIERID`, `PTN`, `ERRCODE`, `ERRTEXT`, `LOC` | all defined |
 | S3F17/F18, F23/F24, F25/F26, F29/F30, F33/F34 | every item defined; all five implemented |
-| S3F21/F22, F27/F28 | need `PORTSTATUS` and `SLOTMAP`, which have **no definition at all** - implemented anyway, and [the next section](#two-transactions-whose-item-nobody-defined) says on what grounds |
-| S3F19/F20, F31/F32 | not implemented, and for two different reasons: see [what is not here yet](#what-is-not-here-yet) |
+| S3F21/F22, F27/F28, F31/F32 | need `PORTSTATUS` and `SLOTMAP`, which have **no definition at all** - implemented anyway, and [the next section](#three-transactions-whose-item-nobody-defined) says on what grounds |
+| S3F19/F20 | the one pair not implemented: see [what is not here yet](#what-is-not-here-yet) |
 
 Stream 3 is one of the nine streams the catalogue has **no definitions for at all** -
 `SecsCatalog.TryGetStream(3, out var s)` then `s.Provenance` says so. That is not a veto, and the
@@ -46,10 +46,10 @@ Stream 3 is one of the nine streams the catalogue has **no definitions for at al
 check the stream against the item dictionary and against its standard's own subject matter. This
 one passes both, which is why E87 ships and stream 17 does not.
 
-## Two transactions whose item nobody defined
+## Three transactions whose item nobody defined
 
-S3F22 carries `PORTSTATUS` and S3F28 carries `SLOTMAP`, and neither name appears anywhere in the
-catalogue's item dictionary. They are implemented regardless, and the reading is not a guess:
+S3F22 and S3F32 carry `PORTSTATUS` and S3F28 carries `SLOTMAP`, and neither name appears anywhere
+in the catalogue's item dictionary. They are implemented regardless, and the reading is not a guess:
 **this same package already serves both values as stream 14 attributes**, so there was a reading to
 check against rather than one to invent.
 
@@ -83,6 +83,14 @@ enum, and a port nobody may use is a thing a host acts on.
 the machine does not have *and* for one whose slot map nobody has agreed - E87 gives the slot map a
 state machine precisely so those are distinguishable - and an agreed map that is genuinely empty
 comes back as zero bytes. So `null` means "will not say" and an empty value means "nothing in it".
+
+**S3F32 is one hop further from firm ground, and says so.** S3F22's reading is checked against a
+stream 14 attribute; a storage location has no stream 14 attribute to check against, because this
+package does not claim an E87 object type for one. What it has instead is the item name:
+`PORTSTATUS` means in S3F32 what it means in S3F22, three functions earlier in the same standard's
+half of the same stream. A test asserts that a port and a shelf in the same state report the same
+word, so a host never needs two vocabularies for one machine. See
+[storage locations](#storage-locations).
 
 ## The seven state machines
 
@@ -182,7 +190,7 @@ services.AddSecsGem(builder.Configuration)
     .RunAsHostedService();
 ```
 
-One call registers both halves of E87: the seven carrier primaries **and** the eleven of object
+One call registers both halves of E87: the eight carrier primaries **and** the eleven of object
 services, because the attributes are stream 14's business. A machine that registered only the
 actions would answer every S3F17 and never give up a slot map.
 
@@ -197,6 +205,81 @@ manager.ReadCarrierId(scannedId, verified: boundToThisPort);    // the label was
 manager.ReadSlotMap(scannedId, slots, verified: true);          // the mapper ran
 manager.BeginAccess(scannedId);                                 // refused unless both agreed
 ```
+
+## Storage locations
+
+A load port is where a carrier crosses the boundary of the machine. A **storage location** is
+somewhere inside it - a stocker shelf, a buffer, an internal station - and E87 addresses the two
+differently: S3F21 asks about one port by `PTN`, and S3F31 asks about every storage location at once
+by asking about nothing.
+
+```csharp
+manager.AddStorageLocation(101);                                     // declared, as a port is
+manager.SetStorageServiceStatus(101, inService: true);
+manager.SetStorageTransferState(101, PortTransferState.ReadyToLoad);
+manager.StoreCarrier(101, "CAR-001");                                // only from ReadyToLoad
+
+manager.SetStorageTransferState(101, PortTransferState.ReadyToUnload);
+manager.FetchCarrier(101);                                           // only from ReadyToUnload
+```
+
+**One state machine, and not an eighth.** E87 defines seven and a storage location gets none of its
+own: its state is a `PortTransferState`, the same type a port's is, because S3F32 carries
+`PORTSTATUS` - the same item name S3F22 carries. An item means one thing in a message set, so
+giving a shelf a vocabulary of its own would be this library inventing a second meaning for an item
+that already has one here. There is no access mode (nobody is being told who may drive a shelf), no
+reservation (`ReserveAtPort` names a port), and no association state - what is in it is just
+`CarrierId`, because a second state machine saying the same thing could disagree with it.
+
+The rules are a port's rules for a port's reasons: a carrier goes in only from `ReadyToLoad` and
+comes out only from `ReadyToUnload`, because a carrier appearing somewhere that was not ready for
+one is a material handling fault; a location holding a carrier cannot be taken out of service,
+because the carrier would be stranded; and `OutOfService` is a service decision rather than a
+readiness one.
+
+**A carrier is in one place.** `StoreCarrier` refuses a carrier that is on a port, and
+`PlaceCarrier` refuses one that is in storage:
+
+```
+CannotPerformNow: carrier 'CAR-001' is on port 1; a carrier is in one place.
+```
+
+Two answers to *where is CAR-001* is one more than S3F24 can give. A machine moves a carrier by
+taking it off the port first - `RemoveCarrier` - and then storing it, which is the order the
+hardware does it in anyway.
+
+**No host action reaches a storage location.** Every carrier action E87 defines names a `CARRIERID`
+or a `PTN`, never a `LOC`, so a host can read storage and cannot drive it. The methods above are the
+machine's own hardware talking, which is also why their refusals name a method where a port's name
+the `ChangeServiceStatus` action.
+
+### What S3F31 asks, and what zero turned out to mean
+
+```csharp
+foreach (var location in await host.ReadStorageStatusAsync())
+{
+    location.Location;        // 101 - LOC
+    location.Status;          // "ReadyToUnload" - what PORTSTATUS carried, as text
+    location.TransferState;   // ReadyToUnload, or null for a word not among E87's four
+    location.CarrierId;       // CAR-001, or empty
+}
+```
+
+S3F31 is the only request in E87's half of stream 3 that **names nothing**, and that removes a
+distinction every other reader here has to keep: an empty answer means the machine has no storage,
+not that it will not say, because there was nothing named that it could be missing.
+
+It also moved `LOC` under this package's feet. `CarrierEquipment.LocationOf` is what answers S3F24,
+and its default used to be `carrier.PortId ?? 0`, which was honest while a port was the only place a
+carrier could be - a carrier the host has merely announced is nowhere, and S3F24 has no
+acknowledgement code to say *I do not know* with. Once a carrier can be on a shelf, that same
+expression reports a carrier that is **somewhere** as being **nowhere**, and the shrug becomes a
+wrong answer: zero is a location. So the default now reads the storage location first and the port
+second, and a test asserts that S3F24 and S3F32 name the same number for the same carrier.
+
+What this package cannot do on a machine's behalf is keep two number spaces apart. `LOC` is a `U4`
+and `PTN` a `U1`, nothing in E87 stops a shelf being numbered 1 beside a load port 1, and S3F24 has
+room for one number. A machine like that replaces `LocationOf`, which is what the hook is for.
 
 ## Attributes, the slot map among them
 
@@ -271,7 +354,8 @@ now.
 | --- | --- |
 | whether a port is in service | whether a carrier is on it, and its transfer state beyond being in service |
 | who drives a port - `AccessMode` | which carrier it is associated with |
-| a reservation, and who it is for | which port a carrier was at |
+| a reservation, and who it is for | which port or storage location a carrier was at |
+| whether a storage location is in service | what was in it, and its transfer state beyond being in service |
 | a carrier's identity, lot, usage, capacity | `IdStatus`, `SlotMapStatus`, the slot map itself, the substrate count |
 
 The identifier and the slot map go back to unread because **E87 wants a carrier re-read after a
@@ -298,10 +382,10 @@ themselves.
 
 ### Two more rules worth knowing
 
-**A snapshot does not invent hardware.** Ports are declared from configuration with `AddPort`, so a
-port in the snapshot this manager does not have is reported in `Adjusted` and skipped. A machine
-that came back with a load port its configuration no longer mentions would be a worse surprise than
-one that said so.
+**A snapshot does not invent hardware.** Ports are declared from configuration with `AddPort` and
+storage locations with `AddStorageLocation`, so one in the snapshot this manager does not have is
+reported in `Adjusted` and skipped. A machine that came back with a load port its configuration no
+longer mentions would be a worse surprise than one that said so.
 
 **Nothing is raised while restoring.** A host that heard "carrier stopped" as a transition would
 believe the machine had just stopped one. `CarrierRestoreReport.Adjusted` is how an application
@@ -318,10 +402,13 @@ the same box has no right answer.
   nothing in E87 or in this package's own reading crowns one of them "the" status. S3F22 was
   implementable because E87 does say which of a port's four states is the operative one; this has
   no equivalent sentence, so a single value would be this library choosing for a fab.
-- **S3F31/F32, Storage Status.** Not an item problem: the request is empty, which means *tell me
-  about all of your storage locations*, and this package has none. A `LoadPort` is a load port, and
-  there is no `LOC`-addressable storage for a carrier to be sitting in. That is a model to design,
-  not a message to encode.
+- **A stream 14 object type for a storage location.** The attributes here are a carrier's and a
+  load port's, which are the two object types E87 gives this package to serve, and a third invented
+  here would be attributes nobody can check against anything. So a location is readable through
+  S3F31 and not through S14F17, and a carrier has no `Location` attribute to go with its `PortID`.
+- **A reservation or an access mode for a storage location.** `ReserveAtPort` names a port, and
+  S3F32 has room for one status. Both would be this library deciding what E87 left unsaid about a
+  place it barely describes.
 - Writing the snapshot anywhere. `Capture` hands back a plain object and this package depends on no
   serializer; where it goes is the application's, the same way its container is.
 - `ContentMap`, as distinct from `SlotMap`. One byte per slot covers what a machine knows; naming

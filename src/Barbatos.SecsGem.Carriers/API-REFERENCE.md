@@ -7,6 +7,7 @@ provenance warning live in [`README.md`](README.md); this page is member-by-memb
 - [The objects](#the-objects)
   - [`Carrier`](#carrier)
   - [`LoadPort`](#loadport)
+  - [`CarrierStorageLocation`](#carrierstoragelocation)
 - [The states](#the-states)
 - [Actions](#actions)
   - [`CarrierActions`](#carrieractions)
@@ -17,9 +18,12 @@ provenance warning live in [`README.md`](README.md); this page is member-by-memb
 - [The two ends](#the-two-ends)
   - [`CarrierEquipment`](#carrierequipment)
   - [`CarrierHost`](#carrierhost)
+- [`CarrierPortStatus`](#carrierportstatus)
+- [`CarrierStorageStatus`](#carrierstoragestatus)
 - [`CarrierObjectProvider`](#carrierobjectprovider)
 - [Events](#events)
 - [Registration](#registration)
+- [Outliving the process](#outliving-the-process)
 
 ## `CarrierManager`
 
@@ -31,13 +35,20 @@ connection, no transport - which is what makes it testable as a state machine.
 | constructor | `CarrierManager()` | |
 | `Carriers` | `IReadOnlyCollection<Carrier> { get; }` | A snapshot, taken under the lock. |
 | `Ports` | `IReadOnlyCollection<LoadPort> { get; }` | |
+| `StorageLocations` | `IReadOnlyCollection<CarrierStorageLocation> { get; }` | Ordered by `LOC`, because S3F32 reports them. |
 | `AddPort` | `LoadPort AddPort(byte portId)` | Declares hardware. Out of service until told otherwise; declaring twice returns the same port and resets nothing. |
+| `AddStorageLocation` | `CarrierStorageLocation AddStorageLocation(uint location)` | The same, for a place inside the machine that is not a port. No host action reaches one. |
 | `FindCarrier` | `Carrier? FindCarrier(string carrierId)` | |
 | `FindPort` | `LoadPort? FindPort(byte portId)` | |
+| `FindStorageLocation` | `CarrierStorageLocation? FindStorageLocation(uint location)` | |
 | `PlaceCarrier` | `CarrierActionResult PlaceCarrier(byte portId, string carrierId)` | Only from `ReadyToLoad`, and a reserved port takes only its own carrier. |
 | `RemoveCarrier` | `CarrierActionResult RemoveCarrier(byte portId)` | Only from `ReadyToUnload`. |
 | `SetTransferState` | `CarrierActionResult SetTransferState(byte portId, PortTransferState state)` | The three in-service states. `OutOfService` is refused here - it is a service decision. |
 | `SetServiceStatus` | `CarrierActionResult SetServiceStatus(byte portId, bool inService)` | A port holding a carrier cannot go out of service. |
+| `StoreCarrier` | `CarrierActionResult StoreCarrier(uint location, string carrierId)` | Only from `ReadyToLoad`. Refused for a carrier that is on a port or in another location - a carrier is in one place. |
+| `FetchCarrier` | `CarrierActionResult FetchCarrier(uint location)` | Only from `ReadyToUnload`. |
+| `SetStorageTransferState` | `CarrierActionResult SetStorageTransferState(uint location, PortTransferState state)` | A port's three rules, for a shelf. |
+| `SetStorageServiceStatus` | `CarrierActionResult SetStorageServiceStatus(uint location, bool inService)` | A location holding a carrier cannot go out of service. |
 | `ReadCarrierId` | `CarrierActionResult ReadCarrierId(string carrierId, bool? verified)` | `true` agree, `false` refuse, `null` leave it to the host. Once only. |
 | `ReadSlotMap` | `CarrierActionResult ReadSlotMap(string carrierId, ReadOnlyMemory<byte> slotMap, bool? verified)` | The bytes are copied. Sets `SubstrateCount` and, when unset, `Capacity`. |
 | `BeginAccess` | `CarrierActionResult BeginAccess(string carrierId)` | Refused unless both verifications are agreed. |
@@ -45,6 +56,7 @@ connection, no transport - which is what makes it testable as a state machine.
 | `Perform` | `CarrierActionResult Perform(CarrierActionRequest request)` | Every carrier and port action. An action it does not know is `InvalidCommand`. |
 | `CarrierStateChanged` | `event EventHandler<CarrierStateChangedEventArgs>?` | After the move, inside the lock. |
 | `PortStateChanged` | `event EventHandler<PortStateChangedEventArgs>?` | After the move, inside the lock. |
+| `StorageStateChanged` | `event EventHandler<StorageStateChangedEventArgs>?` | After the move, inside the lock. One event, because a location has one state machine - so `Previous` and `Current` are `PortTransferState` rather than `int`. |
 
 Every refusal carries an `ErrorText` naming the state that refused it. Handlers must not call back
 into the manager - the events are raised under its lock.
@@ -56,15 +68,29 @@ into the manager - the events are raised under its lock.
 `sealed class`. Public getters, **internal setters**: the only way a carrier changes state is
 through the manager.
 
-`CarrierId`, `IdStatus`, `SlotMapStatus`, `AccessStatus`, `PortId` (`byte?`), `SlotMap`
-(`ReadOnlyMemory<byte>`), `Capacity`, `SubstrateCount`, `LotId`, `Usage`, and `IsVerified` - true
-when the identifier and the slot map are both agreed, which is E87's precondition for access.
+`CarrierId`, `IdStatus`, `SlotMapStatus`, `AccessStatus`, `PortId` (`byte?`), `StorageLocation`
+(`uint?`), `SlotMap` (`ReadOnlyMemory<byte>`), `Capacity`, `SubstrateCount`, `LotId`, `Usage`, and
+`IsVerified` - true when the identifier and the slot map are both agreed, which is E87's
+precondition for access.
+
+`PortId` and `StorageLocation` are never both set: a carrier is in one place, and the manager
+refuses the move that would make it two.
 
 ### `LoadPort`
 
 `sealed class`. Same rule. `PortId`, `TransferState`, `AccessMode`, `AssociationState`,
 `ReservationState`, `AssociatedCarrierId` (`string?`), `ReservedForCarrierId` (`string?`), and
 `IsInService`.
+
+### `CarrierStorageLocation`
+
+`sealed class`. Same rule. A place inside the machine addressed by `LOC` rather than by `PTN`:
+`Location` (`uint`), `TransferState` (a `PortTransferState`, because S3F32 carries the same
+`PORTSTATUS` item S3F22 does), `CarrierId` (`string?`), `IsInService`, `IsOccupied` and
+`ToString()` - `location 101 ReadyToUnload (CAR-001)`.
+
+One state machine and not an eighth: no access mode, no reservation, no association state. The
+[README](README.md#storage-locations) says why for each.
 
 ## The states
 
@@ -123,8 +149,8 @@ say why.
 | Member | Signature | Notes |
 | --- | --- | --- |
 | constructor | `CarrierEquipment(CarrierManager manager, ILogger<CarrierEquipment>? logger = null)` | |
-| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)>` | S3F17, F23, F25, F29, F33. |
-| `LocationOf` | `Func<Carrier, uint> { get; set; }` | What S3F24 reports. Defaults to the port a carrier is at; a machine with real locations replaces it. |
+| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)>` | S3F17, F21, F23, F25, F27, F31, F33 - eight of E87's nine, S3F19 being the one left out. |
+| `LocationOf` | `Func<Carrier, uint> { get; set; }` | What S3F24 reports. Defaults to the storage location a carrier is in, then the port it is at, then zero. A machine whose shelves and ports share numbers replaces it - S3F24 has room for one number and nothing in E87 keeps the two apart. |
 | `HandleAsync` | `ValueTask HandleAsync(SecsTransaction, CancellationToken = default)` | |
 
 A body it cannot read is `InvalidData` on S3F18, `Denied` on S3F26/F30/F34, and a zero-length list
@@ -148,6 +174,7 @@ on S3F24 - which carries a carrier and a location and has no code to refuse with
 | `FindCarrierAsync` | `ValueTask<uint?> FindCarrierAsync(string carrierId, CancellationToken = default)` | S3F23; `null` means no such carrier |
 | `ReadCarrierIdAsync` | `ValueTask<string?> ReadCarrierIdAsync(byte portId, CancellationToken = default)` | S3F25; `null` means nothing there, or the label is not read |
 | `ReadSlotMapAsync` | `ValueTask<ReadOnlyMemory<byte>?> ReadSlotMapAsync(string carrierId, CancellationToken = default)` | S3F27; `null` means no such carrier, or the map is not agreed. Empty means agreed and empty. |
+| `ReadStorageStatusAsync` | `ValueTask<IReadOnlyList<CarrierStorageStatus>> ReadStorageStatusAsync(CancellationToken = default)` | S3F31; empty means **no storage**, not "will not say" - the request names nothing, so there is nothing to be missing. |
 | `ReserveAsync` | `ValueTask<CarrierRequestAcknowledgement> ReserveAsync(string carrierId, byte portId, CancellationToken = default)` | S3F29; cannot say why |
 | `CarrierOutAsync` | `ValueTask<CarrierRequestAcknowledgement> CarrierOutAsync(string carrierId, CancellationToken = default)` | S3F33 |
 
@@ -165,8 +192,22 @@ A reply with no acknowledgement code throws `SecsException`, never `Accepted`.
 | `CarrierId` | `string { get; init; }` | The carrier on the port, or empty. |
 | `ToString()` | `override string` | `port 1 ReadyToUnload (CAR-001)`. |
 
+## `CarrierStorageStatus`
+
+`sealed class`. `CarrierPortStatus`'s twin, for a place addressed by `LOC`. Two types rather than
+one with a nullable address, because the two are not interchangeable - a host that confused a shelf
+for a load port would route material into the machine instead of out of it.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `Location` | `required uint { get; init; }` | `LOC`. |
+| `Status` | `required string { get; init; }` | What `PORTSTATUS` carried, as it arrived. |
+| `TransferState` | `PortTransferState? { get; init; }` | This library's reading of it, `null` for a word not among E87's four. Never silently `OutOfService`. |
+| `CarrierId` | `string { get; init; }` | The carrier in it, or empty. |
+| `ToString()` | `override string` | `location 101 ReadyToUnload (CAR-001)`. |
+
 `PORTSTATUS` has no dictionary entry, so the text is kept and the reading is offered rather than
-forced. The [README](README.md#two-transactions-whose-item-nobody-defined) explains why this
+forced. The [README](README.md#three-transactions-whose-item-nobody-defined) explains why this
 library reads the transfer state out of a port's four state machines, and on what grounds it reads
 anything at all.
 
@@ -202,7 +243,7 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBui
 
 | Method | What it adds |
 | --- | --- |
-| `AddCarrierEquipment(Action<CarrierManager>? configure = null)` | `CarrierManager` (ports declared in `configure`), `CarrierEquipment`, `CarrierObjectProvider` as an `IObjectProvider`, and handlers for the five carrier primaries **and** the eleven of object services. |
+| `AddCarrierEquipment(Action<CarrierManager>? configure = null)` | `CarrierManager` (ports and storage locations declared in `configure`), `CarrierEquipment`, `CarrierObjectProvider` as an `IObjectProvider`, and handlers for the eight carrier primaries **and** the eleven of object services. |
 | `AddCarrierHost()` | `CarrierHost`, plus `AddObjectServices` so a host can read carrier attributes. Declares nothing. |
 
 The provider **composes**: an application with objects beyond carriers and ports registers its own
@@ -220,16 +261,19 @@ Calling `AddCarrierEquipment` twice is harmless too: both sets go in through the
 | `CarrierManager.Capture` | `CarrierManagerSnapshot Capture()` | A faithful record, taken under the lock, including the states a restart will not claim again. |
 | `CarrierManager.Restore` | `CarrierRestoreReport Restore(CarrierManagerSnapshot snapshot)` | Into a manager with no carriers. Raises nothing. |
 
-`CarrierManagerSnapshot` holds `Ports` (`IReadOnlyList<LoadPortSnapshot>`) and `Carriers`
-(`IReadOnlyList<CarrierSnapshot>`). `CarrierSnapshot` carries every `Carrier` property plus the
-`SlotMap` as an `IReadOnlyList<byte>`; `LoadPortSnapshot` carries every `LoadPort` property. All
-`init`-only with no constructor, so `System.Text.Json` round-trips them and this package depends on
-no serializer.
+`CarrierManagerSnapshot` holds `Ports` (`IReadOnlyList<LoadPortSnapshot>`), `StorageLocations`
+(`IReadOnlyList<CarrierStorageSnapshot>`) and `Carriers` (`IReadOnlyList<CarrierSnapshot>`).
+`CarrierSnapshot` carries every `Carrier` property plus the `SlotMap` as an `IReadOnlyList<byte>`;
+`LoadPortSnapshot` carries every `LoadPort` property; `CarrierStorageSnapshot` carries `Location`,
+`TransferState` and `CarrierId`. All `init`-only with no constructor, so `System.Text.Json`
+round-trips them and this package depends on no serializer.
 
 `CarrierRestoreReport`: `IsAccepted` (`required bool` - false only when nothing was attempted),
-`Reason`, `Restored` (`IReadOnlyList<string>` - carrier identifiers and `port 1`), `Adjusted`
-(`IReadOnlyDictionary<string, string>` - what was not restored as recorded, and why) and `Count`.
+`Reason`, `Restored` (`IReadOnlyList<string>` - carrier identifiers, `port 1` and `location 101`),
+`Adjusted` (`IReadOnlyDictionary<string, string>` - what was not restored as recorded, and why) and
+`Count`.
 
 What comes back and what does not is in the [README](README.md#outliving-the-process); the short
 version is that a host's instructions survive and the machine's observations do not, and a carrier
-that was `InAccess` comes back `CarrierStopped`.
+that was `InAccess` comes back `CarrierStopped`. A storage location is a port's twin here: in
+service comes back, and what was in it does not.

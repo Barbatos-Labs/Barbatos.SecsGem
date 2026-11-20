@@ -144,6 +144,39 @@ public sealed class CarrierActionRequest
     public string Argument { get; init; } = string.Empty;
 }
 
+/// <summary>One storage location, as S3F32 reports it.</summary>
+/// <remarks>
+/// <see cref="CarrierPortStatus"/>'s twin, for a place addressed by <c>LOC</c> rather than by
+/// <c>PTN</c>. Two types rather than one with a nullable address, because the two are not
+/// interchangeable: S3F21 asks about one port and S3F31 asks about every storage location, and a
+/// host that confused a shelf for a load port would route material into the machine instead of
+/// out of it.
+/// </remarks>
+public sealed class CarrierStorageStatus
+{
+    /// <summary>Which location - <c>LOC</c>.</summary>
+    public required uint Location { get; init; }
+
+    /// <summary>What <c>PORTSTATUS</c> carried, as it arrived.</summary>
+    public required string Status { get; init; }
+
+    /// <summary>This library's reading of it, or <see langword="null"/> when the word is not one of E87's four.</summary>
+    /// <remarks>
+    /// Never silently <see cref="PortTransferState.OutOfService"/>, for the reason
+    /// <see cref="CarrierPortStatus.TransferState"/> gives: that is the zero of the enum, and a
+    /// shelf nobody may use is a thing a host acts on.
+    /// </remarks>
+    public PortTransferState? TransferState { get; init; }
+
+    /// <summary>The carrier in it, or empty when there is none.</summary>
+    public string CarrierId { get; init; } = string.Empty;
+
+    /// <summary>Returns the location, its status and what is in it.</summary>
+    /// <returns>For example <c>location 101 ReadyToUnload (CAR-001)</c>.</returns>
+    public override string ToString()
+        => CarrierId.Length == 0 ? $"location {Location} {Status}" : $"location {Location} {Status} ({CarrierId})";
+}
+
 /// <summary>
 /// What a port is doing and what is on it - S3F22.
 /// </summary>

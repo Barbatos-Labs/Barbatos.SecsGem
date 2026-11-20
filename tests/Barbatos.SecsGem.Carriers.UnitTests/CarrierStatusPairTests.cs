@@ -8,7 +8,9 @@ using Barbatos.SecsGem.Objects;
 namespace Barbatos.SecsGem.Carriers.UnitTests;
 
 /// <summary>
-/// The two transactions whose one item the catalogue does not define: S3F21/F22 and S3F27/F28.
+/// Two of the three transactions whose one item the catalogue does not define: S3F21/F22 and
+/// S3F27/F28. The third, S3F31/F32, is in <see cref="CarrierStorageTests"/>, because it needed a
+/// model behind it before it needed a body.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -282,15 +284,15 @@ public class CarrierStatusPairTests
     [Fact]
     public void Every_stream_3_function_this_equipment_declares_is_a_request_it_answers()
     {
-        // The four this package still does not implement are S3F19/F20 and S3F31/F32, and the
-        // Carriers README says why for each. This is the assertion that keeps the two lists
-        // honest: a function declared and not handled would answer a timeout rather than S9F5.
+        // The one pair this package still does not implement is S3F19/F20, and the Carriers README
+        // says why. This is the assertion that keeps the two lists honest: a function declared and
+        // not handled would answer a timeout rather than S9F5.
         var declared = CarrierEquipment.HandledMessages
             .Where(message => message.Stream == 3)
             .Select(message => message.Function)
             .Order()
             .ToArray();
 
-        Assert.Equal(new byte[] { 17, 21, 23, 25, 27, 29, 33 }, declared);
+        Assert.Equal(new byte[] { 17, 21, 23, 25, 27, 29, 31, 33 }, declared);
     }
 }
