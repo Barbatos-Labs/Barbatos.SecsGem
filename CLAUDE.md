@@ -90,6 +90,16 @@ charges it to a bucket the caller names, because every E10 ratio divides by some
 E116 charges it to nothing and hands it back, because its three states have nowhere honest to put
 it. Both are written down in those packages' READMEs.
 
+**The GEM spool is not one of these, and is already durable.** A spooled report is not state the
+machine is claiming about itself; it is a message it owes a host, so it survives a restart through
+an implementation rather than through a snapshot - `GemFileSpool` writes one record per message,
+write-through and renamed into place, adopts what it finds on reopen, and reports
+`SpoolStartTime` as the oldest held message's own timestamp rather than the restart. An application
+that keeps its own store writes an `IGemSpool` instead; that interface and `GemSpooledMessage` are
+the whole contract. Do not add `Capture`/`Restore` to a spool - it would be a third mechanism over
+two, duplicating the drain and refill `IGemSpool` already has. The Gem README's *"A spool that
+outlives the process"* heading introduces this, and is not an open gap.
+
 ## Non-negotiables
 
 - **.NET 8, 9, 10 only.** Never add `netstandard` or a `net6`/`net7` shim. TFMs come from
