@@ -8,6 +8,7 @@ provenance warning live in [`README.md`](README.md); this page is member-by-memb
   - [`Carrier`](#carrier)
   - [`LoadPort`](#loadport)
   - [`CarrierStorageLocation`](#carrierstoragelocation)
+  - [Object types](#carrierobjectprovider)
 - [The states](#the-states)
 - [Actions](#actions)
   - [`CarrierActions`](#carrieractions)
@@ -238,8 +239,11 @@ stream 14.
 | constructor | `CarrierObjectProvider(CarrierManager manager)` | |
 | `CarrierType` | `const string` = `"Carrier"` | |
 | `LoadPortType` | `const string` = `"LoadPort"` | |
+| `StorageLocationType` | `const string` = `"StorageLocation"` | Advertised only by a machine that has at least one, unlike the other two - the same asymmetry S3F31 keeps. Its attributes are S3F32's three items, and **nothing on it is writable**. |
 | `PortSpecification` | `static string PortSpecification(byte portId)` | How a port is named as an object; `LoadPort1`. |
 | `TryReadPortSpecification` | `static byte? TryReadPortSpecification(string)` | The only reader of that convention. |
+| `StorageSpecification` | `static string StorageSpecification(uint location)` | The same convention; `StorageLocation101`. It also keeps a shelf numbered 1 apart from load port 1, which `LOC` has no room to do. |
+| `TryReadStorageSpecification` | `static uint? TryReadStorageSpecification(string)` | The only reader of that one. |
 
 Readable attributes are listed in the README. Writable: `LotID` and `Usage` straight through,
 `AccessMode` through the `ChangeAccess` action. Everything else is `InvalidAttribute`, checked

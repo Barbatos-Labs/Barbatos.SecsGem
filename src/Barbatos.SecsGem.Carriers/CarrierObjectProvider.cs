@@ -8,16 +8,24 @@ using Barbatos.SecsGem.Objects;
 namespace Barbatos.SecsGem.Carriers;
 
 /// <summary>
-/// E87's carriers and load ports as stream 14 objects.
+/// E87's carriers, load ports and storage locations as stream 14 objects.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is where the three transactions this package does not implement went. S3F20 wants a
-/// <c>CARRIERSTATUS</c>, S3F22 and S3F32 want a <c>PORTSTATUS</c>, S3F28 wants a <c>SLOTMAP</c>,
-/// and the catalogue has no format for any of them. E87 does not need them to: a carrier and a
-/// load port are objects with attributes, and object attributes travel on stream 14, where an
-/// attribute may be any item at all. So a host reads a slot map by asking for an attribute, and
-/// nothing here had to invent a wire format for one.
+/// Object attributes travel on stream 14, where an attribute may be any item at all, and that is
+/// why the four items the catalogue defines no format for are readable here without a format
+/// having to be invented: <c>CARRIERSTATUS</c>, <c>PORTSTATUS</c> and <c>SLOTMAP</c> are all
+/// served by name as attributes. Stream 3 carries them too now, and it can only because this is
+/// where the answer already was - each of those readings is checked against the attribute here.
+/// </para>
+/// <para>
+/// <strong>The storage location's three attributes are S3F32's item list.</strong> That
+/// transaction reports every storage location as <c>LOC</c>, <c>PORTSTATUS</c> and
+/// <c>CARRIERID</c> - an attribute list written by the one transaction E5 has on the subject - so
+/// the type is read off a wire format rather than invented, and a test asserts the two routes
+/// carry the same three items byte for byte. The shape is also the one
+/// <c>Barbatos.SecsGem.Substrates</c> already serves for E90's substrate location: an identity, a
+/// state, and what is in it.
 /// </para>
 /// <para>
 /// <strong>A state attribute is not a back door.</strong> Every state is readable and almost none
@@ -46,6 +54,16 @@ public sealed class CarrierObjectProvider : IObjectProvider
     /// <summary>The object type a load port is.</summary>
     public const string LoadPortType = "LoadPort";
 
+    /// <summary>The object type a storage location is.</summary>
+    /// <remarks>
+    /// Advertised only by a machine that has at least one, unlike the other two - see
+    /// <see cref="GetObjectTypesAsync"/>. Its attributes are
+    /// <c>LocationID</c>, <c>TransferState</c> and <c>CarrierID</c>, which is S3F32's item list
+    /// read as an attribute list, and nothing on it is writable: a storage location has no label a
+    /// host owns, and its one state is material having moved.
+    /// </remarks>
+    public const string StorageLocationType = "StorageLocation";
+
     private readonly CarrierManager _manager;
 
     /// <summary>Exposes a manager's carriers and ports as objects.</summary>
@@ -59,9 +77,17 @@ public sealed class CarrierObjectProvider : IObjectProvider
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Both types, always: a machine with load ports has them whether or not a carrier is on
+        // The first two always: a machine with load ports has them whether or not a carrier is on
         // one, and a host discovering an empty list would conclude this equipment does not do E87.
-        return ValueTask.FromResult<IReadOnlyList<string>>([CarrierType, LoadPortType]);
+        //
+        // Storage locations only when there are some, and that asymmetry is the same answer S3F31
+        // gives. A load port is hardware E87 assumes every machine has; a shelf is hardware it
+        // does not, so "no storage locations" is a fact about this machine rather than a gap in
+        // what it implements - and a host that discovered the type and then found no instances
+        // would have learnt the same thing one round trip later.
+        return ValueTask.FromResult<IReadOnlyList<string>>(_manager.StorageLocations.Count > 0
+            ? [CarrierType, LoadPortType, StorageLocationType]
+            : [CarrierType, LoadPortType]);
     }
 
     /// <inheritdoc/>
@@ -86,6 +112,13 @@ public sealed class CarrierObjectProvider : IObjectProvider
                 instances.Add(PortSpecification(port.PortId));
             }
         }
+        else if (string.Equals(objectType, StorageLocationType, StringComparison.Ordinal))
+        {
+            foreach (var location in _manager.StorageLocations)
+            {
+                instances.Add(StorageSpecification(location.Location));
+            }
+        }
 
         return ValueTask.FromResult<IReadOnlyList<string>>(instances);
     }
@@ -99,6 +132,14 @@ public sealed class CarrierObjectProvider : IObjectProvider
         ArgumentNullException.ThrowIfNull(objectSpecification);
         ArgumentNullException.ThrowIfNull(objectType);
         cancellationToken.ThrowIfCancellationRequested();
+
+        var wantsStorage = string.Equals(objectType, StorageLocationType, StringComparison.Ordinal)
+            || (objectType.Length == 0 && TryReadStorageSpecification(objectSpecification) is not null);
+
+        if (wantsStorage)
+        {
+            return ValueTask.FromResult<IReadOnlyList<string>>(StorageAttributeNames);
+        }
 
         var wantsPort = string.Equals(objectType, LoadPortType, StringComparison.Ordinal)
             || (objectType.Length == 0 && TryReadPortSpecification(objectSpecification) is not null);
@@ -185,6 +226,35 @@ public sealed class CarrierObjectProvider : IObjectProvider
             : null;
     }
 
+    /// <summary>What a storage location is called as an object - <c>LOC</c> with a prefix.</summary>
+    /// <param name="location">The location.</param>
+    /// <returns>Its object specification.</returns>
+    /// <remarks>
+    /// The same convention <see cref="PortSpecification"/> uses, and for the same reason: a bare
+    /// number would collide with a carrier called "101". It also keeps the two kinds of place
+    /// apart where <c>LOC</c> cannot - a shelf numbered 1 beside a load port 1 is
+    /// <c>StorageLocation1</c> and <c>LoadPort1</c>, which are different objects whatever S3F24
+    /// has room to say. <see cref="TryReadStorageSpecification"/> is this convention's only
+    /// reader.
+    /// </remarks>
+    public static string StorageSpecification(uint location) => $"{StorageLocationType}{location}";
+
+    /// <summary>Reads a storage location's object specification back into a <c>LOC</c>.</summary>
+    /// <param name="objectSpecification">The specification.</param>
+    /// <returns>The location, or <see langword="null"/> when it does not name one.</returns>
+    public static uint? TryReadStorageSpecification(string objectSpecification)
+    {
+        ArgumentNullException.ThrowIfNull(objectSpecification);
+
+        return objectSpecification.StartsWith(StorageLocationType, StringComparison.Ordinal)
+            && uint.TryParse(
+                objectSpecification.AsSpan(StorageLocationType.Length),
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var location)
+            ? location
+            : null;
+    }
+
     private static readonly string[] CarrierAttributeNames =
     [
         "CarrierID",
@@ -210,8 +280,24 @@ public sealed class CarrierObjectProvider : IObjectProvider
         "ReservedForCarrierID",
     ];
 
+    private static readonly string[] StorageAttributeNames =
+    [
+        "LocationID",
+        "TransferState",
+        "CarrierID",
+    ];
+
     private List<ObjectAttribute>? Read(string specification, IReadOnlyList<string> wanted)
     {
+        if (TryReadStorageSpecification(specification) is { } location)
+        {
+            var shelf = _manager.FindStorageLocation(location);
+
+            return shelf is null
+                ? null
+                : Collect(wanted, StorageAttributeNames, name => StorageAttribute(shelf, name));
+        }
+
         if (TryReadPortSpecification(specification) is { } portId)
         {
             var port = _manager.FindPort(portId);
@@ -276,8 +362,38 @@ public sealed class CarrierObjectProvider : IObjectProvider
         _ => null,
     };
 
+    /// <summary>A storage location's three attributes, which are S3F32's three items.</summary>
+    /// <remarks>
+    /// <c>LocationID</c> is a <c>U4</c> because <c>LOC</c> is one, and <c>TransferState</c> is the
+    /// state's name as text - byte for byte what S3F32 puts in <c>PORTSTATUS</c> and what a load
+    /// port's own <c>TransferState</c> attribute carries, because a location borrows a port's
+    /// state machine rather than having an eighth of its own.
+    /// </remarks>
+    private static SecsItem? StorageAttribute(CarrierStorageLocation location, string name) => name switch
+    {
+        "LocationID" => SecsItem.U4(location.Location),
+        "TransferState" => SecsItem.A(location.TransferState.ToString()),
+
+        // Empty rather than absent for an empty shelf, as a port's AssociatedCarrierID is: a host
+        // asking for three attributes and getting two cannot tell which one went missing.
+        "CarrierID" => SecsItem.A(location.CarrierId ?? string.Empty),
+        _ => null,
+    };
+
     private ObjectAcknowledgement Write(string specification, IReadOnlyList<ObjectAttribute> attributes)
     {
+        if (TryReadStorageSpecification(specification) is { } location)
+        {
+            // Nothing on a storage location is writable, which makes it the only object type here
+            // with no settable attribute at all. A carrier has LotID and Usage, a port has
+            // AccessMode; a shelf has an identity it was configured with, a state that means
+            // material has moved, and the name of what is sitting in it. None of those is a host's
+            // to assign, and writing the state would move a box by saying so.
+            return _manager.FindStorageLocation(location) is null
+                ? ObjectAcknowledgement.InvalidObjectInstance
+                : ObjectAcknowledgement.InvalidAttribute;
+        }
+
         if (TryReadPortSpecification(specification) is { } portId)
         {
             return _manager.FindPort(portId) is null

@@ -8,13 +8,21 @@ using Barbatos.SecsGem.Objects;
 namespace Barbatos.SecsGem.Carriers.UnitTests;
 
 /// <summary>
-/// E87's attributes over stream 14, which is where the three unimplementable transactions went.
+/// E87's attributes over stream 14: a carrier, a load port, and a storage location.
 /// </summary>
 /// <remarks>
-/// S3F20 wants a <c>CARRIERSTATUS</c>, S3F22 a <c>PORTSTATUS</c> and S3F28 a <c>SLOTMAP</c>, and
-/// the catalogue has no format for any of the three. These tests are the alternative working: the
-/// same information, as object attributes, in items whose formats are defined - and a slot map
-/// that needs no format at all because <c>ATTRDATA</c> has none.
+/// <para>
+/// S3F20 wants a <c>CARRIERSTATUS</c>, S3F22 and S3F32 a <c>PORTSTATUS</c>, S3F28 a
+/// <c>SLOTMAP</c>, and the catalogue has no format for any of them. All four are implemented now,
+/// and they could only be because the answer was already here: these tests are what those
+/// readings are checked against, as object attributes, in items whose formats are defined - and a
+/// slot map that needs no format at all because <c>ATTRDATA</c> has none.
+/// </para>
+/// <para>
+/// The storage location goes the other way round. Its three attributes are S3F32's three items,
+/// so the transaction defined the object rather than the object defining the transaction, and the
+/// test that matters is still that the two agree.
+/// </para>
 /// </remarks>
 public class CarrierObjectProviderTests
 {
@@ -62,6 +70,187 @@ public class CarrierObjectProviderTests
         Assert.Equal(2, types.Count);
         Assert.Contains(CarrierObjectProvider.CarrierType, types);
         Assert.Contains(CarrierObjectProvider.LoadPortType, types);
+    }
+
+    /// <summary>The third type is advertised only by a machine that has one.</summary>
+    /// <remarks>
+    /// The same asymmetry S3F31 keeps. A load port is hardware E87 assumes every machine has, so
+    /// the type is there whether or not anything is on it; a shelf is hardware E87 does not
+    /// assume, so "no storage locations" is a fact about this machine rather than a gap in what it
+    /// implements.
+    /// </remarks>
+    [Fact]
+    public async Task A_machine_with_storage_advertises_the_third_type()
+    {
+        var manager = new CarrierManager();
+        var provider = new CarrierObjectProvider(manager);
+
+        Assert.Equal(2, (await provider.GetObjectTypesAsync(TestContext.Current.CancellationToken)).Count);
+
+        manager.AddStorageLocation(101);
+
+        var types = await provider.GetObjectTypesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, types.Count);
+        Assert.Contains(CarrierObjectProvider.StorageLocationType, types);
+    }
+
+    [Fact]
+    public async Task The_instances_of_the_third_type_are_the_shelves()
+    {
+        var (manager, provider) = Loaded();
+
+        manager.AddStorageLocation(101);
+        manager.AddStorageLocation(7);
+
+        // Ordered by LOC, because the manager orders them: a host comparing two readings should
+        // not have to sort them to see whether anything moved.
+        Assert.Equal(
+            [CarrierObjectProvider.StorageSpecification(7), CarrierObjectProvider.StorageSpecification(101)],
+            await provider.GetInstancesAsync(
+                CarrierObjectProvider.StorageLocationType,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task A_storage_location_reports_the_three_items_S3F32_carries()
+    {
+        var (manager, provider) = Loaded();
+
+        manager.AddStorageLocation(101);
+
+        Assert.True(manager.SetStorageServiceStatus(101, inService: true).IsAccepted);
+        Assert.True(manager.SetStorageTransferState(101, PortTransferState.ReadyToLoad).IsAccepted);
+        Assert.True(manager.StoreCarrier(101, "CAR-009").IsAccepted);
+
+        var read = await ReadAsync(provider, CarrierObjectProvider.StorageSpecification(101));
+
+        Assert.Equal(3, read.Count);
+        Assert.Equal(101u, read["LocationID"].FirstValueOrDefault<uint>());
+        Assert.Equal(nameof(PortTransferState.TransferBlocked), read["TransferState"].GetString());
+        Assert.Equal("CAR-009", read["CarrierID"].GetString());
+    }
+
+    /// <summary>An empty shelf names no carrier, and says so rather than leaving it out.</summary>
+    /// <remarks>
+    /// A host asking for three attributes and getting two cannot tell which one went missing -
+    /// the same reason a port's <c>AssociatedCarrierID</c> is empty rather than absent.
+    /// </remarks>
+    [Fact]
+    public async Task An_empty_shelf_names_no_carrier()
+    {
+        var (manager, provider) = Loaded();
+
+        manager.AddStorageLocation(101);
+
+        var read = await ReadAsync(provider, CarrierObjectProvider.StorageSpecification(101));
+
+        Assert.Equal(3, read.Count);
+        Assert.Equal(string.Empty, read["CarrierID"].GetString());
+        Assert.Equal(nameof(PortTransferState.OutOfService), read["TransferState"].GetString());
+    }
+
+    [Fact]
+    public async Task The_attribute_names_of_a_shelf_come_back_from_the_specification_alone()
+    {
+        var (manager, provider) = Loaded();
+
+        manager.AddStorageLocation(101);
+
+        // With no OBJTYPE, which is what a host sends when it has an objspec and nothing else.
+        var names = await provider.GetAttributeNamesAsync(
+            CarrierObjectProvider.StorageSpecification(101),
+            string.Empty,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(["LocationID", "TransferState", "CarrierID"], names);
+    }
+
+    /// <summary>The only object type here with nothing a host may write.</summary>
+    /// <remarks>
+    /// A carrier has <c>LotID</c> and <c>Usage</c>, a port has <c>AccessMode</c>. A shelf has an
+    /// identity it was configured with, a state that means material has moved, and the name of
+    /// what is sitting in it - none of them a host's to assign, and writing the state would move a
+    /// box by saying so.
+    /// </remarks>
+    [Theory]
+    [InlineData("LocationID")]
+    [InlineData("TransferState")]
+    [InlineData("CarrierID")]
+    public async Task Nothing_on_a_storage_location_is_writable(string attribute)
+    {
+        var (manager, provider) = Loaded();
+
+        manager.AddStorageLocation(101);
+
+        var results = await provider.SetAttributesAsync(
+            new ObjectAttributeWrite
+            {
+                Objects = [CarrierObjectProvider.StorageSpecification(101)],
+                Attributes = [new ObjectAttribute { Name = attribute, Value = SecsItem.A("anything") }],
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(ObjectAcknowledgement.InvalidAttribute, Assert.Single(results).Acknowledgement);
+        Assert.Equal(PortTransferState.OutOfService, manager.FindStorageLocation(101)!.TransferState);
+    }
+
+    [Fact]
+    public async Task A_shelf_nobody_declared_is_left_out_rather_than_answered()
+    {
+        var (_, provider) = Loaded();
+
+        var values = await provider.GetAttributesAsync(
+            new ObjectAttributeRequest
+            {
+                Objects = [CarrierObjectProvider.StorageSpecification(999)],
+                Attributes = [],
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Empty(values);
+
+        var results = await provider.SetAttributesAsync(
+            new ObjectAttributeWrite
+            {
+                Objects = [CarrierObjectProvider.StorageSpecification(999)],
+                Attributes = [new ObjectAttribute { Name = "CarrierID", Value = SecsItem.A("CAR-009") }],
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(ObjectAcknowledgement.InvalidObjectInstance, Assert.Single(results).Acknowledgement);
+    }
+
+    /// <summary>What the objspec convention fixes that <c>LOC</c> cannot.</summary>
+    /// <remarks>
+    /// A shelf numbered 1 beside a load port 1 is the collision S3F24 has no room to resolve - one
+    /// <c>LOC</c>, two places. As objects they are simply two names, and reading one does not
+    /// reach the other.
+    /// </remarks>
+    [Fact]
+    public async Task A_shelf_and_a_port_with_the_same_number_are_different_objects()
+    {
+        var manager = new CarrierManager();
+        var provider = new CarrierObjectProvider(manager);
+
+        manager.AddPort(1);
+        manager.AddStorageLocation(1);
+
+        Assert.True(manager.SetServiceStatus(1, inService: true).IsAccepted);
+
+        var port = await ReadAsync(provider, CarrierObjectProvider.PortSpecification(1));
+        var shelf = await ReadAsync(provider, CarrierObjectProvider.StorageSpecification(1));
+
+        Assert.Equal("LoadPort1", CarrierObjectProvider.PortSpecification(1));
+        Assert.Equal("StorageLocation1", CarrierObjectProvider.StorageSpecification(1));
+
+        Assert.Equal(nameof(PortTransferState.TransferBlocked), port["TransferState"].GetString());
+        Assert.Equal(nameof(PortTransferState.OutOfService), shelf["TransferState"].GetString());
+
+        // And neither reader claims the other's name.
+        Assert.Null(CarrierObjectProvider.TryReadStorageSpecification("LoadPort1"));
+        Assert.Null(CarrierObjectProvider.TryReadPortSpecification("StorageLocation1"));
+        Assert.Equal(1u, CarrierObjectProvider.TryReadStorageSpecification("StorageLocation1"));
     }
 
     [Fact]

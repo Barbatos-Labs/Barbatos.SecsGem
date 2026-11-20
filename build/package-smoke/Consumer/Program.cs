@@ -743,6 +743,23 @@ internal static class Program
             provider.GetRequiredService<IObjectProvider>() is CarrierObjectProvider,
             "stream 14 is not answered out of the carriers");
 
+        // The third object type, out of the packed assembly: a storage location is an object as
+        // well as an S3F31 row, and the objspec convention is public API that has to travel.
+        var carrierObjects = (CarrierObjectProvider)provider.GetRequiredService<IObjectProvider>();
+        var types = await carrierObjects.GetObjectTypesAsync(CancellationToken.None).ConfigureAwait(false);
+
+        Assert(
+            types.Contains(CarrierObjectProvider.StorageLocationType),
+            $"the object types are [{string.Join(", ", types)}], with no storage location among them");
+
+        Assert(
+            CarrierObjectProvider.StorageSpecification(101) == "StorageLocation101",
+            $"the objspec convention came out as '{CarrierObjectProvider.StorageSpecification(101)}'");
+
+        Assert(
+            CarrierObjectProvider.TryReadStorageSpecification("StorageLocation101") == 101,
+            "the objspec convention does not read its own output back");
+
         // And the rules, through the packaged assembly: a carrier nobody has verified cannot be
         // accessed, and the refusal says which state refused it.
         var manager = provider.GetRequiredService<CarrierManager>();

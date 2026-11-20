@@ -577,6 +577,83 @@ public class CarrierStorageTests
         Assert.Equal(port.TransferState, shelf.TransferState);
     }
 
+    /// <summary>The agreement that makes the object type legitimate rather than invented.</summary>
+    /// <remarks>
+    /// The <c>StorageLocation</c> object type exists because S3F32 already reports a storage
+    /// location as <c>LOC</c>, <c>PORTSTATUS</c> and <c>CARRIERID</c> - an attribute list written
+    /// by the one transaction E5 has on the subject. So the direction is the opposite of
+    /// S3F22's, where stream 14 came first and the transaction had to agree with it; here the
+    /// transaction came first. Either way the test is the same: two routes, one answer.
+    /// </remarks>
+    [Fact]
+    public async Task S3F32_and_the_three_attributes_agree_item_for_item()
+    {
+        await using var pair = CarrierPair.Start(configure: manager =>
+        {
+            manager.AddStorageLocation(Shelf);
+
+            Assert.True(manager.SetStorageServiceStatus(Shelf, inService: true).IsAccepted);
+
+            Store(manager, "CAR-009");
+
+            Assert.True(manager.SetStorageTransferState(Shelf, PortTransferState.ReadyToUnload).IsAccepted);
+        });
+
+        await pair.OpenAsync();
+
+        var listed = Assert.Single(await pair.Host.ReadStorageStatusAsync(CarrierPair.Token));
+
+        uint location = 0;
+        var state = string.Empty;
+        var carrierId = string.Empty;
+
+        await pair.HostObjects.GetAttributesAsync(
+            CarrierObjectProvider.StorageSpecification(Shelf),
+            CarrierObjectProvider.StorageLocationType,
+            ["LocationID", "TransferState", "CarrierID"],
+            values =>
+            {
+                location = values.Attributes[0].Value.FirstValueOrDefault<uint>();
+                state = values.Attributes[1].Value.GetString();
+                carrierId = values.Attributes[2].Value.GetString();
+            },
+            CarrierPair.Token);
+
+        Assert.Equal(listed.Location, location);
+        Assert.Equal(listed.Status, state);
+        Assert.Equal(listed.CarrierId, carrierId);
+
+        // And the values themselves, so a test that read two empty strings cannot pass.
+        Assert.Equal(Shelf, location);
+        Assert.Equal(nameof(PortTransferState.ReadyToUnload), state);
+        Assert.Equal("CAR-009", carrierId);
+    }
+
+    /// <summary>A host can find the shelves without S3F31 at all, which is what an object type is for.</summary>
+    [Fact]
+    public async Task The_shelves_are_discoverable_as_objects()
+    {
+        await using var pair = CarrierPair.Start(configure: manager =>
+        {
+            manager.AddStorageLocation(101);
+            manager.AddStorageLocation(102);
+        });
+
+        await pair.OpenAsync();
+
+        var types = await pair.HostObjects.GetObjectTypesAsync(CarrierPair.Token);
+
+        Assert.Contains(CarrierObjectProvider.StorageLocationType, types);
+
+        var instances = await pair.HostObjects.GetInstancesAsync(
+            CarrierObjectProvider.StorageLocationType,
+            CarrierPair.Token);
+
+        Assert.Equal(
+            [CarrierObjectProvider.StorageSpecification(101), CarrierObjectProvider.StorageSpecification(102)],
+            instances);
+    }
+
     /// <summary>A location out of service reports it, which is the whole point of reporting status.</summary>
     [Fact]
     public async Task A_location_out_of_service_reports_itself_as_one_nobody_may_use()

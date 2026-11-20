@@ -1552,6 +1552,33 @@ internal static class Program
             Console.WriteLine($"   S3F19  -> {shelvedStatus}");
             ok &= shelvedStatus is { PortId: null };
 
+            // And the same shelf as a stream 14 object, which is the other half of this: S3F32's
+            // three items are the object's three attributes, so the two routes have to agree. The
+            // direction is the reverse of S3F22's - there the attribute came first and the
+            // transaction had to agree with it; here the transaction defined the object.
+            if (objects is not null)
+            {
+                var shelfSpec = CarrierObjectProvider.StorageSpecification(ShelfLocation);
+
+                await objects.GetAttributesAsync(
+                    shelfSpec,
+                    CarrierObjectProvider.StorageLocationType,
+                    ["LocationID", "TransferState", "CarrierID"],
+                    values =>
+                    {
+                        var reported = values.Attributes[0].Value.FirstValueOrDefault<uint>();
+                        var state = values.Attributes[1].Value.GetString();
+                        var held = values.Attributes[2].Value.GetString();
+
+                        Console.WriteLine($"   S14F1  -> {shelfSpec}: {reported}, {state}, {held}");
+
+                        ok &= reported == ShelfLocation
+                            && held == ShelvedCarrier
+                            && state == machine.FindStorageLocation(ShelfLocation)?.TransferState.ToString();
+                    },
+                    cancellationToken);
+            }
+
             // And a carrier is in one place: the box on port 1 cannot also be put on a shelf.
             machine.SetStorageTransferState(SecondShelf, PortTransferState.ReadyToLoad);
 

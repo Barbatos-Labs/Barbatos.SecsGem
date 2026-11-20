@@ -343,12 +343,16 @@ second, and a test asserts that S3F24 and S3F32 name the same number for the sam
 
 What this package cannot do on a machine's behalf is keep two number spaces apart. `LOC` is a `U4`
 and `PTN` a `U1`, nothing in E87 stops a shelf being numbered 1 beside a load port 1, and S3F24 has
-room for one number. A machine like that replaces `LocationOf`, which is what the hook is for.
+room for one number. A machine like that replaces `LocationOf`, which is what the hook is for - or
+asks on stream 14 instead, where [a storage location is an object](#the-storage-location-object-which-s3f32-defined)
+and the two places have two names.
 
 ## Attributes, the slot map among them
 
-E87's carrier and load port attributes travel on **stream 14**, and that is where the four
-unimplementable transactions went. `CarrierObjectProvider` exposes both object types:
+E87's attributes travel on **stream 14**, where an attribute may be any item at all - which is why
+the four items the catalogue defines no format for are readable without a format being invented for
+them, and why each of their stream 3 readings had something to be checked against.
+`CarrierObjectProvider` exposes three object types:
 
 ```csharp
 // On the host, with Barbatos.SecsGem.Objects:
@@ -365,7 +369,41 @@ await objects.GetAttributesAsync("CAR-001", "Carrier", ["SlotMap", "AccessStatus
 Carrier attributes: `CarrierID`, `IDStatus`, `SlotMapStatus`, `AccessStatus`, `SlotMap`,
 `Capacity`, `SubstrateCount`, `LotID`, `Usage`, `PortID`. Port attributes: `PortID`,
 `TransferState`, `AccessMode`, `AssociationState`, `ReservationState`, `AssociatedCarrierID`,
-`ReservedForCarrierID`. A host discovers them with S14F17 rather than assuming them.
+`ReservedForCarrierID`. Storage location attributes: `LocationID`, `TransferState`, `CarrierID`. A
+host discovers them with S14F17 rather than assuming them.
+
+### The storage location object, which S3F32 defined
+
+```csharp
+var shelves = await objects.GetInstancesAsync("StorageLocation");   // StorageLocation101, ...
+
+await objects.GetAttributesAsync(
+    CarrierObjectProvider.StorageSpecification(101),
+    CarrierObjectProvider.StorageLocationType,
+    ["LocationID", "TransferState", "CarrierID"],
+    values => { /* 101, "ReadyToUnload", "CAR-009" */ });
+```
+
+**Those three attributes are S3F32's three items** - `LOC`, `PORTSTATUS`, `CARRIERID` - which is an
+attribute list written by the one transaction E5 has on the subject. So the type is read off a wire
+format rather than invented, and the direction is the opposite of S3F22's: there, stream 14 came
+first and the transaction had to agree with it; here the transaction came first. Either way the
+test is the same, two routes and one answer. The shape is also the one
+[`Barbatos.SecsGem.Substrates`](../Barbatos.SecsGem.Substrates/README.md) already serves for E90's
+substrate location - an identity, a state, and what is in it.
+
+**The type is advertised only by a machine that has one**, unlike the other two, and that is the
+asymmetry S3F31 already keeps: a load port is hardware E87 assumes every machine has, and a shelf
+is hardware it does not.
+
+**It is also the one object type here with nothing a host may write.** A carrier has `LotID` and
+`Usage`, a port has `AccessMode`; a shelf has an identity it was configured with, a state that
+means material has moved, and the name of whatever is sitting in it. None of those is a host's to
+assign.
+
+One thing the objspec convention fixes that `LOC` cannot: a shelf numbered 1 beside a load port 1
+is `StorageLocation1` and `LoadPort1`, two names that cannot be confused, where S3F24 has room for
+one number and no way to say which kind of place it means.
 
 **A state attribute is not a back door.** Writing `AccessStatus` with S14F3 is refused with
 `InvalidAttribute`: it would put a carrier into `CarrierComplete` without accessing it. The
@@ -461,10 +499,13 @@ the same box has no right answer.
 
 ## What is not here yet
 
-- **A stream 14 object type for a storage location.** The attributes here are a carrier's and a
-  load port's, which are the two object types E87 gives this package to serve, and a third invented
-  here would be attributes nobody can check against anything. So a location is readable through
-  S3F31 and not through S14F17, and a carrier has no `Location` attribute to go with its `PortID`.
+- **A `Location` attribute on a carrier, to go with its `PortID`.** It would be a third route to a
+  question that already has two, and the only one of the three that could disagree: `LOC` for a
+  carrier is decided by `CarrierEquipment.LocationOf`, a hook an application may replace, and the
+  object provider is built from the manager and cannot see it. Serving it here would mean either
+  coupling stream 14 to a stream 3 decision or duplicating the fallback - and a duplicate is wrong
+  the moment somebody replaces the hook. The two routes that exist are S3F23 for one carrier, and
+  the `StorageLocation` object's `CarrierID` for the other direction.
 - **A reservation or an access mode for a storage location.** `ReserveAtPort` names a port, and
   S3F32 has room for one status. Both would be this library deciding what E87 left unsaid about a
   place it barely describes.

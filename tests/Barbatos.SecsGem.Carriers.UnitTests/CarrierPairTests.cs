@@ -287,8 +287,9 @@ public class CarrierPairTests
             },
             CarrierPair.Token);
 
-        // The three transactions this package does not implement, working: a slot map and a
-        // carrier state, over a wire, in items whose formats are defined.
+        // The route the undefined items are read against, working: a slot map and a carrier state,
+        // over a wire, in items whose formats are defined. S3F28 and S3F20 carry these same two
+        // values now, and they are only defensible because this answer was already here.
         Assert.True(found);
         Assert.Equal([1, 1, 0, 1], slots);
         Assert.Equal(nameof(CarrierAccessStatus.NotAccessed), status);
