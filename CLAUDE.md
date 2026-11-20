@@ -27,7 +27,9 @@ Core  <-  Hsms  <-  Gem
                                                  application's and says so)
                                  ^-- Carriers, Substrates, ControlJobs, ProcessJobs
                                      (E87, E90, E94, E40, on Objects: their attributes are
-                                     stream 14; E90 and E94 have no messages at all, E87
+                                     stream 14; E90 and E94 have no messages of their own -
+                                     the catalogue's stream 17 "control job" rows are an
+                                     extrapolation of stream 16, see Catalog's README - E87
                                      borrows S3F17, and E40 has stream 16 of its own)
                                             ^-- MaterialFlow   (the E87-E90, E40-E90 and
                                                                 E87-E94 joins)
@@ -89,6 +91,13 @@ dotnet test tests/Barbatos.SecsGem.Core.UnitTests -f net10.0
 ```
 
 Run one target framework at a time.
+
+Before implementing against a stream, ask the catalogue how firm it is -
+`SecsCatalog.TryGetStream(n, out var s)` then `s.Provenance` - and say so in the package's docs
+rather than implying the standard was quoted. `IsEntirelyRepresentative` is true for nine streams
+and two of them are implemented here, so it is not a veto: check the stream against the item
+dictionary and against its standard's subject matter, and record which check it passed. Stream 17
+is the one that failed both.
 
 After touching a `.csproj`, `Directory.Build.*`, `Directory.Packages.props` or anything else that
 changes what gets packed:

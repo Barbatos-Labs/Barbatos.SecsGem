@@ -21,11 +21,16 @@ public enum SecsMessageDirection
 /// <summary>One SECS-II stream: its number and what E5 calls it.</summary>
 public sealed class SecsStreamInfo
 {
-    internal SecsStreamInfo(byte number, string name, IReadOnlyList<SecsMessageInfo> messages)
+    internal SecsStreamInfo(
+        byte number,
+        string name,
+        IReadOnlyList<SecsMessageInfo> messages,
+        SecsStreamProvenance provenance)
     {
         Number = number;
         Name = name;
         Messages = messages;
+        Provenance = provenance;
     }
 
     /// <summary>Gets the stream number.</summary>
@@ -37,9 +42,99 @@ public sealed class SecsStreamInfo
     /// <summary>Gets every message in this stream, ordered by function.</summary>
     public IReadOnlyList<SecsMessageInfo> Messages { get; }
 
+    /// <summary>Gets how much of this stream the source behind the catalogue actually documented.</summary>
+    /// <remarks>
+    /// The question to ask before implementing anything against a stream, and the reason this
+    /// property exists: <see cref="Messages"/> presents every entry with the same confidence, and
+    /// the entries do not have the same confidence.
+    /// </remarks>
+    public SecsStreamProvenance Provenance { get; }
+
     /// <summary>Returns the stream and its name.</summary>
     /// <returns>For example <c>S6 Data Collection</c>.</returns>
     public override string ToString() => $"S{Number} {Name}";
+}
+
+/// <summary>
+/// How much of one stream the source behind this catalogue actually documented.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>What this is for.</strong> The catalogue is an index into SEMI E5 built from a public
+/// reference, and that reference marks most of its entries as a representative subset rather than
+/// a definition. Asking a stream how firm it is, before writing a codec against it, is the whole
+/// use: a body you can check against a dictionary entry is a different thing from a name somebody
+/// extrapolated.
+/// </para>
+/// <para>
+/// <strong>What it is not.</strong> It is not a verdict. Nine of this catalogue's twenty streams
+/// have no definitions at all, and two of them - stream 3 and stream 16 - are implemented in this
+/// repository anyway, because they survived a check against something else: the items their
+/// bodies name, and the behaviour the standards they belong to describe. So
+/// <see cref="IsEntirelyRepresentative"/> means "check this against something before you trust
+/// it", not "do not implement it". The one stream here that failed such a check is stream 17 -
+/// see the package README.
+/// </para>
+/// </remarks>
+public sealed class SecsStreamProvenance
+{
+    internal SecsStreamProvenance(
+        byte stream,
+        int messageCount,
+        int representativeCount,
+        IReadOnlyList<string> undefinedDataItems)
+    {
+        Stream = stream;
+        MessageCount = messageCount;
+        RepresentativeCount = representativeCount;
+        UndefinedDataItems = undefinedDataItems;
+    }
+
+    /// <summary>Gets the stream this is about.</summary>
+    public byte Stream { get; }
+
+    /// <summary>Gets how many messages the catalogue has for the stream.</summary>
+    public int MessageCount { get; }
+
+    /// <summary>Gets how many of them the source marked as a representative subset.</summary>
+    /// <remarks>See <see cref="SecsMessageInfo.IsRepresentative"/>, which is the per-message flag this counts.</remarks>
+    public int RepresentativeCount { get; }
+
+    /// <summary>Gets how many of them the source presented as definitions.</summary>
+    public int DefinedCount => MessageCount - RepresentativeCount;
+
+    /// <summary>Gets the item names this stream's bodies use that the dictionary does not define, ordered.</summary>
+    /// <remarks>
+    /// The second half of the question, and often the more telling one: a stream whose bodies name
+    /// items the same catalogue defines can be read against them, and a stream whose key items
+    /// appear nowhere else cannot be read against anything. Stream 17's control job rows name
+    /// <c>CJID</c>, <c>CJACK</c> and <c>CJSTATE</c>, none of which the dictionary has - while the
+    /// two control job items it does define, <c>CTLJOBID</c> and <c>CTLJOBCMD</c>, are named by no
+    /// message in the catalogue at all.
+    /// </remarks>
+    public IReadOnlyList<string> UndefinedDataItems { get; }
+
+    /// <summary>Gets a value indicating whether the source documented none of this stream.</summary>
+    /// <remarks>
+    /// <para>
+    /// True for nine streams: 3, 4, 15, 16, 17, 18, 19, 20 and 21. Read it as "check this against
+    /// something else", not as a refusal - the class remarks say why.
+    /// </para>
+    /// <para>
+    /// The <see cref="MessageCount"/> term is the one line of this type no test reaches, and it is
+    /// here deliberately: every stream the catalogue lists has messages, so a stream of none
+    /// cannot be built through the public surface to assert against. Without the term an empty
+    /// stream would answer <see langword="true"/>, and there is nothing representative about
+    /// having documented nothing because there was nothing to document.
+    /// </para>
+    /// </remarks>
+    public bool IsEntirelyRepresentative => MessageCount > 0 && RepresentativeCount == MessageCount;
+
+    /// <summary>Returns the counts in one line.</summary>
+    /// <returns>For example <c>S16 28 message(s), 0 defined, 5 undefined item name(s)</c>.</returns>
+    public override string ToString()
+        => $"S{Stream} {MessageCount} message(s), {DefinedCount} defined, "
+            + $"{UndefinedDataItems.Count} undefined item name(s)";
 }
 
 /// <summary>One stream and function: what it is called, which way it goes, and what its body holds.</summary>

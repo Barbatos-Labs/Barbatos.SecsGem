@@ -30,6 +30,13 @@ namespace Barbatos.SecsGem.Catalog;
 /// pair, was corrected from the implementation and is covered by a test that fails if the two ever
 /// disagree again. Treat this as a good index into E5, not as a substitute for it.
 /// </para>
+/// <para>
+/// <see cref="SecsStreamInfo.Provenance"/> asks that question per stream, which is the form it
+/// comes up in: how many of a stream's entries were definitions, and whether its bodies name
+/// items this catalogue can resolve. Nine streams have no definitions at all and two of those are
+/// implemented here anyway - the flag means "check this against something else", and the package
+/// README works through the one stream that failed such a check.
+/// </para>
 /// </remarks>
 public static class SecsCatalog
 {
@@ -142,12 +149,28 @@ public static class SecsCatalog
 
         var byStream = new List<SecsStreamInfo>();
 
+        // One pass over the dictionary, reused for every stream: the provenance of a stream is
+        // half "how many of these did the source define" and half "can its bodies be read against
+        // anything", and the second half needs the item table that was just loaded.
+        var defined = items.Select(i => i.Name).ToHashSet(StringComparer.Ordinal);
+
         foreach (var (number, name) in streamNames.OrderBy(pair => pair.Key))
         {
+            var ofStream = messages.Where(m => m.Stream == number).OrderBy(m => m.Function).ToArray();
+
             byStream.Add(new SecsStreamInfo(
                 number,
                 name,
-                messages.Where(m => m.Stream == number).OrderBy(m => m.Function).ToArray()));
+                ofStream,
+                new SecsStreamProvenance(
+                    number,
+                    ofStream.Length,
+                    ofStream.Count(m => m.IsRepresentative),
+                    [.. ofStream
+                        .SelectMany(m => m.DataItems)
+                        .Where(item => !defined.Contains(item))
+                        .Distinct(StringComparer.Ordinal)
+                        .Order(StringComparer.Ordinal)])));
         }
 
         return new Loaded(

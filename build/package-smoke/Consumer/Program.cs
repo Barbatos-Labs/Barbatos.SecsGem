@@ -287,6 +287,23 @@ internal static class Program
             described.StartsWith("S6F11 W ", StringComparison.Ordinal),
             $"Describe() returned '{described}'");
 
+        // Provenance comes out of the packed resource too, and it is computed at load time from
+        // both halves of that file - the message table and the item dictionary - so a resource
+        // that packed only part of itself would show up here rather than as a wrong answer later.
+        Assert(SecsCatalog.TryGetStream(16, out var sixteen), "stream 16 is not in the catalogue");
+        Assert(
+            sixteen!.Provenance.IsEntirelyRepresentative,
+            $"S16 reports {sixteen.Provenance.DefinedCount} defined message(s), not none");
+        Assert(
+            sixteen.Provenance.UndefinedDataItems.Contains("PJID", StringComparer.Ordinal),
+            "S16's undefined item names do not include PJID, so the item dictionary did not load");
+
+        Assert(SecsCatalog.TryGetStream(9, out var nine), "stream 9 is not in the catalogue");
+        Assert(
+            nine!.Provenance.DefinedCount == nine.Provenance.MessageCount,
+            $"S9 reports {nine.Provenance.DefinedCount} of {nine.Provenance.MessageCount} defined");
+        Assert(nine.Provenance.UndefinedDataItems.Count == 0, "S9 names an item the dictionary lacks");
+
         return Task.CompletedTask;
     }
 

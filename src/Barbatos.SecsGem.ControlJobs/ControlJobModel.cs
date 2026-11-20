@@ -34,10 +34,16 @@ namespace Barbatos.SecsGem.ControlJobs;
 /// is reachable from it.
 /// </para>
 /// <para>
-/// <strong>On provenance.</strong> The catalogue has no E94 <em>message</em> rows, because E94
+/// <strong>On provenance.</strong> The catalogue <em>defines</em> no E94 message, because E94
 /// defines behaviour and its messages are stream 14's. So these transitions are E94 as this
 /// library understands it, checked by tests rather than against reference data, and
 /// <see cref="ControlJobManager"/> is the one file to change when a fab disagrees.
+/// </para>
+/// <para>
+/// It does carry fourteen rows in stream 17, eight named "Control Job" something, and this
+/// library implements none of them: they are stream 16's process job set with <c>PJ</c> rewritten
+/// to <c>CJ</c>, and <c>S17F1</c> creates a control job from a <c>PJID</c>, which is backwards
+/// from E94. <c>Barbatos.SecsGem.Catalog</c>'s README has the evidence and the tests that pin it.
 /// </para>
 /// <para>
 /// Its item dictionary is another matter, and more use than the first reading of it suggested.

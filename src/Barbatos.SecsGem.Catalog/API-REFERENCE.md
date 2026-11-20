@@ -6,6 +6,7 @@ Namespace `Barbatos.SecsGem.Catalog`. Concepts, provenance and the caveats that 
 - [`SecsCatalog`](#secscatalog)
 - [`SecsCatalogExtensions`](#secscatalogextensions)
 - [`SecsStreamInfo`](#secsstreaminfo)
+- [`SecsStreamProvenance`](#secsstreamprovenance)
 - [`SecsMessageInfo`](#secsmessageinfo)
 - [`SecsMessageDirection`](#secsmessagedirection)
 - [`SecsDataItemInfo`](#secsdataiteminfo)
@@ -50,6 +51,7 @@ something.
 | `Number` | `byte { get; }` | |
 | `Name` | `string { get; }` | For example `Data Collection`. |
 | `Messages` | `IReadOnlyList<SecsMessageInfo> { get; }` | This stream's messages, ordered by function. |
+| `Provenance` | `SecsStreamProvenance { get; }` | How much of this stream the source actually documented. The question to ask before implementing against it. |
 | `ToString()` | `override string` | `S6 Data Collection`. |
 
 The twenty streams:
@@ -66,6 +68,38 @@ The twenty streams:
 | 8 | Control Program Transfer | 20 | Recipe Management System |
 | 9 | System Errors | 21 | Item Transfer |
 | 10 | Terminal Services | | |
+
+## `SecsStreamProvenance`
+
+`public sealed class SecsStreamProvenance`. How much of one stream the source behind this catalogue
+actually documented - the question to ask before writing a codec against it.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `Stream` | `byte { get; }` | |
+| `MessageCount` | `int { get; }` | How many messages the catalogue has for the stream. |
+| `RepresentativeCount` | `int { get; }` | How many the source marked as a subset. |
+| `DefinedCount` | `int { get; }` | `MessageCount - RepresentativeCount`. |
+| `UndefinedDataItems` | `IReadOnlyList<string> { get; }` | The item names this stream's bodies use that the dictionary lacks, ordered. Often the more telling half. |
+| `IsEntirelyRepresentative` | `bool { get; }` | The source documented none of it. True for nine streams. |
+| `ToString()` | `override string` | `S16 28 message(s), 0 defined, 5 undefined item name(s)`. |
+
+```csharp
+SecsCatalog.TryGetStream(16, out var stream);
+
+stream.Provenance.IsEntirelyRepresentative;  // true
+stream.Provenance.UndefinedDataItems;        // JOBSTATE, MTRLID, PJACK, PJID, QPOSN
+```
+
+**`IsEntirelyRepresentative` is not a veto.** Nine streams have no definitions - 3, 4, 15, 16, 17,
+18, 19, 20 and 21 - and two of them, stream 3 and stream 16, are implemented in this repository
+because they survived a check against the dictionary and against their standard's subject matter.
+Stream 17 is the one that failed such a check and the [README](README.md) works through why.
+
+The `MessageCount > 0` term in `IsEntirelyRepresentative` is the one line of this type no test
+reaches: every stream the catalogue lists has messages, so a stream of none cannot be built through
+the public surface. It is there because an empty stream answering `true` would be a claim about
+nothing.
 
 ## `SecsMessageInfo`
 

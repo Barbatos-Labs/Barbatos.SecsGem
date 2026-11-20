@@ -33,7 +33,7 @@ One page per package, generated per release:
 | `Barbatos.SecsGem.Serialization` | Core | `ISecsFormatReader`, `ISecsFormatWriter`, `SecsTranscoder` |
 | `Barbatos.SecsGem.Hsms` | Hsms | connection, decoder, transactions, timers, routing |
 | `Barbatos.SecsGem.Mapping` | Mapper | `SecsSerializer`, attributes, converters |
-| `Barbatos.SecsGem.Catalog` | Catalog | `SecsCatalog`, stream/function and data item reference data |
+| `Barbatos.SecsGem.Catalog` | Catalog | `SecsCatalog`, stream/function and data item reference data, and how firm each stream's is |
 | `Barbatos.SecsGem.Gem` | Gem | GEM state models, object model and equipment service |
 | `Barbatos.SecsGem.WaferMap` | WaferMap | stream 12: setup data, the three map data formats, both ends |
 | `Barbatos.SecsGem.Material` | Material | stream 3: material status, location, transfer, movement, both ends |

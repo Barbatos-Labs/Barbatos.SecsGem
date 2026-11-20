@@ -64,7 +64,7 @@ every build, to produce a table that is read at most once per process.
 standard - buy it if you are implementing against it. Provenance is in
 [ThirdPartyNotices.txt](../../ThirdPartyNotices.txt).
 
-Three things follow, and all three are visible in the API rather than buried here.
+Five things follow, and all five are visible in the API rather than buried here.
 
 ### 405 of the 524 entries are a representative subset
 
@@ -74,11 +74,78 @@ The reference flags them itself, and the flag is carried through:
 info.IsRepresentative;   // true for 405 of 524
 ```
 
-They cluster in the higher streams - all 54 of S15, 34 of S20, 28 of S16 - while the streams this
-repository implements against are the well-covered ones. S9 has none flagged at all.
+They cluster in the higher streams - all 54 of S15, 34 of S20, 28 of S16 - and S9 has none flagged
+at all.
 
 Treat a representative entry as a good index into E5, not as a definition to implement against. A
 catalogue that presented all 524 with equal confidence would be claiming more than it knows.
+
+### Ask a stream, because that is the form the question comes in
+
+```csharp
+SecsCatalog.TryGetStream(16, out var stream);
+
+stream.Provenance.MessageCount;              // 28
+stream.Provenance.DefinedCount;              // 0
+stream.Provenance.IsEntirelyRepresentative;  // true
+stream.Provenance.UndefinedDataItems;        // JOBSTATE, MTRLID, PJACK, PJID, QPOSN
+```
+
+Nine streams have **no definitions at all** - 3, 4, 15, 16, 17, 18, 19, 20 and 21 - and this README
+used to say that the streams this repository implements against were the well-covered ones. That
+was wrong, and the property is what made it obvious: **stream 3 is E87's carrier actions and
+stream 16 is E40's process jobs**, both implemented here, both entirely representative.
+
+So `IsEntirelyRepresentative` is not a veto. It means *check this against something else*, and
+there are two things to check against:
+
+- **the dictionary**, through `UndefinedDataItems` - a body naming items the same catalogue defines
+  can be read against them;
+- **the standard's own subject matter**, which is a human reading and the reason this section
+  exists rather than a confidence score.
+
+Stream 16 passes both: eight of its thirteen item names are defined - `CMDA`, `CPNAME`, `CPVAL`,
+`HCACK`, `PPID`, `RCMD` among them - and its 28 rows cover additional material, parameter change,
+queue position, queue reorder, material binding and queue status, which is E40's subject and far
+more than a template would produce.
+
+### Stream 17 is the one that failed that check
+
+The catalogue calls S17F1 a *Control Job Create Request*, and SEMI E94 is the control job
+standard, so the table reads at a glance like E94's missing message set. **It is not one**, and
+this repository implements none of it. Three findings, each pinned by a test:
+
+**It is stream 16 with the nouns swapped.** Every function number, direction, reply partner and
+item list in the control job half is stream 16's with `PJ` rewritten to `CJ`:
+
+| | S16 | S17 |
+| --- | --- | --- |
+| F1 | Process Job Create Request · `PJID,PPID,MTRLID` | Control Job Create Request · `CJID,PJID` |
+| F3 | Process Job Command Send · `PJID,RCMD` | Control Job Command Send · `CJID,RCMD` |
+| F5 | Process Job Status Request · `PJID` | Control Job Status Request · `CJID` |
+| F11 | Process Job Event Report Send · `PJID,JOBSTATE,TIME` | Control Job Event Report Send · `CJID,CJSTATE,TIME` |
+
+And the other half is stream 2 the same way: `S17F9 Trace Request` carries `TRID,DSPER,TOTSMP,REPGSZ,SVID`,
+which is `S2F23 Trace Initialize`'s body unchanged, same direction. Nothing in the stream goes
+beyond either template.
+
+**Its key items are defined nowhere.** `CJID`, `CJACK`, `CJSTATE` and `DCID` have no dictionary
+entry - so there is no format to encode them as and no code table to read them against.
+
+**And the two control job items the dictionary does define are named by no message at all.**
+`CTLJOBID` is there, and `CTLJOBCMD` is there with E94's six command values - `START`, `STOP`,
+`PAUSE`, `RESUME`, `CANCEL`, `ABORT`. No message row in the whole catalogue uses either. Two halves
+of one reference disagreeing about one standard's own item names is what an extrapolation looks
+like from the outside.
+
+The content settles it. E94 creates a control job from its **material** - a carrier input
+specification - and `S17F1` creates one from a `PJID`, which is backwards: process jobs are made
+from a control job's material, not the other way round. `ControlJobManager.Create` takes carriers, a
+process order and a processing specification, and none of those appears anywhere in stream 17.
+
+So [`Barbatos.SecsGem.ControlJobs`](../Barbatos.SecsGem.ControlJobs/README.md) drives E94 over
+stream 14 as object services, which is how E94 says a control job is created, commanded and read -
+and a codec for stream 17 would be this library inventing a wire and calling it E94.
 
 ### One entry was wrong, and is corrected
 

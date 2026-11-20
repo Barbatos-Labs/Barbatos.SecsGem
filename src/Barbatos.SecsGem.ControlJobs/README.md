@@ -41,9 +41,18 @@ that package had to learn the *actionable* half of stream 14 - create, delete, a
 one could be written. E87 and E90 only ever read.
 
 The provenance caveat is the same as those two: the catalogue that checks every message in this
-stack **has no E94 message rows**, so these states and transitions are E94 as this library
+stack **defines no E94 message**, so these states and transitions are E94 as this library
 understands it, checked by tests rather than against reference data, and
 [`ControlJobManager.cs`](ControlJobManager.cs) is the one file to change when a fab disagrees.
+
+It does have fourteen *rows* in stream 17, eight of them named "Control Job" something, and they
+are not that. They are stream 16's process job set with `PJ` rewritten to `CJ` - same function
+numbers, same directions, same bodies - and `S17F1` creates a control job from a `PJID`, which is
+backwards from E94, where process jobs are made from a control job's material. The catalogue's own
+`CTLJOBID` and `CTLJOBCMD` appear in none of them. The
+[Catalog README](../Barbatos.SecsGem.Catalog/README.md) works through the evidence and the tests
+that pin it; the short version is that stream 17 is the one stream in this catalogue this
+repository will not implement, and stream 14 is how E94 actually travels.
 
 Its *item dictionary* is another matter, and more use than the first reading of it suggested.
 `CTLJOBID` is defined as `A`, which is what this package writes. `CTLJOBCMD` is defined with six

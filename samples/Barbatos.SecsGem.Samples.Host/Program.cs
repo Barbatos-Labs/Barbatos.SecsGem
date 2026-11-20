@@ -2146,18 +2146,31 @@ internal static class Program
             // "S9F3 came back: S7F1 is not implemented", which is correct and makes you go and
             // look both of them up.
             var offending = "an unknown message";
+            var firmness = string.Empty;
 
             if (e.OffendingHeader.Length == MessageHeader.Length)
             {
                 var header = MessageHeader.Parse(e.OffendingHeader.Span);
                 offending = SecsCatalog.Describe(header.Stream, header.Function);
+
+                // And how much of that stream the catalogue actually knows, which is the honest
+                // footnote to naming a message it has never seen implemented. S18 is one of the
+                // nine streams the source behind this table documented none of - so the name is
+                // an index into E5 and not something to write a codec from.
+                if (SecsCatalog.TryGetStream(header.Stream, out var stream)
+                    && stream!.Provenance.IsEntirelyRepresentative)
+                {
+                    firmness = $" - and S{header.Stream} is {stream.Provenance.MessageCount} row(s) "
+                        + "the reference documented none of";
+                }
             }
             else if (e.Description.Length > 0)
             {
                 offending = e.Description;
             }
 
-            ErrorReports.Enqueue($"{SecsCatalog.Describe(9, e.Function)} came back: {offending} is not implemented");
+            ErrorReports.Enqueue(
+                $"{SecsCatalog.Describe(9, e.Function)} came back: {offending} is not implemented{firmness}");
         };
     }
 

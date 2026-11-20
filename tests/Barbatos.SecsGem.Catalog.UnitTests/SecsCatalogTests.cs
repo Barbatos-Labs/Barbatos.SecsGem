@@ -357,4 +357,203 @@ public class SecsCatalogTests
         Assert.True(SecsCatalog.TryGetMessage(stream, function, out var info));
         Assert.Equal(expected, info!.DataItems);
     }
+
+    // ----------------------------------------------------------------- provenance, per stream
+
+    private static SecsStreamProvenance ProvenanceOf(byte stream)
+    {
+        Assert.True(SecsCatalog.TryGetStream(stream, out var info));
+
+        return info!.Provenance;
+    }
+
+    [Fact]
+    public void Every_stream_accounts_for_its_own_messages()
+    {
+        foreach (var stream in SecsCatalog.Streams)
+        {
+            var provenance = stream.Provenance;
+
+            Assert.Equal(stream.Number, provenance.Stream);
+            Assert.Equal(stream.Messages.Count, provenance.MessageCount);
+            Assert.Equal(
+                stream.Messages.Count(m => m.IsRepresentative),
+                provenance.RepresentativeCount);
+            Assert.Equal(provenance.MessageCount - provenance.RepresentativeCount, provenance.DefinedCount);
+        }
+
+        // And the per-stream counts add up to the number the whole catalogue is pinned at, which
+        // is what stops a stream being dropped from the table without anybody noticing.
+        Assert.Equal(
+            SecsCatalog.Messages.Count,
+            SecsCatalog.Streams.Sum(s => s.Provenance.MessageCount));
+
+        Assert.Equal(405, SecsCatalog.Streams.Sum(s => s.Provenance.RepresentativeCount));
+    }
+
+    [Fact]
+    public void Nine_streams_have_no_definitions_at_all_and_two_of_them_are_implemented_here()
+    {
+        var bare = SecsCatalog.Streams
+            .Where(s => s.Provenance.IsEntirelyRepresentative)
+            .Select(s => (int)s.Number)
+            .ToArray();
+
+        Assert.Equal([3, 4, 15, 16, 17, 18, 19, 20, 21], bare);
+
+        // The point of the property, and the reason it is not a veto: stream 3 is E87's carrier
+        // actions and stream 16 is E40's process jobs, both implemented in this repository against
+        // data the source documented none of - because both survived a check against something
+        // else. Asserted so that reading IsEntirelyRepresentative as a refusal breaks a test.
+        Assert.Contains(3, bare);
+        Assert.Contains(16, bare);
+    }
+
+    [Fact]
+    public void A_well_covered_stream_resolves_every_item_it_names()
+    {
+        var nine = ProvenanceOf(9);
+
+        Assert.False(nine.IsEntirelyRepresentative);
+        Assert.Equal(7, nine.MessageCount);
+        Assert.Equal(7, nine.DefinedCount);
+        Assert.Empty(nine.UndefinedDataItems);
+
+        // Stream 16 the other way round: no definitions, and yet most of what its bodies name is
+        // in the dictionary, which is the check it passed.
+        var sixteen = ProvenanceOf(16);
+
+        Assert.True(sixteen.IsEntirelyRepresentative);
+        Assert.Equal([ "JOBSTATE", "MTRLID", "PJACK", "PJID", "QPOSN" ], sixteen.UndefinedDataItems);
+    }
+
+    // ----------------------------------------------------------------- stream 17
+
+    /// <summary>
+    /// Stream 17's rows are stream 16's and stream 2's with the nouns swapped.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This matters because the catalogue calls S17F1 a "Control Job Create Request" and SEMI E94
+    /// is the control job standard, so the table reads at a glance like E94's missing message set.
+    /// It is not one. Every function number, direction, reply partner and item list in the
+    /// control job half is stream 16's with <c>PJ</c> rewritten to <c>CJ</c>, and the trace half
+    /// carries stream 2's trace body unchanged.
+    /// </para>
+    /// <para>
+    /// These assertions pin a flaw rather than a feature, which is unusual and deliberate: if a
+    /// refreshed data file ever makes them fail, stream 17 has changed and somebody has to decide
+    /// again whether it can be implemented. Until then this is the test that stops the next
+    /// reader - this repository's own author included - from writing a codec for it.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(11)]
+    [InlineData(12)]
+    public void Stream_17s_control_job_rows_are_stream_16s_with_the_nouns_swapped(byte function)
+    {
+        Assert.True(SecsCatalog.TryGetMessage(16, function, out var job));
+        Assert.True(SecsCatalog.TryGetMessage(17, function, out var control));
+
+        Assert.Equal(job!.Name.Replace("Process Job", "Control Job", StringComparison.Ordinal), control!.Name);
+        Assert.Equal(job.Direction, control.Direction);
+        Assert.Equal(job.IsPrimary, control.IsPrimary);
+        Assert.Equal(job.ReplyFunction, control.ReplyFunction);
+
+        // The item lists too, under the same substitution - PJID to CJID, PJACK to CJACK and
+        // JOBSTATE to CJSTATE. S16F1 and S16F6 are the two whose bodies are not a pure rename,
+        // and they are the two where a real E94 message would have shown its own subject.
+        if (function is not (1 or 6))
+        {
+            Assert.Equal(
+                job.DataItems.Select(Swap),
+                control.DataItems);
+        }
+
+        static string Swap(string item) => item switch
+        {
+            "PJID" => "CJID",
+            "PJACK" => "CJACK",
+            "JOBSTATE" => "CJSTATE",
+            _ => item,
+        };
+    }
+
+    [Fact]
+    public void Stream_17s_trace_request_carries_stream_2s_trace_body_unchanged()
+    {
+        Assert.True(SecsCatalog.TryGetMessage(2, 23, out var initialize));
+        Assert.True(SecsCatalog.TryGetMessage(17, 9, out var request));
+
+        Assert.Equal(initialize!.DataItems, request!.DataItems);
+        Assert.Equal(initialize.Direction, request.Direction);
+    }
+
+    [Fact]
+    public void Nothing_in_stream_17_carries_what_E94_is_about()
+    {
+        Assert.True(SecsCatalog.TryGetMessage(17, 1, out var create));
+
+        // E94 creates a control job from its material - a carrier input specification - and this
+        // creates one from a process job identifier, which is backwards: process jobs are made
+        // from a control job's material, not the other way round. ControlJobManager.Create takes
+        // carriers, a process order and a processing specification, and none of those is here.
+        Assert.Equal(["CJID", "PJID"], create!.DataItems);
+
+        var bodies = SecsCatalog.Streams
+            .First(s => s.Number == 17)
+            .Messages
+            .SelectMany(m => m.DataItems)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.DoesNotContain("CARRIERID", bodies);
+        Assert.DoesNotContain("CARRIERSPEC", bodies);
+        Assert.DoesNotContain("CTLJOBID", bodies);
+        Assert.DoesNotContain("CTLJOBCMD", bodies);
+    }
+
+    [Fact]
+    public void The_only_two_control_job_items_the_dictionary_defines_are_named_by_no_message()
+    {
+        // The finding that settles it. The item table knows what a control job's identifier and
+        // command are called, with CTLJOBCMD carrying E94's six command values - and the message
+        // table never uses either, while its stream 17 rows use CJID, which is defined nowhere.
+        // Two halves of one reference disagreeing about one standard's own item names is what an
+        // extrapolation looks like from the outside.
+        Assert.True(SecsCatalog.TryGetDataItem("CTLJOBID", out _));
+        Assert.True(SecsCatalog.TryGetDataItem("CTLJOBCMD", out var command));
+        Assert.Equal("Start the control job", command!.MeaningOf("START"));
+
+        Assert.DoesNotContain(
+            SecsCatalog.Messages.SelectMany(m => m.DataItems),
+            item => item.StartsWith("CTLJOB", StringComparison.Ordinal));
+
+        Assert.False(SecsCatalog.TryGetDataItem("CJID", out _));
+        Assert.False(SecsCatalog.TryGetDataItem("CJACK", out _));
+        Assert.False(SecsCatalog.TryGetDataItem("CJSTATE", out _));
+    }
+
+    [Fact]
+    public void Stream_17_is_the_one_stream_this_repository_will_not_implement()
+    {
+        var seventeen = ProvenanceOf(17);
+
+        Assert.True(seventeen.IsEntirelyRepresentative);
+        Assert.Equal(14, seventeen.MessageCount);
+        Assert.Equal(0, seventeen.DefinedCount);
+
+        // Its key items resolve against nothing, which is the difference from stream 16: there is
+        // no format to encode CJID as and no code table to read CJACK against, so a codec for
+        // these would be this library inventing a wire and calling it E94.
+        Assert.Equal(["CJACK", "CJID", "CJSTATE", "DCID", "PJID"], seventeen.UndefinedDataItems);
+
+        // And nothing here answers it, which is the claim the rest of this group explains.
+        Assert.DoesNotContain(GemEquipment.HandledMessages, m => m.Stream == 17);
+    }
 }
