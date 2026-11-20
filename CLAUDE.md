@@ -7,7 +7,7 @@ signature is a breaking change in somebody's fab.
 ## Repository map
 
 ```
-src/          twenty-two shipping packages, one folder each (+ README.md, API-REFERENCE.md)
+src/          twenty-three shipping packages, one folder each (+ README.md, API-REFERENCE.md)
 src/Shared/   compile-linked source, not a package: the serialization hub registration
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
@@ -20,6 +20,12 @@ assets/       SML/JSON conformance fixtures
 
 ```
 Core  <-  Hsms  <-  Gem
+            ^----  DataSets   (E5 stream 13, and nothing else: the only stream here whose every
+                               primary is the host's, so the host end declares no message at all.
+                               Its payload item DSDATA is defined nowhere, which is why a data set
+                               is carried as the encoded item rather than as a chosen format - and
+                               why S13F9/F10, the blocked send, stays out: all seven of the
+                               catalogue's block-transfer items are undefined.)
             ^----  WaferMap, Material, Objects   (E5 streams 12 and 3, and E39's two - stream 14
                                                  plus the OBJSPEC half of stream 2, S2F49-S2F64;
                                                  all three deliberately not on Gem, so the

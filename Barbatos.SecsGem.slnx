@@ -15,6 +15,7 @@
     <Project Path="src/Barbatos.SecsGem.Serialization.Json/Barbatos.SecsGem.Serialization.Json.csproj" />
     <Project Path="src/Barbatos.SecsGem.Serialization.Sml/Barbatos.SecsGem.Serialization.Sml.csproj" />
     <Project Path="src/Barbatos.SecsGem.WaferMap/Barbatos.SecsGem.WaferMap.csproj" />
+    <Project Path="src/Barbatos.SecsGem.DataSets/Barbatos.SecsGem.DataSets.csproj" />
     <Project Path="src/Barbatos.SecsGem.Material/Barbatos.SecsGem.Material.csproj" />
     <Project Path="src/Barbatos.SecsGem.Objects/Barbatos.SecsGem.Objects.csproj" />
     <Project Path="src/Barbatos.SecsGem.Carriers/Barbatos.SecsGem.Carriers.csproj" />
@@ -41,6 +42,7 @@
     <Project Path="tests/Barbatos.SecsGem.Hsms.UnitTests/Barbatos.SecsGem.Hsms.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.Serialization.UnitTests/Barbatos.SecsGem.Serialization.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.WaferMap.UnitTests/Barbatos.SecsGem.WaferMap.UnitTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.DataSets.UnitTests/Barbatos.SecsGem.DataSets.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.Material.UnitTests/Barbatos.SecsGem.Material.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.Objects.UnitTests/Barbatos.SecsGem.Objects.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.Carriers.UnitTests/Barbatos.SecsGem.Carriers.UnitTests.csproj" />

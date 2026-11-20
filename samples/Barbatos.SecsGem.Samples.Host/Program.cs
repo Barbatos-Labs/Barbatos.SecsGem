@@ -11,6 +11,7 @@ using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Productivity;
 using Barbatos.SecsGem.Catalog;
+using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
@@ -406,6 +407,16 @@ internal static class Program
             hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingSendingEnd!.HandleAsync(transaction, token));
         }
 
+        // Stream 13 goes entirely the other way, so every route is on the equipment's side and the
+        // host's router gets nothing at all - which is the one claim in this sample that is made by
+        // the absence of code.
+        DataSetEquipment? pendingDataSets = null;
+
+        foreach (var (stream, function) in DataSetEquipment.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingDataSets!.HandleAsync(transaction, token));
+        }
+
         // And two of stream 16, which is the only thing any of E87, E90, E94 or E40 gives a host
         // to answer: a process job changed state, and here is the whole queue.
         ProcessJobHost? pendingProcessHost = null;
@@ -446,6 +457,25 @@ internal static class Program
         receivingEnd.AnswerOffer = (portId, _) => portId == 1
             ? MaterialSendAcknowledgement.WillAccept
             : MaterialSendAcknowledgement.PortOccupied;
+
+        // The machine has one data set to be fetched, and no way to say so: stream 13 has no
+        // primary that announces one, which is why the host below asks instead. The contents are
+        // a SecsItem of the machine's own choosing, because DSDATA is the one item in this stream
+        // the dictionary never defines.
+        var dataSetStore = new DataSetInMemoryStore();
+
+        using (var chamberLog = SecsItem.L(
+            SecsItem.A("chamber-log"),
+            SecsItem.U4(1, 2, 3, 4),
+            SecsItem.A("23.9 degC, 4.1 mTorr")))
+        {
+            dataSetStore.Add(41, DataSetPayload.From(chamberLog), length: 64);
+        }
+
+        // Neither end of stream 13 is disposable either, and the equipment end takes no connection
+        // at all - it has no primary to send.
+        var dataSetEquipment = new DataSetEquipment(dataSetStore);
+        var dataSetHost = new DataSetHost(hostLink);
 
         // The machine as objects: a chamber with two attributes and a load port with one. The
         // types and the attribute names are this machine's own - E5 does not define object types,
@@ -645,6 +675,7 @@ internal static class Program
         pendingMaterial = materialEquipment;
         pendingMaterialHost = materialHost;
         pendingSendingEnd = sendingEnd;
+        pendingDataSets = dataSetEquipment;
         pendingReceivingEnd = receivingEnd;
         pendingObjects = equipmentObjects;
         pendingEnhanced = new EnhancedServicesEquipment(chamberData);
@@ -685,6 +716,7 @@ internal static class Program
                 materialHost,
                 sendingEnd,
                 receivingEnd,
+                dataSetHost,
                 hostObjects,
                 enhancedHost,
                 new MaterialDemo(
@@ -790,6 +822,11 @@ internal static class Program
             // another process - but it can answer it.
             .AddWaferMapHost()
 
+            // And data set transfer, which declares nothing at all: every primary in stream 13 is
+            // this end's, so there is no route to add and AddDataSetHost adds none. The runner
+            // below drives the whole stream from here.
+            .AddDataSetHost()
+
             // And the four things a machine says about its material without being asked. The five
             // questions in the other direction are this end sending, which needs nothing declared.
             .AddMaterialHost()
@@ -821,6 +858,11 @@ internal static class Program
                 materialHost: null,
                 sendingEnd: null,
                 receivingEnd: null,
+
+                // Over a socket this is the one capability the host can drive on its own, because
+                // stream 13 gives the equipment nothing to start: the equipment sample seeds a
+                // data set and waits to be asked.
+                dataSets: provider.GetRequiredService<DataSetHost>(),
                 objects: provider.GetRequiredService<ObjectServices>(),
 
                 // Over a socket the equipment is the other sample, which does not serve E39's
@@ -880,6 +922,7 @@ internal static class Program
         MaterialHost? materialHost,
         MaterialHandoff? sendingEnd,
         MaterialHandoff? receivingEnd,
+        DataSetHost? dataSets,
         ObjectServices? objects,
         EnhancedServicesHost? enhanced,
         MaterialDemo? flow,
@@ -1325,6 +1368,71 @@ internal static class Program
 
             Console.WriteLine($"   S4F5  -> {heard}");
             ok &= heard?.MaterialId == StartedLot;
+        }
+
+        if (dataSets is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and fetches a data set off the machine, which is stream 13 --");
+            Console.WriteLine();
+
+            // Every primary in stream 13 is this end's, so a host finds out what is there by
+            // asking. There is no "a new data set exists" message to wait for.
+            var directory = await dataSets.ListAsync(cancellationToken);
+
+            Console.WriteLine($"   S13F11 -> {directory.Count} data set(s): {string.Join(", ", directory)}");
+            ok &= directory.Contains(41u);
+
+            // The status first, because GRANT6 has no code for "no such data set": a refused open
+            // cannot tell "I have not got it" from "I will not give it to you", and this reply can.
+            var status = await dataSets.StatusAsync(41, cancellationToken);
+
+            Console.WriteLine($"   S13F15 -> {status}");
+            ok &= status.Exists;
+
+            var opening = await dataSets.OpenAsync(41, DataSetOpenMode.Request, cancellationToken: cancellationToken);
+
+            Console.WriteLine($"   S13F5  -> GRANT6={opening.Grant}, LENGTH={opening.Length}");
+            ok &= opening.IsGranted;
+
+            var fetched = await dataSets.GetAsync(41, cancellationToken);
+
+            using (var contents = fetched?.Decode())
+            {
+                // Whatever the machine decided a data set is. This library chose no format for it,
+                // so the host is the first thing in the chain that has to have an opinion.
+                Console.WriteLine($"   S13F7  -> {fetched}, first item {contents?.Items[0].GetString()}");
+                ok &= contents?.Format == SecsFormat.List;
+            }
+
+            Console.WriteLine($"   S13F13 -> ACKC13={await dataSets.CloseAsync(41, cancellationToken)}");
+
+            // And one going the other way, which is the same seven transactions in the other
+            // order. The length is declared in the open rather than sent with the data.
+            using var recipeData = SecsItem.L(
+                SecsItem.A("recipe-7"),
+                SecsItem.B(0x01, 0x02, 0x03));
+
+            var room = await dataSets.OpenAsync(42, DataSetOpenMode.Send, length: 32, cancellationToken);
+
+            Console.WriteLine($"   S13F1  -> GRANT6={room.Grant}");
+
+            if (room.IsGranted)
+            {
+                var sent = await dataSets.SendAsync(42, recipeData, cancellationToken);
+
+                Console.WriteLine($"   S13F3  -> ACKC13={sent}");
+                ok &= sent == DataSetAcknowledgement.Accepted;
+
+                await dataSets.CloseAsync(42, cancellationToken);
+            }
+
+            // A data set the machine has never heard of, which is the honest answer this stream
+            // can give and the reason to ask the status rather than the open.
+            var missing = await dataSets.StatusAsync(999, cancellationToken);
+
+            Console.WriteLine($"   S13F15 -> {missing}");
+            ok &= !missing.Exists;
         }
 
         if (objects is not null)

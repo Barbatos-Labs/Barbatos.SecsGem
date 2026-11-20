@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.DataSets</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.DataSets</RootNamespace>
+    <PackageTags>secs;e5;stream13;dataset;transfer;upload;download</PackageTags>
+    <Description>Data set transfer (SECS-II stream 13) for .NET, both ends: open for send or for read, send, get, close, the directory and the status request, with both code tables as enums rather than bytes. A host drives every transaction and the equipment answers out of an IDataSetStore. The one item stream 13 needs and the dictionary never defines is the payload itself, so a data set travels as the encoded item that carried it rather than as a format this library chose. Depends on Barbatos.SecsGem.Hsms, not on GEM: stream 13 is not part of SEMI E30.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referenced directly: the DI extension and the logging both ends take are used here, and a
+         transitive reference through Hsms is not a promise this project should rely on. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+</Project>

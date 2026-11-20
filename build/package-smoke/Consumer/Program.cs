@@ -21,6 +21,7 @@ using Barbatos.SecsGem.Serialization;
 using Barbatos.SecsGem.Substrates;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.Objects;
+using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -87,6 +88,7 @@ internal static class Program
         await Run("gem + hsms: the container resolves the equipment", GemResolvesAsync).ConfigureAwait(false);
         await Run("gem: the host side resolves on a builder of its own", GemHostResolvesAsync).ConfigureAwait(false);
         await Run("wafermap: stream 12 resolves at both ends without the gem package", WaferMapResolvesAsync).ConfigureAwait(false);
+        await Run("datasets: stream 13 resolves at both ends, and the host declares nothing", DataSetsResolveAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
@@ -543,6 +545,104 @@ internal static class Program
         Assert(filtered is not null, "the store lost the map it had just accepted");
         Assert(filtered!.Points.Count == 2, $"the null bin was not filtered out: {filtered.Points.Count} point(s) came back");
         Assert(filtered.Points[1].Position.X == 2, $"the split run lost its coordinate: X came back as {filtered.Points[1].Position.X}");
+    }
+
+    /// <summary>
+    /// The data set package, whose host end declares no message at all.
+    /// </summary>
+    /// <remarks>
+    /// Two claims only a restore from the real <c>.nupkg</c> can check. One is the dependency:
+    /// stream 13 is no part of E30, so a consumer that never references Gem has to be able to move
+    /// data sets. The other is the registration - <c>AddDataSetHost</c> adds a type and no route,
+    /// which is unique in this repository and exactly the sort of thing a packaging mistake would
+    /// turn into a silent S9F5.
+    /// </remarks>
+    private static async Task DataSetsResolveAsync()
+    {
+        var equipmentServices = new ServiceCollection();
+
+        equipmentServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddDataSetEquipment();
+
+        await using var equipmentProvider = equipmentServices.BuildServiceProvider();
+
+        _ = equipmentProvider.GetRequiredService<DataSetEquipment>();
+
+        var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            DataSetEquipment.HandledMessages.Count == 7,
+            $"the equipment declares {DataSetEquipment.HandledMessages.Count} message(s), not seven");
+
+        foreach (var (stream, function) in DataSetEquipment.HandledMessages)
+        {
+            Assert(
+                equipmentRouter.TryGetHandler(stream, function, out _),
+                $"the router has no handler for S{stream}F{function}, so AddDataSetEquipment did not declare it");
+        }
+
+        Assert(
+            !equipmentRouter.TryGetHandler(13, 9, out _),
+            "the equipment declared S13F9, the blocked send this package deliberately leaves out");
+
+        var hostServices = new ServiceCollection();
+
+        hostServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddDataSetHost();
+
+        await using var hostProvider = hostServices.BuildServiceProvider();
+
+        _ = hostProvider.GetRequiredService<DataSetHost>();
+
+        var hostRouter = hostProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(DataSetHost.HandledMessages.Count == 0, "the host declares a message, and stream 13 gives it none");
+
+        for (byte function = 1; function <= 16; function++)
+        {
+            Assert(
+                !hostRouter.TryGetHandler(13, function, out _),
+                $"the router has a handler for S13F{function} at a host, so AddDataSetHost declared one");
+        }
+
+        // And the payload, which is the package's whole answer to an item the dictionary never
+        // defines: encoded on the way in, and the same bytes on the way out.
+        using var contents = SecsItem.L(
+            SecsItem.A("recipe-7"),
+            SecsItem.U4(1, 2, 3));
+
+        var expected = contents.ToByteArray();
+        var payload = DataSetPayload.From(contents);
+
+        var store = equipmentProvider.GetRequiredService<IDataSetStore>();
+
+        var opening = await store.OpenAsync(
+            new DataSetOpenRequest { DataSetId = 41, Mode = DataSetOpenMode.Send, Length = (uint)expected.Length },
+            CancellationToken.None).ConfigureAwait(false);
+
+        Assert(opening.IsGranted, $"the in-memory store refused an open with {opening.Grant}");
+
+        Assert(
+            await store.SaveAsync(
+                new DataSetContent { DataSetId = 41, DataId = 1, Data = payload },
+                CancellationToken.None).ConfigureAwait(false) == DataSetAcknowledgement.Accepted,
+            "the store refused a data set it had just granted room for");
+
+        var status = await store.StatusAsync(41, CancellationToken.None).ConfigureAwait(false);
+
+        Assert(status.Exists, "the store lost the data set it had just accepted");
+        Assert(status.Length == (uint)expected.Length, $"the store reported a length of {status.Length}");
+
+        using var again = payload.Decode();
+
+        Assert(again is not null, "the payload decoded to nothing");
+        Assert(
+            again!.ToByteArray().AsSpan().SequenceEqual(expected),
+            "the data set did not survive the round trip through its encoded form");
     }
 
     /// <summary>

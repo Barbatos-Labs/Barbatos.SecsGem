@@ -20,6 +20,7 @@
     <!-- Not quite the whole of it: wafer mapping is E5 stream 12 rather than E30, so it is its own
          package and depends on Hsms rather than on the GEM layer above. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.WaferMap\Barbatos.SecsGem.WaferMap.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.DataSets\Barbatos.SecsGem.DataSets.csproj" />
     <!-- And object services, stream 14: this machine answers it, so it has a provider. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Objects\Barbatos.SecsGem.Objects.csproj" />
     <!-- And material status, stream 3: also E5, also its own package, also on Hsms. -->

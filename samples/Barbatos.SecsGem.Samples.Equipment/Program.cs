@@ -4,6 +4,7 @@
 // All Rights Reserved.
 
 using Barbatos.SecsGem;
+using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
@@ -250,6 +251,11 @@ internal static class Program
             // finishes.
             .AddWaferMapEquipment()
 
+            // Data set transfer, E5 stream 13: the one stream where this end answers everything
+            // and starts nothing. There is no message for "I have a new data set", so the runner
+            // below puts one in the store and the host finds it by asking.
+            .AddDataSetEquipment()
+
             // And material status, the other stream a machine answers that GEM does not cover:
             // five questions about what it is holding, and four reports of its own. The runner
             // below loads the lot into the inventory while it processes and reports it moving out.
@@ -332,6 +338,7 @@ internal sealed class ChamberRunner(
     WaferMapEquipment mapping,
     MaterialEquipment material,
     IMaterialSource inventory,
+    IDataSetStore dataSets,
     IObjectProvider objects,
     Chamber chamber,
     ILogger<ChamberRunner> logger) : BackgroundService
@@ -345,6 +352,20 @@ internal sealed class ChamberRunner(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var alarmRaised = false;
+
+        // A data set this machine has, for the host to find with S13F11 and fetch with S13F7.
+        // Stream 13 has no primary that announces one, so this is the only way it can exist: put
+        // it in the store and wait to be asked. The contents are a SecsItem of this machine's own
+        // choosing, because DSDATA has no defined format for anybody to agree on.
+        if (dataSets is DataSetInMemoryStore store)
+        {
+            using var log = SecsItem.L(
+                SecsItem.A("chamber-log"),
+                SecsItem.U4(1, 2, 3, 4),
+                SecsItem.A("23.9 degC, 4.1 mTorr"));
+
+            store.Add(41, DataSetPayload.From(log), length: 64);
+        }
 
         // The machine as objects, for stream 14: a chamber with two attributes. The type and the
         // names are this machine's own - E5 does not define object types, which is why no library
