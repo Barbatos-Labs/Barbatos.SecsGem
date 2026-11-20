@@ -1463,6 +1463,19 @@ internal static class Program
             Console.WriteLine($"   S3F17  -> again: CAACK={again.Acknowledgement} ({again.ErrorText})");
             ok &= again.Acknowledgement == CarrierAcknowledgement.CannotPerformNow;
 
+            // S3F20 carries CARRIERSTATUS, the third undefined item and the one with the least to
+            // go on: a carrier has three state machines and all three are called "carrier
+            // something status", so the item's name settles nothing. The default is the access
+            // status, because it is the only one of the three whose every state names itself -
+            // WaitingForHost belongs to the identifier and to the slot map both - and because
+            // stream 3 is Material Status. A fab with its own word sets StatusOf.
+            var carrierStatus = await flow.Host.ReadCarrierStatusAsync(CarrierName, cancellationToken);
+
+            Console.WriteLine(
+                $"   S3F19  -> {carrierStatus}, read as "
+                + $"{carrierStatus?.AccessStatus?.ToString() ?? "a word this library did not write"}");
+            ok &= carrierStatus?.AccessStatus == CarrierAccessStatus.InAccess && carrierStatus.PortId == 1;
+
             Console.WriteLine($"   S3F23  -> {CarrierName} is at location {await flow.Host.FindCarrierAsync(CarrierName, cancellationToken)}");
             Console.WriteLine($"   S3F25  -> port 1 holds {await flow.Host.ReadCarrierIdAsync(1, cancellationToken) ?? "nothing it will name"}");
 
@@ -1531,6 +1544,13 @@ internal static class Program
 
             Console.WriteLine($"   S3F23  -> {ShelvedCarrier} is at location {shelved}");
             ok &= shelved == ShelfLocation;
+
+            // And S3F19 for the one on the shelf: no PTN at all, because port 0 is a port and a
+            // box in storage is not on one. Where it is came from S3F23 above, which has a LOC.
+            var shelvedStatus = await flow.Host.ReadCarrierStatusAsync(ShelvedCarrier, cancellationToken);
+
+            Console.WriteLine($"   S3F19  -> {shelvedStatus}");
+            ok &= shelvedStatus is { PortId: null };
 
             // And a carrier is in one place: the box on port 1 cannot also be put on a shelf.
             machine.SetStorageTransferState(SecondShelf, PortTransferState.ReadyToLoad);

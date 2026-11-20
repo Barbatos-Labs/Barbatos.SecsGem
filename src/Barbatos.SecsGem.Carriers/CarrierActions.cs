@@ -144,6 +144,46 @@ public sealed class CarrierActionRequest
     public string Argument { get; init; } = string.Empty;
 }
 
+/// <summary>What a carrier is doing and where - S3F20.</summary>
+/// <remarks>
+/// Two readings of one item again, for the item with the least to go on.
+/// <see cref="Status"/> is the text that arrived, kept whatever it says, and
+/// <see cref="AccessStatus"/> is a reading only where a reading is possible - see
+/// <see cref="CarrierEquipment.StatusOf"/> for why that is the access status and not one of the
+/// other two.
+/// </remarks>
+public sealed class CarrierStatus
+{
+    /// <summary>Which carrier - <c>CARRIERID</c>.</summary>
+    public required string CarrierId { get; init; }
+
+    /// <summary>What <c>CARRIERSTATUS</c> carried, as it arrived.</summary>
+    public required string Status { get; init; }
+
+    /// <summary>The port it is on, or <see langword="null"/> when it is on none - <c>PTN</c>.</summary>
+    /// <remarks>
+    /// A real answer rather than a missing one. A carrier the host has only announced has not
+    /// arrived anywhere, and one in storage is somewhere <c>PTN</c> cannot describe - that one is
+    /// a <c>LOC</c>, which S3F24 answers with.
+    /// </remarks>
+    public byte? PortId { get; init; }
+
+    /// <summary>This library's reading of the status, or <see langword="null"/> when none is possible.</summary>
+    /// <remarks>
+    /// <see cref="CarrierAccessStatus"/> and nothing else, because it is the only one of a
+    /// carrier's three state machines whose every state names itself: <c>WaitingForHost</c>
+    /// belongs to both of the other two, so a host hearing it could not tell whether the label or
+    /// the slot map was waiting. A word this library did not write - another vendor's, or either
+    /// verification state - comes back here as <see langword="null"/> with the text intact.
+    /// </remarks>
+    public CarrierAccessStatus? AccessStatus { get; init; }
+
+    /// <summary>Returns the carrier, its status and where it is.</summary>
+    /// <returns>For example <c>CAR-001 InAccess (port 1)</c>.</returns>
+    public override string ToString()
+        => PortId is { } port ? $"{CarrierId} {Status} (port {port})" : $"{CarrierId} {Status} (no port)";
+}
+
 /// <summary>One storage location, as S3F32 reports it.</summary>
 /// <remarks>
 /// <see cref="CarrierPortStatus"/>'s twin, for a place addressed by <c>LOC</c> rather than by

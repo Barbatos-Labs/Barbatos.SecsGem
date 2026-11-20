@@ -366,6 +366,7 @@ public class CarrierPairTests
         pair.LoadVerifiedCarrier();
 
         await pair.Host.PerformAsync(new CarrierActionRequest { Action = CarrierActions.ProceedWithCarrier, CarrierId = "CAR-001" }, CarrierPair.Token);
+        await pair.Host.ReadCarrierStatusAsync("CAR-001", CarrierPair.Token);
         await pair.Host.ReadPortStatusAsync(1, CarrierPair.Token);
         await pair.Host.FindCarrierAsync("CAR-001", CarrierPair.Token);
         await pair.Host.ReadCarrierIdAsync(1, CarrierPair.Token);

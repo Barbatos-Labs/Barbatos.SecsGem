@@ -1343,7 +1343,11 @@ public sealed class CarrierManager
             return CarrierActionResult.Refused(CarrierAcknowledgement.InvalidData, $"{CarrierActions.ChangeAccess} needs a port.");
         }
 
-        if (!Enum.TryParse<PortAccessMode>(request.Argument, ignoreCase: true, out var mode))
+        // By name only, and the refusal above says which names. A number would be read against
+        // this library's own enum, and the catalogue's ACCESSMODE numbers it the other way round -
+        // 0 is automatic there and Manual here - so a host sending the dictionary's number would
+        // have got the opposite mode out of a reader that meant to be generous. See CarrierWords.
+        if (CarrierWords.ReadName<PortAccessMode>(request.Argument, ignoreCase: true) is not { } mode)
         {
             return CarrierActionResult.Refused(
                 CarrierAcknowledgement.InvalidData,

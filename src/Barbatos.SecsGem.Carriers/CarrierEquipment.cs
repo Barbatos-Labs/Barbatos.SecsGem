@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Barbatos.SecsGem.Carriers;
 
 /// <summary>
-/// The equipment side of carrier management: the eight requests a host sends, answered out of the
+/// The equipment side of carrier management: the nine requests a host sends, answered out of the
 /// state machines.
 /// </summary>
 /// <remarks>
@@ -23,7 +23,7 @@ namespace Barbatos.SecsGem.Carriers;
 /// <para>
 /// E87's carrier and port attributes do not come through here. They are object attributes on
 /// stream 14, and <see cref="CarrierObjectProvider"/> answers those - which is also where the
-/// slot map lives. A machine doing E87 properly declares both: these eight, and object services.
+/// slot map lives. A machine doing E87 properly declares both: these nine, and object services.
 /// </para>
 /// </remarks>
 public sealed class CarrierEquipment
@@ -43,16 +43,16 @@ public sealed class CarrierEquipment
 
     /// <summary>Every primary this end answers.</summary>
     /// <remarks>
-    /// Eight of E87's nine. S3F19 is the one missing: <c>CARRIERSTATUS</c> is a single item where
-    /// a carrier has three state machines and nothing in E87 crowns one of them, so a value here
-    /// would be this library choosing for a fab. The other two undefined items -
-    /// <c>PORTSTATUS</c> on S3F22 and S3F32, <c>SLOTMAP</c> on S3F28 - are carried, because this
-    /// package already serves those same values as stream 14 attributes and so had a reading to
-    /// check against. <see cref="CarrierObjectProvider"/> serves all of them by name as well.
+    /// All nine of E87's half of stream 3. Three of them carry an item the catalogue defines
+    /// nowhere - <c>CARRIERSTATUS</c>, <c>PORTSTATUS</c>, <c>SLOTMAP</c> - and none of the three
+    /// is guessed at: two are values this package already serves as stream 14 attributes, and the
+    /// third is <see cref="StatusOf"/>, where the choice is argued and replaceable.
+    /// <see cref="CarrierObjectProvider"/> serves every one of these states by name as well.
     /// </remarks>
     public static IReadOnlyList<(byte Stream, byte Function)> HandledMessages { get; } =
     [
         (3, 17),   // Carrier Action Request
+        (3, 19),   // Carrier Status Request
         (3, 21),   // Storage Port Status Request
         (3, 23),   // Carrier Location Request
         (3, 25),   // Carrier ID Read Request
@@ -88,6 +88,40 @@ public sealed class CarrierEquipment
     /// </remarks>
     public Func<Carrier, uint> LocationOf { get; set; }
         = carrier => carrier.StorageLocation ?? carrier.PortId ?? 0u;
+
+    /// <summary>Gets or sets what <c>CARRIERSTATUS</c> says about a carrier, for S3F20.</summary>
+    /// <remarks>
+    /// <para>
+    /// The weakest ground of the three undefined items in this stream, and the only one this
+    /// package hands back to the application - <see cref="LocationOf"/>'s sibling, and for the same
+    /// reason: E87 does not make the choice, so a fixed answer would be this library choosing for
+    /// a fab. <strong>A carrier has three state machines and all three are called "carrier
+    /// something status"</strong> - <see cref="CarrierIdStatus"/>,
+    /// <see cref="CarrierSlotMapStatus"/>, <see cref="CarrierAccessStatus"/> - so unlike
+    /// <c>PORTSTATUS</c>, where E87 does say which of a port's four states is the operative one,
+    /// the item's own name settles nothing.
+    /// </para>
+    /// <para>
+    /// <strong>The default is the access status, on two grounds that can be checked rather than
+    /// argued.</strong> The first is that it is the only one of the three a single word can
+    /// carry: eleven of the twelve state names across those enums are unique to one of them, and
+    /// the twelfth is <see cref="CarrierIdStatus.WaitingForHost"/>, which is also
+    /// <see cref="CarrierSlotMapStatus.WaitingForHost"/>. A host told <c>WaitingForHost</c> cannot
+    /// tell whether the label or the slot map is waiting, so the two verification states cannot
+    /// honestly travel as one item at all - while every access state names itself. The second is
+    /// subject matter: stream 3 is <em>Material Status</em>, and of a carrier's three states the
+    /// access status is the one about the material rather than about what this machine has managed
+    /// to read. E87 itself treats the other two as a joint precondition, which is why
+    /// <see cref="Carrier.IsVerified"/> exists.
+    /// </para>
+    /// <para>
+    /// So S3F20 says how far through the boxes the machine has got, and does not say whether a
+    /// carrier is verified. A host that needs that asks stream 14 for <c>IDStatus</c> and
+    /// <c>SlotMapStatus</c> by name, where they cannot be confused with one another - which is
+    /// why E87 put them there.
+    /// </para>
+    /// </remarks>
+    public Func<Carrier, string> StatusOf { get; set; } = carrier => carrier.AccessStatus.ToString();
 
     /// <summary>Answers one of the primaries in <see cref="HandledMessages"/>.</summary>
     /// <param name="transaction">The transaction.</param>
@@ -152,6 +186,21 @@ public sealed class CarrierEquipment
                 }
 
                 return Reply(18, "CarrierActionAcknowledge", CarrierCodec.ActionResultBody(result));
+            }
+
+            case 19:
+            {
+                var carrierId = CarrierCodec.TryReadText(transaction.Message.Item);
+                var carrier = carrierId is null ? null : _manager.FindCarrier(carrierId);
+
+                // S3F20 has no acknowledgement code either, so a carrier this machine does not
+                // have is the zero-length list - the same answer S3F24 and S3F28 give.
+                return Reply(
+                    20,
+                    "CarrierStatusData",
+                    carrier is null
+                        ? SecsItem.L()
+                        : CarrierCodec.CarrierStatusBody(carrier.CarrierId, carrier.PortId, StatusOf(carrier)));
             }
 
             case 21:

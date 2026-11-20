@@ -8,22 +8,23 @@ using System.Globalization;
 namespace Barbatos.SecsGem.Carriers;
 
 /// <summary>
-/// The eight stream 3 transactions E87 drives, written and read in one place.
+/// All nine of the stream 3 transactions E87 drives, written and read in one place.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>Why eight and not nine.</strong> Stream 3's carrier half is S3F17 to S3F34, nine
-/// request-and-reply pairs. Three of them need an item the catalogue has no entry for -
-/// <c>CARRIERSTATUS</c> on S3F20, <c>PORTSTATUS</c> on S3F22 and S3F32, <c>SLOTMAP</c> on S3F28 -
-/// and two of those three are carried anyway, because this package already serves the same values
-/// as stream 14 attributes and so had a reading to check against rather than one to invent. The
-/// one left out is S3F19/F20: <c>CARRIERSTATUS</c> is a single item where a carrier has three
-/// state machines, and nothing in E87 crowns one of them. <see cref="CarrierObjectProvider"/>
-/// serves all three by name instead.
+/// <strong>Nine of nine, and three of them need an item the catalogue has no entry for</strong> -
+/// <c>CARRIERSTATUS</c> on S3F20, <c>PORTSTATUS</c> on S3F22 and S3F32, <c>SLOTMAP</c> on S3F28.
+/// None of the three is guessed at. S3F22 and S3F28 carry values this package already serves as
+/// stream 14 attributes, so there was a reading to check against; S3F32 carries the same
+/// <c>PORTSTATUS</c> item name S3F22 does; and S3F20's reading is argued in
+/// <see cref="CarrierEquipment.StatusOf"/>, which is also the hook for a fab that has agreed a
+/// different one. <see cref="CarrierObjectProvider"/> serves every one of these states by name as
+/// well, which is where a host goes when one item is not enough.
 /// </para>
 /// <code>
 /// S3F17  L,3 { CARRIERACTION, CARRIERID, PTN }   the one that matters: every action, carrier and port
 /// S3F18  L,3 { CAACK, ERRCODE, ERRTEXT }         accepted, or refused with the state that refused it
+/// S3F19  CARRIERID            -&gt; S3F20  L,3 { CARRIERID, PTN, CARRIERSTATUS }
 /// S3F21  PTN                  -&gt; S3F22  L,3 { PTN, PORTSTATUS, CARRIERID }
 /// S3F23  CARRIERID            -&gt; S3F24  L,2 { CARRIERID, LOC }
 /// S3F25  PTN                  -&gt; S3F26  L,2 { ACKC3, CARRIERID }
@@ -188,6 +189,75 @@ internal static class CarrierCodec
 
         carrierId = Text(body.Items[0]);
         location = UInt32(body.Items[1]);
+
+        return true;
+    }
+
+    /// <summary>S3F20 - Carrier Status Data.</summary>
+    /// <param name="carrierId">Which carrier.</param>
+    /// <param name="portId">The port it is on, or <see langword="null"/> when it is on none.</param>
+    /// <param name="status">What <c>CARRIERSTATUS</c> carries - see <see cref="CarrierEquipment.StatusOf"/>.</param>
+    /// <returns>The body.</returns>
+    /// <remarks>
+    /// <para>
+    /// The third undefined item, and the one with the weakest ground of the three - which is why
+    /// what goes in it is a property of <see cref="CarrierEquipment"/> rather than a decision
+    /// taken here. What this writer settles is only the shape: three items in the order the
+    /// catalogue lists them, the status as an <c>A</c> item because that is how every carrier state
+    /// already leaves this package, over stream 14.
+    /// </para>
+    /// <para>
+    /// <strong>An absent port is zero-length, not zero.</strong> The same rule S3F17 keeps, and it
+    /// matters more here: a carrier can be on no port at all and still have a status - one the host
+    /// has only announced, or one sitting in storage, which <c>PTN</c> cannot describe. Port 0 is a
+    /// port, so saying "no port" with a 0 would put a box on hardware.
+    /// </para>
+    /// </remarks>
+    internal static SecsItem CarrierStatusBody(string carrierId, byte? portId, string status)
+        => SecsItem.L(
+            SecsItem.A(carrierId).Named("CARRIERID"),
+            (portId is { } port ? SecsItem.U1(port) : SecsItem.U1()).Named("PTN"),
+            SecsItem.A(status).Named("CARRIERSTATUS"));
+
+    /// <summary>Reads S3F20. A zero-length list means the machine does not have that carrier.</summary>
+    /// <param name="body">What came back.</param>
+    /// <param name="carrierId">Which carrier it is about.</param>
+    /// <param name="portId">The port it is on, or <see langword="null"/>.</param>
+    /// <param name="status">What <c>CARRIERSTATUS</c> carried, as text, whatever it was.</param>
+    /// <returns><see langword="true"/> when the body was one this reader understands.</returns>
+    /// <remarks>
+    /// The text comes back as it arrived, and the reading of it is the caller's: of a carrier's
+    /// three state machines only one has a vocabulary a single word can carry, and
+    /// <see cref="CarrierStatus.AccessStatus"/> says which and why.
+    /// </remarks>
+    internal static bool TryReadCarrierStatus(
+        SecsItem? body,
+        out string carrierId,
+        out byte? portId,
+        out string status)
+    {
+        carrierId = string.Empty;
+        portId = null;
+        status = string.Empty;
+
+        if (body is null || !body.IsList)
+        {
+            return false;
+        }
+
+        if (body.Count == 0)
+        {
+            return true;
+        }
+
+        if (body.Count < 3)
+        {
+            return false;
+        }
+
+        carrierId = Text(body.Items[0]);
+        portId = Byte(body.Items[1]);
+        status = Text(body.Items[2]);
 
         return true;
     }
@@ -394,7 +464,7 @@ internal static class CarrierCodec
             {
                 Location = UInt32(entry[0]) ?? 0,
                 Status = status,
-                TransferState = Enum.TryParse<PortTransferState>(status, out var parsed) ? parsed : null,
+                TransferState = CarrierWords.ReadName<PortTransferState>(status),
                 CarrierId = Text(entry[2]),
             });
         }

@@ -8,9 +8,9 @@ using Barbatos.SecsGem.Objects;
 namespace Barbatos.SecsGem.Carriers.UnitTests;
 
 /// <summary>
-/// Two of the three transactions whose one item the catalogue does not define: S3F21/F22 and
-/// S3F27/F28. The third, S3F31/F32, is in <see cref="CarrierStorageTests"/>, because it needed a
-/// model behind it before it needed a body.
+/// The transactions whose one item the catalogue does not define: S3F19/F20, S3F21/F22 and
+/// S3F27/F28. S3F31/F32 carries the fourth and is in <see cref="CarrierStorageTests"/>, because it
+/// needed a model behind it before it needed a body.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -281,18 +281,300 @@ public class CarrierStatusPairTests
         Assert.Contains(((byte)3, (byte)27), pair.Asked);
     }
 
+    /// <summary>The measurement the S3F20 reading rests on, and the reason it is the access status.</summary>
+    /// <remarks>
+    /// <c>CARRIERSTATUS</c> is one item and a carrier has three state machines, all three of them
+    /// called "carrier something status", so the item's name settles nothing. What settles it is
+    /// the vocabulary: a state can only travel as a single word if that word says which machine it
+    /// came from, and exactly one of the twelve names fails that - the one state that exists to
+    /// ask the host a question. So the two verification states cannot honestly be one item at all,
+    /// and the access status can. A rename that broke this would break the argument, which is why
+    /// it is a test rather than a sentence.
+    /// </remarks>
+    [Fact]
+    public void The_access_status_is_the_only_one_of_the_three_a_single_word_can_carry()
+    {
+        var identifiers = Enum.GetNames<CarrierIdStatus>();
+        var slotMaps = Enum.GetNames<CarrierSlotMapStatus>();
+        var accesses = Enum.GetNames<CarrierAccessStatus>();
+
+        string[] all = [.. identifiers, .. slotMaps, .. accesses];
+        string[] shared = [.. all
+            .GroupBy(name => name, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .Order(StringComparer.Ordinal)];
+        string[] expected = [nameof(CarrierIdStatus.WaitingForHost)];
+
+        Assert.Equal(12, all.Length);
+        Assert.Equal(expected, shared);
+
+        // Every access state names itself; WaitingForHost names two machines at once.
+        Assert.DoesNotContain(accesses, name => shared.Contains(name, StringComparer.Ordinal));
+        Assert.Contains(nameof(CarrierIdStatus.WaitingForHost), identifiers);
+        Assert.Contains(nameof(CarrierSlotMapStatus.WaitingForHost), slotMaps);
+    }
+
+    [Fact]
+    public async Task A_carrier_reports_how_far_through_it_the_machine_has_got()
+    {
+        await using var pair = CarrierPair.Start();
+        await pair.OpenAsync();
+
+        pair.LoadVerifiedCarrier();
+
+        Assert.True(pair.Manager.BeginAccess("CAR-001").IsAccepted);
+
+        var status = await pair.Host.ReadCarrierStatusAsync("CAR-001", CarrierPair.Token);
+
+        Assert.NotNull(status);
+        Assert.Equal("CAR-001", status!.CarrierId);
+        Assert.Equal(CarrierAccessStatus.InAccess, status.AccessStatus);
+        Assert.Equal(nameof(CarrierAccessStatus.InAccess), status.Status);
+        Assert.Equal((byte)1, status.PortId);
+        Assert.Equal("CAR-001 InAccess (port 1)", status.ToString());
+    }
+
+    /// <summary>Nought is a port, so a carrier on none says so with a zero-length item.</summary>
+    /// <remarks>
+    /// The rule S3F17 already keeps for an action that names no port, and it matters more here: a
+    /// carrier the host has only announced has not arrived anywhere, and answering port 0 would
+    /// put it on hardware.
+    /// </remarks>
+    [Fact]
+    public async Task A_carrier_on_no_port_says_so_rather_than_naming_port_nought()
+    {
+        await using var pair = CarrierPair.Start();
+        await pair.OpenAsync();
+
+        // CarrierNotification: a carrier the host says is coming, which is at no port at all.
+        Assert.True(await pair.Host.NotifyCarrierAsync("CAR-404", CarrierPair.Token) is { IsAccepted: true });
+
+        var status = await pair.Host.ReadCarrierStatusAsync("CAR-404", CarrierPair.Token);
+
+        Assert.NotNull(status);
+        Assert.Null(status!.PortId);
+        Assert.Equal(CarrierAccessStatus.NotAccessed, status.AccessStatus);
+        Assert.Equal("CAR-404 NotAccessed (no port)", status.ToString());
+    }
+
+    /// <summary>A carrier in storage has no port, and the transaction that locates it is S3F23.</summary>
+    [Fact]
+    public async Task A_carrier_in_storage_has_no_port_and_its_shelf_comes_from_S3F23()
+    {
+        await using var pair = CarrierPair.Start(configure: manager =>
+        {
+            manager.AddStorageLocation(101);
+
+            Assert.True(manager.SetStorageServiceStatus(101, inService: true).IsAccepted);
+            Assert.True(manager.SetStorageTransferState(101, PortTransferState.ReadyToLoad).IsAccepted);
+            Assert.True(manager.StoreCarrier(101, "CAR-009").IsAccepted);
+        });
+
+        await pair.OpenAsync();
+
+        var status = await pair.Host.ReadCarrierStatusAsync("CAR-009", CarrierPair.Token);
+
+        Assert.NotNull(status);
+        Assert.Null(status!.PortId);
+        Assert.Equal(101u, await pair.Host.FindCarrierAsync("CAR-009", CarrierPair.Token));
+    }
+
+    [Fact]
+    public async Task A_carrier_the_machine_does_not_have_has_no_status()
+    {
+        await using var pair = CarrierPair.Start();
+        await pair.OpenAsync();
+
+        Assert.Null(await pair.Host.ReadCarrierStatusAsync("CAR-404", CarrierPair.Token));
+    }
+
+    /// <summary>The same agreement S3F22 and S3F28 have to keep, for the third undefined item.</summary>
+    [Fact]
+    public async Task S3F20_and_the_stream_14_attribute_agree_on_the_access_status()
+    {
+        await using var pair = CarrierPair.Start();
+        await pair.OpenAsync();
+
+        pair.LoadVerifiedCarrier();
+
+        Assert.True(pair.Manager.BeginAccess("CAR-001").IsAccepted);
+        Assert.True(pair.Manager.EndAccess("CAR-001", stopped: true).IsAccepted);
+
+        var overStream3 = await pair.Host.ReadCarrierStatusAsync("CAR-001", CarrierPair.Token);
+        var attribute = string.Empty;
+
+        await pair.HostObjects.GetAttributesAsync(
+            "CAR-001",
+            CarrierObjectProvider.CarrierType,
+            ["AccessStatus"],
+            values => attribute = values.Attributes[0].Value.GetString(),
+            CarrierPair.Token);
+
+        Assert.Equal(nameof(CarrierAccessStatus.CarrierStopped), attribute);
+        Assert.Equal(attribute, overStream3?.Status);
+    }
+
+    /// <summary>A verification state comes back as text, because one word cannot say which it is.</summary>
+    /// <remarks>
+    /// This is what the vocabulary measurement means on the wire. A machine whose integrator set
+    /// <c>StatusOf</c> to the identifier state sends <c>WaitingForHost</c>, which is also a slot
+    /// map state, so there is nothing for a host to read: the text survives and the reading is
+    /// absent rather than wrong.
+    /// </remarks>
+    [Fact]
+    public async Task A_verification_state_arrives_as_text_and_not_as_a_state()
+    {
+        await using var pair = CarrierPair.Start();
+
+        pair.Equipment.StatusOf = carrier => carrier.IdStatus.ToString();
+
+        await pair.OpenAsync();
+
+        Assert.True(pair.Manager.SetTransferState(1, PortTransferState.ReadyToLoad).IsAccepted);
+        Assert.True(pair.Manager.PlaceCarrier(1, "CAR-001").IsAccepted);
+        Assert.True(pair.Manager.ReadCarrierId("CAR-001", verified: null).IsAccepted);
+
+        var status = await pair.Host.ReadCarrierStatusAsync("CAR-001", CarrierPair.Token);
+
+        Assert.NotNull(status);
+        Assert.Equal(nameof(CarrierIdStatus.WaitingForHost), status!.Status);
+        Assert.Null(status.AccessStatus);
+    }
+
+    /// <summary>A number is not a state name, in either of the two items that carry one.</summary>
+    /// <remarks>
+    /// <c>Enum.TryParse</c> accepts the number as well as the name, so a machine sending the text
+    /// <c>"2"</c> used to be read as whichever state happens to be 2 - a second inference, about
+    /// numbering, stacked on top of reading an item the dictionary does not define. The docs here
+    /// have always promised a reading only for E87's own words.
+    /// </remarks>
+    [Fact]
+    public async Task A_number_is_not_a_state_name()
+    {
+        await using var pair = CarrierPair.Start(answer: transaction => transaction.F switch
+        {
+            19 => new SecsMessage(3, 20, replyExpected: false)
+            {
+                Item = SecsItem.L(
+                    SecsItem.A("CAR-001").Named("CARRIERID"),
+                    SecsItem.U1(1).Named("PTN"),
+                    SecsItem.A("2").Named("CARRIERSTATUS")),
+            },
+            _ => new SecsMessage(3, 22, replyExpected: false)
+            {
+                Item = SecsItem.L(
+                    SecsItem.U1(1).Named("PTN"),
+                    SecsItem.A("2").Named("PORTSTATUS"),
+                    SecsItem.A(string.Empty).Named("CARRIERID")),
+            },
+        });
+
+        await pair.OpenAsync();
+
+        var carrier = await pair.Host.ReadCarrierStatusAsync("CAR-001", CarrierPair.Token);
+        var port = await pair.Host.ReadPortStatusAsync(1, CarrierPair.Token);
+
+        Assert.Equal("2", carrier?.Status);
+        Assert.Null(carrier?.AccessStatus);
+        Assert.Equal("2", port?.Status);
+        Assert.Null(port?.TransferState);
+    }
+
+    /// <summary>E87's own words, in E87's own spelling.</summary>
+    /// <remarks>
+    /// The agreement tests here are byte for byte against the stream 14 attribute, so a reader
+    /// that accepted <c>"inaccess"</c> would be claiming an equality that is not on the wire. A
+    /// word a person typed is a different matter - <c>ChangeAccess</c> takes an argument from a
+    /// host and reads it whatever the case - but a state a machine reports is a state or it is
+    /// text.
+    /// </remarks>
+    [Fact]
+    public async Task A_state_name_in_another_spelling_is_not_read()
+    {
+        await using var pair = CarrierPair.Start(answer: _ => new SecsMessage(3, 20, replyExpected: false)
+        {
+            Item = SecsItem.L(
+                SecsItem.A("CAR-001").Named("CARRIERID"),
+                SecsItem.U1(1).Named("PTN"),
+                SecsItem.A("inaccess").Named("CARRIERSTATUS")),
+        });
+
+        await pair.OpenAsync();
+
+        var status = await pair.Host.ReadCarrierStatusAsync("CAR-001", CarrierPair.Token);
+
+        Assert.Equal("inaccess", status?.Status);
+        Assert.Null(status?.AccessStatus);
+    }
+
+    [Fact]
+    public async Task A_status_word_from_another_vendor_arrives_as_text_for_a_carrier_too()
+    {
+        await using var pair = CarrierPair.Start(answer: _ => new SecsMessage(3, 20, replyExpected: false)
+        {
+            Item = SecsItem.L(
+                SecsItem.A("CAR-001").Named("CARRIERID"),
+                SecsItem.U1().Named("PTN"),
+                SecsItem.A("AT_METROLOGY").Named("CARRIERSTATUS")),
+        });
+
+        await pair.OpenAsync();
+
+        var status = await pair.Host.ReadCarrierStatusAsync("CAR-001", CarrierPair.Token);
+
+        Assert.NotNull(status);
+        Assert.Equal("AT_METROLOGY", status!.Status);
+        Assert.Null(status.AccessStatus);
+        Assert.Null(status.PortId);
+    }
+
+    [Fact]
+    public async Task The_status_a_machine_sends_is_whatever_its_hook_returns()
+    {
+        await using var pair = CarrierPair.Start();
+
+        // What a fab that has agreed its own vocabulary does, which is why this is a hook and not
+        // a fixed answer: E87 does not say which of a carrier's three states this item carries.
+        pair.Equipment.StatusOf = carrier => carrier.IsVerified ? "READY" : "NOT_READY";
+
+        await pair.OpenAsync();
+
+        pair.LoadVerifiedCarrier();
+
+        var status = await pair.Host.ReadCarrierStatusAsync("CAR-001", CarrierPair.Token);
+
+        Assert.Equal("READY", status?.Status);
+        Assert.Null(status?.AccessStatus);
+    }
+
+    [Fact]
+    public async Task A_reply_that_is_not_carrier_status_data_is_an_exception()
+    {
+        await using var pair = CarrierPair.Start(answer: _ => new SecsMessage(3, 20, replyExpected: false)
+        {
+            Item = SecsItem.A("sorry"),
+        });
+
+        await pair.OpenAsync();
+
+        var thrown = await Assert.ThrowsAsync<SecsException>(
+            async () => await pair.Host.ReadCarrierStatusAsync("CAR-001", CarrierPair.Token));
+
+        Assert.Equal("S3F20 did not carry carrier status data.", thrown.Message);
+    }
+
     [Fact]
     public void Every_stream_3_function_this_equipment_declares_is_a_request_it_answers()
     {
-        // The one pair this package still does not implement is S3F19/F20, and the Carriers README
-        // says why. This is the assertion that keeps the two lists honest: a function declared and
-        // not handled would answer a timeout rather than S9F5.
+        // All nine of E87's half of stream 3, which this is the assertion that keeps honest: a
+        // function declared and not handled would answer a timeout rather than S9F5.
         var declared = CarrierEquipment.HandledMessages
             .Where(message => message.Stream == 3)
             .Select(message => message.Function)
             .Order()
             .ToArray();
 
-        Assert.Equal(new byte[] { 17, 21, 23, 25, 27, 29, 31, 33 }, declared);
+        Assert.Equal(new byte[] { 17, 19, 21, 23, 25, 27, 29, 31, 33 }, declared);
     }
 }

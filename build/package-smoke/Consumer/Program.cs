@@ -713,16 +713,23 @@ internal static class Program
 
         await using var provider = services.BuildServiceProvider();
 
-        _ = provider.GetRequiredService<CarrierEquipment>();
+        var equipment = provider.GetRequiredService<CarrierEquipment>();
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
-        // The three added in the chapters that read E87's remaining stream 3: declared out of the
+        // The four added in the chapters that read E87's remaining stream 3: declared out of the
         // packed assembly, which is the only place a declaration list that did not travel shows
         // up as a message nobody answers.
         Assert(
-            router.TryGetHandler(3, 21, out _) && router.TryGetHandler(3, 27, out _) && router.TryGetHandler(3, 31, out _),
-            "S3F21, S3F27 or S3F31 has no handler, so the equipment will answer S9F5 for a request it implements");
+            router.TryGetHandler(3, 19, out _)
+                && router.TryGetHandler(3, 21, out _)
+                && router.TryGetHandler(3, 27, out _)
+                && router.TryGetHandler(3, 31, out _),
+            "S3F19, S3F21, S3F27 or S3F31 has no handler, so the equipment will answer S9F5 for a request it implements");
+
+        Assert(
+            CarrierEquipment.HandledMessages.Count == 9,
+            $"the packed equipment declares {CarrierEquipment.HandledMessages.Count} primaries, not all nine of E87's stream 3");
 
         Assert(
             router.TryGetHandler(3, 17, out _) && router.TryGetHandler(3, 33, out _),
@@ -762,6 +769,12 @@ internal static class Program
         Assert(carrier is not null, "the carrier went missing");
         Assert(carrier!.AccessStatus == CarrierAccessStatus.InAccess, $"the carrier is {carrier.AccessStatus}");
         Assert(carrier.SubstrateCount == 2, $"the slot map counted {carrier.SubstrateCount} substrates, not two");
+
+        // And what S3F20 would say about it, out of the packed assembly: the default reading of
+        // CARRIERSTATUS is the access status by name, which is also what stream 14 serves.
+        Assert(
+            equipment.StatusOf(carrier) == nameof(CarrierAccessStatus.InAccess),
+            $"CARRIERSTATUS would have said '{equipment.StatusOf(carrier)}'");
 
         // And the storage locations, which are places rather than ports. Checked through the
         // packaged assembly because a carrier in one answers S3F24 with the shelf, and that

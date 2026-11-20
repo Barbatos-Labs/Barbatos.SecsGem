@@ -490,6 +490,40 @@ public class CarrierManagerTests
         Assert.Equal(PortAccessMode.Auto, manager.FindPort(1)?.AccessMode);
     }
 
+    /// <summary>A number is not a name, and here it would have been the wrong name.</summary>
+    /// <remarks>
+    /// <c>Enum.TryParse</c> accepts the number as well as the name, so <c>"1"</c> used to set
+    /// <see cref="PortAccessMode.Auto"/> - and the catalogue's own <c>ACCESSMODE</c> numbers it the
+    /// other way round, 0 for automatic, where this library has
+    /// <see cref="PortAccessMode.Manual"/> at 0. A host sending the dictionary's number for manual
+    /// would have been put into automatic, silently, by a reader meaning to be generous. Names
+    /// only, which is also what the refusal has always said.
+    /// </remarks>
+    [Fact]
+    public void A_number_is_not_an_access_mode()
+    {
+        var manager = WithPort();
+
+        var refusal = manager.Perform(new CarrierActionRequest
+        {
+            Action = CarrierActions.ChangeAccess,
+            PortId = 1,
+            Argument = "1",
+        });
+
+        Assert.Equal(CarrierAcknowledgement.InvalidData, refusal.Acknowledgement);
+        Assert.Equal("'1' is not an access mode; it is Manual or Auto.", refusal.ErrorText);
+        Assert.Equal(PortAccessMode.Manual, manager.FindPort(1)?.AccessMode);
+
+        // A person's spelling still works: the case may differ, the word may not.
+        Assert.True(manager.Perform(new CarrierActionRequest
+        {
+            Action = CarrierActions.ChangeAccess,
+            PortId = 1,
+            Argument = "AUTO",
+        }).IsAccepted);
+    }
+
     [Fact]
     public void An_access_mode_that_is_not_one_of_the_two_is_invalid_data()
     {

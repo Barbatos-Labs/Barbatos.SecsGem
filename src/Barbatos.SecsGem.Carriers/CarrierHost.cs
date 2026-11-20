@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Barbatos.SecsGem.Carriers;
 
 /// <summary>
-/// The host side of carrier management: the eight requests, and a method per action worth naming.
+/// The host side of carrier management: the nine requests, and a method per action worth naming.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -184,6 +184,61 @@ public sealed class CarrierHost
         return location;
     }
 
+    /// <summary>Asks what a carrier is doing and where - S3F19, answered by S3F20.</summary>
+    /// <param name="carrierId">Which carrier.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The status, or <see langword="null"/> when the machine does not have that carrier.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="carrierId"/> is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply was not carrier status data.</exception>
+    /// <remarks>
+    /// <para>
+    /// <c>CARRIERSTATUS</c> has no dictionary entry and a carrier has three state machines, so
+    /// <see cref="CarrierStatus.Status"/> hands back the text that arrived and
+    /// <see cref="CarrierStatus.AccessStatus"/> is a reading only where one is possible. This
+    /// library writes the access status - <see cref="CarrierEquipment.StatusOf"/> argues why - and
+    /// a word from either of the other two comes back unread, including <c>WaitingForHost</c>,
+    /// which belongs to both of them and so names neither.
+    /// </para>
+    /// <para>
+    /// <see cref="CarrierStatus.PortId"/> is <see langword="null"/> for a carrier on no port, which
+    /// is a real answer rather than a missing one: a carrier the host has only announced has not
+    /// arrived, and one in storage is somewhere <c>PTN</c> cannot describe.
+    /// <see cref="FindCarrierAsync"/> is the one that answers with a <c>LOC</c>.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<CarrierStatus?> ReadCarrierStatusAsync(
+        string carrierId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(carrierId);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(3, 19, replyExpected: true)
+            {
+                Name = "CarrierStatusRequest",
+                Item = CarrierCodec.CarrierIdBody(carrierId),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!CarrierCodec.TryReadCarrierStatus(reply.Item, out var reported, out var portId, out var status))
+        {
+            throw new SecsException("S3F20 did not carry carrier status data.");
+        }
+
+        if (reported.Length == 0 && status.Length == 0 && portId is null)
+        {
+            return null;
+        }
+
+        return new CarrierStatus
+        {
+            CarrierId = reported,
+            PortId = portId,
+            Status = status,
+            AccessStatus = CarrierWords.ReadName<CarrierAccessStatus>(status),
+        };
+    }
+
     /// <summary>Asks what a port is doing and what is on it - S3F21, answered by S3F22.</summary>
     /// <param name="portId">Which port.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
@@ -222,7 +277,7 @@ public sealed class CarrierHost
         {
             PortId = reported,
             Status = status,
-            TransferState = Enum.TryParse<PortTransferState>(status, out var parsed) ? parsed : null,
+            TransferState = CarrierWords.ReadName<PortTransferState>(status),
             CarrierId = carrierId,
         };
     }

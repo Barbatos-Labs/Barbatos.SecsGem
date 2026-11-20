@@ -18,6 +18,7 @@ provenance warning live in [`README.md`](README.md); this page is member-by-memb
 - [The two ends](#the-two-ends)
   - [`CarrierEquipment`](#carrierequipment)
   - [`CarrierHost`](#carrierhost)
+- [`CarrierStatus`](#carrierstatus)
 - [`CarrierPortStatus`](#carrierportstatus)
 - [`CarrierStorageStatus`](#carrierstoragestatus)
 - [`CarrierObjectProvider`](#carrierobjectprovider)
@@ -149,8 +150,9 @@ say why.
 | Member | Signature | Notes |
 | --- | --- | --- |
 | constructor | `CarrierEquipment(CarrierManager manager, ILogger<CarrierEquipment>? logger = null)` | |
-| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)>` | S3F17, F21, F23, F25, F27, F31, F33 - eight of E87's nine, S3F19 being the one left out. |
+| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)>` | S3F17, F19, F21, F23, F25, F27, F29, F31, F33 - all nine of E87's half of stream 3. |
 | `LocationOf` | `Func<Carrier, uint> { get; set; }` | What S3F24 reports. Defaults to the storage location a carrier is in, then the port it is at, then zero. A machine whose shelves and ports share numbers replaces it - S3F24 has room for one number and nothing in E87 keeps the two apart. |
+| `StatusOf` | `Func<Carrier, string> { get; set; }` | What `CARRIERSTATUS` says in S3F20. Defaults to `AccessStatus`, which is the only one of a carrier's three states a single word can carry - the [README](README.md#s3f20-and-the-one-word-that-names-two-state-machines) gives both grounds. A fab with its own vocabulary replaces it. |
 | `HandleAsync` | `ValueTask HandleAsync(SecsTransaction, CancellationToken = default)` | |
 
 A body it cannot read is `InvalidData` on S3F18, `Denied` on S3F26/F30/F34, and a zero-length list
@@ -170,6 +172,7 @@ on S3F24 - which carries a carrier and a location and has no code to refuse with
 | `NotifyCarrierAsync` | `ValueTask<CarrierActionResult> NotifyCarrierAsync(string carrierId, CancellationToken = default)` | S3F17 |
 | `BindCarrierAsync` | `ValueTask<CarrierActionResult> BindCarrierAsync(string carrierId, byte portId, CancellationToken = default)` | S3F17 |
 | `ReserveAtPortAsync` | `ValueTask<CarrierActionResult> ReserveAtPortAsync(string carrierId, byte portId, CancellationToken = default)` | S3F17; says why when refused |
+| `ReadCarrierStatusAsync` | `ValueTask<CarrierStatus?> ReadCarrierStatusAsync(string carrierId, CancellationToken = default)` | S3F19; `null` means no such carrier |
 | `ReadPortStatusAsync` | `ValueTask<CarrierPortStatus?> ReadPortStatusAsync(byte portId, CancellationToken = default)` | S3F21; `null` means no such port |
 | `FindCarrierAsync` | `ValueTask<uint?> FindCarrierAsync(string carrierId, CancellationToken = default)` | S3F23; `null` means no such carrier |
 | `ReadCarrierIdAsync` | `ValueTask<string?> ReadCarrierIdAsync(byte portId, CancellationToken = default)` | S3F25; `null` means nothing there, or the label is not read |
@@ -179,6 +182,20 @@ on S3F24 - which carries a carrier and a location and has no code to refuse with
 | `CarrierOutAsync` | `ValueTask<CarrierRequestAcknowledgement> CarrierOutAsync(string carrierId, CancellationToken = default)` | S3F33 |
 
 A reply with no acknowledgement code throws `SecsException`, never `Accepted`.
+
+## `CarrierStatus`
+
+`sealed class`. What a carrier is doing and where - S3F20. The undefined item with the least to go
+on, which is why what fills it is `CarrierEquipment.StatusOf` rather than a decision this type
+makes.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `CarrierId` | `required string { get; init; }` | `CARRIERID`. |
+| `Status` | `required string { get; init; }` | What `CARRIERSTATUS` carried, as it arrived. |
+| `PortId` | `byte? { get; init; }` | `PTN`, and `null` for a carrier on no port - a real answer, not a missing one. Port 0 is a port, so an absent one travels as a zero-length item. |
+| `AccessStatus` | `CarrierAccessStatus? { get; init; }` | The reading, where one is possible. Only this enum: `WaitingForHost` belongs to both of the other two state machines, so a word from either comes back unread. |
+| `ToString()` | `override string` | `CAR-001 InAccess (port 1)`, or `CAR-001 NotAccessed (no port)`. |
 
 ## `CarrierPortStatus`
 
@@ -207,7 +224,7 @@ for a load port would route material into the machine instead of out of it.
 | `ToString()` | `override string` | `location 101 ReadyToUnload (CAR-001)`. |
 
 `PORTSTATUS` has no dictionary entry, so the text is kept and the reading is offered rather than
-forced. The [README](README.md#three-transactions-whose-item-nobody-defined) explains why this
+forced. The [README](README.md#the-transactions-whose-item-nobody-defined) explains why this
 library reads the transfer state out of a port's four state machines, and on what grounds it reads
 anything at all.
 
@@ -243,7 +260,7 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBui
 
 | Method | What it adds |
 | --- | --- |
-| `AddCarrierEquipment(Action<CarrierManager>? configure = null)` | `CarrierManager` (ports and storage locations declared in `configure`), `CarrierEquipment`, `CarrierObjectProvider` as an `IObjectProvider`, and handlers for the eight carrier primaries **and** the eleven of object services. |
+| `AddCarrierEquipment(Action<CarrierManager>? configure = null)` | `CarrierManager` (ports and storage locations declared in `configure`), `CarrierEquipment`, `CarrierObjectProvider` as an `IObjectProvider`, and handlers for the nine carrier primaries **and** the eleven of object services. |
 | `AddCarrierHost()` | `CarrierHost`, plus `AddObjectServices` so a host can read carrier attributes. Declares nothing. |
 
 The provider **composes**: an application with objects beyond carriers and ports registers its own

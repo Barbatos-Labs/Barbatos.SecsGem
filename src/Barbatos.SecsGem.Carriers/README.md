@@ -37,8 +37,9 @@ What *is* checkable, and was checked:
 | `CARRIERACTION` | an `A` item: free text, which is why the action names here are strings and not an enum |
 | `CARRIERID`, `PTN`, `ERRCODE`, `ERRTEXT`, `LOC` | all defined |
 | S3F17/F18, F23/F24, F25/F26, F29/F30, F33/F34 | every item defined; all five implemented |
-| S3F21/F22, F27/F28, F31/F32 | need `PORTSTATUS` and `SLOTMAP`, which have **no definition at all** - implemented anyway, and [the next section](#three-transactions-whose-item-nobody-defined) says on what grounds |
-| S3F19/F20 | the one pair not implemented: see [what is not here yet](#what-is-not-here-yet) |
+| S3F19/F20, F21/F22, F27/F28, F31/F32 | need `CARRIERSTATUS`, `PORTSTATUS` or `SLOTMAP`, which have **no definition at all** - implemented anyway, and [the next section](#the-transactions-whose-item-nobody-defined) gives the grounds, which differ for each |
+
+**All nine of E87's half of stream 3 are here.** S3F17 to S3F34, both ends.
 
 Stream 3 is one of the nine streams the catalogue has **no definitions for at all** -
 `SecsCatalog.TryGetStream(3, out var s)` then `s.Provenance` says so. That is not a veto, and the
@@ -46,12 +47,33 @@ Stream 3 is one of the nine streams the catalogue has **no definitions for at al
 check the stream against the item dictionary and against its standard's own subject matter. This
 one passes both, which is why E87 ships and stream 17 does not.
 
-## Three transactions whose item nobody defined
+## The transactions whose item nobody defined
 
-S3F22 and S3F32 carry `PORTSTATUS` and S3F28 carries `SLOTMAP`, and neither name appears anywhere
-in the catalogue's item dictionary. They are implemented regardless, and the reading is not a guess:
-**this same package already serves both values as stream 14 attributes**, so there was a reading to
-check against rather than one to invent.
+Four of the nine carry an item with no entry in the catalogue's dictionary: `CARRIERSTATUS` on
+S3F20, `PORTSTATUS` on S3F22 and S3F32, `SLOTMAP` on S3F28. All four are implemented and **none of
+the four is a guess** - but the grounds are not the same, they get weaker down the list, and each
+is written down where the code is:
+
+| | |
+| --- | --- |
+| S3F28 `SLOTMAP` | nothing to choose: a `B` item of one byte a slot is what `Carrier.SlotMap` holds and what stream 14 already serves |
+| S3F22 `PORTSTATUS` | the transfer state, which E87 calls the one a material handler looks at - and the value stream 14 already serves, so there was a reading to check against |
+| S3F32 `PORTSTATUS` | no stream 14 attribute to check against; the ground is the item name it shares with S3F22, three functions earlier |
+| S3F20 `CARRIERSTATUS` | the item's name settles nothing, so the choice is `CarrierEquipment.StatusOf` - argued below, defaulted, and replaceable |
+
+**A number is not a state name.** All of these travel as the state's own name in an `A` item, and
+reading one back has to be the exact inverse. `Enum.TryParse` is not: it also accepts the number,
+so the text `"2"` used to come back as whichever state happens to be 2. That is a second
+inference - about numbering - stacked on reading an item nobody defined, and the one numeric
+vocabulary here that the catalogue *does* define disagrees with this library's: `ACCESSMODE` has 0
+for automatic where `PortAccessMode.Manual` is 0. A host sending the dictionary's number for manual
+would have been put into automatic. Names only, in E87's own spelling, everywhere a state is read.
+
+### S3F22, S3F28 and S3F32, which had something to check against
+
+The two readings that are barely inferences at all: **this same package already serves both values
+as stream 14 attributes**, so there was an existing answer to agree with rather than a format to
+invent.
 
 ```csharp
 var status = await host.ReadPortStatusAsync(1);
@@ -91,6 +113,48 @@ package does not claim an E87 object type for one. What it has instead is the it
 half of the same stream. A test asserts that a port and a shelf in the same state report the same
 word, so a host never needs two vocabularies for one machine. See
 [storage locations](#storage-locations).
+
+### S3F20, and the one word that names two state machines
+
+`CARRIERSTATUS` is one item, and a carrier has three state machines - and all three of them are
+called *carrier something status*: `CarrierIdStatus`, `CarrierSlotMapStatus`,
+`CarrierAccessStatus`. Unlike `PORTSTATUS`, where E87 does say which of a port's four states is
+the operative one, the item's own name settles nothing. That is why this one is a hook:
+
+```csharp
+equipment.StatusOf = carrier => carrier.IsVerified ? "READY" : "NOT_READY";   // a fab's own word
+```
+
+**The default is the access status, on two grounds that can be checked rather than argued.**
+
+The first is the vocabulary. A state can travel as a single word only if the word says which
+machine it came from, and across those three enums eleven of the twelve names do - the twelfth is
+`WaitingForHost`, which belongs to the identifier *and* to the slot map. A host told
+`WaitingForHost` cannot tell whether the label or the map is waiting, so **the two verification
+states cannot honestly be one item at all**, while every access state names itself. There is a
+test for exactly that, because a rename would break the argument.
+
+The second is subject matter: stream 3 is *Material Status*, and of a carrier's three states the
+access status is the one about the material rather than about what this machine has managed to
+read. E87 treats the other two as a joint precondition, which is why `Carrier.IsVerified` exists.
+
+```csharp
+var status = await host.ReadCarrierStatusAsync("CAR-001");
+
+status.Status;          // "InAccess" - what CARRIERSTATUS carried, as text
+status.AccessStatus;    // CarrierAccessStatus.InAccess, or null for a word this library did not write
+status.PortId;          // 1, or null for a carrier on no port
+```
+
+So **S3F20 says how far through the boxes a machine has got, and does not say whether a carrier is
+verified.** A host that needs that asks stream 14 for `IDStatus` and `SlotMapStatus` by name, where
+they cannot be confused with one another - which is why E87 put them there. A test asserts S3F20
+and the stream 14 `AccessStatus` attribute agree, as the other two undefined items have to.
+
+**`PortId` is `null` rather than 0 for a carrier on no port**, the rule S3F17 already keeps for an
+action naming no port: port 0 is a port. A carrier the host has only announced has not arrived
+anywhere, and one in storage is somewhere `PTN` cannot describe - that one is a `LOC`, which S3F23
+answers with.
 
 ## The seven state machines
 
@@ -190,7 +254,7 @@ services.AddSecsGem(builder.Configuration)
     .RunAsHostedService();
 ```
 
-One call registers both halves of E87: the eight carrier primaries **and** the eleven of object
+One call registers both halves of E87: the nine carrier primaries **and** the eleven of object
 services, because the attributes are stream 14's business. A machine that registered only the
 actions would answer every S3F17 and never give up a slot map.
 
@@ -397,11 +461,6 @@ the same box has no right answer.
 
 ## What is not here yet
 
-- **S3F19/F20, Carrier Status.** `CARRIERSTATUS` is one item, and a carrier here has *three* state
-  machines - identifier, slot map, access. Stream 14 serves all three, separately and by name, and
-  nothing in E87 or in this package's own reading crowns one of them "the" status. S3F22 was
-  implementable because E87 does say which of a port's four states is the operative one; this has
-  no equivalent sentence, so a single value would be this library choosing for a fab.
 - **A stream 14 object type for a storage location.** The attributes here are a carrier's and a
   load port's, which are the two object types E87 gives this package to serve, and a third invented
   here would be attributes nobody can check against anything. So a location is readable through

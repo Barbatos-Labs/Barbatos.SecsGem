@@ -6,6 +6,7 @@
 using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.Hsms;
+using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Substrates;
 using Microsoft.Extensions.DependencyInjection;
@@ -94,12 +95,33 @@ public class MaterialFlowHostingTests
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
-        // E87's five and stream 14's eleven are there because those registrations put them there.
-        // The join itself is behaviour between two state machines, not a transaction, and a
-        // package that invented a message for it would be inventing a standard.
-        Assert.True(router.TryGetHandler(3, 17, out _));
-        Assert.True(router.TryGetHandler(14, 1, out _));
-        Assert.False(router.TryGetHandler(3, 19, out _));
+        // E87's primaries and stream 14's eleven are there because those two registrations put
+        // them there. The join itself is behaviour between two state machines, not a transaction,
+        // and a package that invented a message for it would be inventing a standard.
+        //
+        // Asserted as the whole table, derived from what the two registrations declare, rather
+        // than by naming one message the bridge might have invented. This test used to end with
+        // "and S3F19 is nobody's", which was true until E87's own chapter on S3F19 made it the
+        // equipment's - so a true statement about MaterialFlow started failing for a reason that
+        // had nothing to do with MaterialFlow. A derived set cannot go stale that way.
+        HashSet<(byte Stream, byte Function)> declared =
+        [
+            .. CarrierEquipment.HandledMessages,
+            .. ObjectServices.HandledMessages,
+        ];
+
+        Assert.NotEmpty(declared);
+        Assert.False(router.IsEmpty);
+
+        for (byte stream = 0; stream < 128; stream++)
+        {
+            for (var function = 1; function < 256; function += 2)
+            {
+                Assert.Equal(
+                    declared.Contains((stream, (byte)function)),
+                    router.TryGetHandler(stream, (byte)function, out _));
+            }
+        }
     }
 
     [Fact]

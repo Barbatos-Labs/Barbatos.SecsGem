@@ -13,12 +13,12 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 /// <summary>Adds carrier management - SEMI E87 - to a connection built by <c>AddSecsGem</c>.</summary>
 /// <remarks>
-/// Either end, never both on one builder: the equipment declares eight primaries and the host
+/// Either end, never both on one builder: the equipment declares nine primaries and the host
 /// declares none, and a process answering as both ends of one link is not a thing E87 describes.
 /// </remarks>
 public static class CarrierServiceCollectionExtensions
 {
-    /// <summary>Adds the equipment side: the state machines, the eight requests, and the objects on stream 14.</summary>
+    /// <summary>Adds the equipment side: the state machines, the nine requests, and the objects on stream 14.</summary>
     /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
     /// <param name="configure">Declares the machine's load ports, and anything else to set up before the first message.</param>
     /// <returns>The builder, for chaining.</returns>
@@ -26,7 +26,7 @@ public static class CarrierServiceCollectionExtensions
     /// <para>
     /// Registers <see cref="CarrierManager"/>, <see cref="CarrierEquipment"/>, and
     /// <see cref="CarrierObjectProvider"/> as the <see cref="IObjectProvider"/> that stream 14
-    /// answers out of - then declares both the eight carrier primaries and the eleven of object
+    /// answers out of - then declares both the nine carrier primaries and the eleven of object
     /// services. E87 needs both halves: the actions move the state machines, and the attributes,
     /// the slot map among them, are read over stream 14.
     /// </para>
@@ -66,7 +66,7 @@ public static class CarrierServiceCollectionExtensions
         return builder.AddObjectProvider<CarrierObjectProvider>();
     }
 
-    /// <summary>Adds the host side: the eight requests, and a method per action worth naming.</summary>
+    /// <summary>Adds the host side: the nine requests, and a method per action worth naming.</summary>
     /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
     /// <returns>The builder, for chaining.</returns>
     /// <remarks>
