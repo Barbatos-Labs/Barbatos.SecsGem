@@ -212,3 +212,18 @@ Calling either twice is harmless: the primaries go in through the builder's `Dec
 where that rule lives for every capability in this stack.
 `AddProcessJobEquipment` composes with `AddCarrierEquipment`, `AddSubstrateTracking` and
 `AddControlJobs` - four providers, one stream 14, through `CompositeObjectProvider`.
+
+## Outliving the process
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `ProcessJobManager.Capture` | `ProcessJobManagerSnapshot Capture()` | Jobs and queue together, under the lock. `JobSpace` is deliberately not in it. |
+| `ProcessJobManager.Restore` | `ProcessJobRestoreReport Restore(ProcessJobManagerSnapshot snapshot)` | Into a manager with no jobs. Raises nothing - which matters here, because `JobStateChanged` is wired to an S16F11. |
+
+`ProcessJobManagerSnapshot` holds `Jobs` (`IReadOnlyList<ProcessJobSnapshot>`) and `Queue`.
+`ProcessJobSnapshot` carries every `ProcessJob` property, parameters included.
+`ProcessJobRestoreReport`: `IsAccepted`, `Reason`, `Restored`, `Adjusted`, `Count`.
+
+A snapshot does not raise `JobSpace`: jobs past the limit are reported and skipped, and the queue
+order decides which survive. The table of endings is in the
+[README](README.md#outliving-the-process).

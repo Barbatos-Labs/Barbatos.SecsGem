@@ -301,6 +301,36 @@ machine disagrees. The *order* of the transitions is held by tests alone, and
 [`ProcessJobManager.cs`](ProcessJobManager.cs) is the one file to change when a fab disagrees about
 that.
 
+## Outliving the process
+
+The same rule E94's queue follows, because it is the same question. A job's definition comes back
+whole - recipe, method, material, parameters, order, the event it pauses on - and so does the queue
+order, which E40 lets a host set with S16F21.
+
+| It was | It comes back | Because |
+| --- | --- | --- |
+| `Queued` | `Queued` | it has not started |
+| `SettingUp`, `WaitingForStart` | `ProcessComplete` · `Cancelled` | no material went through |
+| `Processing`, `Pausing`, `Paused`, `Stopping`, `Aborting` | `ProcessComplete` · `Aborted` | some of it did |
+| `ProcessComplete` | itself, with its own completion | history |
+
+### A snapshot does not raise the job space
+
+If more jobs were captured than `JobSpace` now allows - a machine reconfigured downwards between
+runs - the ones past the limit are reported in `Adjusted` and skipped rather than loaded. The limit
+is the machine's statement about itself and a restart is not an argument against it. The **queue
+order decides which ones survive**, so the jobs a host put first are the jobs that are kept.
+
+`JobSpace` itself is deliberately not in the snapshot: how many jobs a machine can hold is its own
+configuration, not something a host set, and a snapshot that carried it could put a restarted
+machine's limit back to whatever it was two upgrades ago.
+
+### Nothing is raised while restoring
+
+Which matters more here than anywhere else in this stack: this package's own sample wires
+`JobStateChanged` to an **S16F11**, so a raised transition would put a report on the wire telling a
+host the machine had just aborted a job it never started.
+
 ## What is not here yet
 
 - **S16F13 and S16F14**, which are absent from the catalogue's table altogether, so there is
@@ -308,8 +338,8 @@ that.
 - **E30 remote commands** as a second way in. A GEM machine may also accept `PP-SELECT`, `START`
   and `STOP` over S2F41; mapping those onto this manager is a few lines in an application that has
   both.
-- **Queue persistence.** The jobs are in memory; a machine that reboots is given its jobs again by
-  its host, which is what E40 expects.
+- Writing the snapshot anywhere. `Capture` hands back a plain object and this package depends on no
+  serializer; where it goes is the application's.
 - **A scheduler.** `BeginSetup` is the machine's decision and this package does not make it: which
   job to take up next, and whether two may process at once, is the equipment's own business.
 

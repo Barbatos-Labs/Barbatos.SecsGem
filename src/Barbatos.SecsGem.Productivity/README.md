@@ -167,6 +167,60 @@ for four tools builds four. That is the opposite of E116's tracker, which holds 
 because E116 is explicitly per module - the two standards sit one level apart: E116 says what a
 chamber was doing this minute, E10 says what the tool was for this shift.
 
+## Outliving the process, and where the hours the tool was off go
+
+```csharp
+var snapshot = productivity.Capture();
+// ... the machine restarts three hours later ...
+var report = productivity.Restore(snapshot);
+
+report.Unaccounted;             // 03:00:00
+report.UnaccountedChargedTo;    // UnscheduledDowntime
+```
+
+Nearly all of this is a ledger, so nearly all of it comes back: the six buckets, the failure and
+repair counts, the units and their theoretical times, and `Since`, because the window is the thing
+being reported on.
+
+**Which leaves the hours the tool was off, and here this package does the opposite of
+[`Barbatos.SecsGem.PerformanceTracking`](../Barbatos.SecsGem.PerformanceTracking/README.md).** E116
+hands that interval back uncharged, because its three states have nowhere honest to put it. E10 has
+six and two of them are exactly this. And it **must** be charged, because every ratio here divides
+by some sum of the buckets - so an hour in none of them is an hour that silently improves whichever
+ratio it would have reduced. The identity holds across a restart:
+
+```csharp
+report.Total == report.NonScheduled + report.UnscheduledDowntime + report.ScheduledDowntime
+              + report.Engineering + report.Standby + report.Productive;    // still true
+```
+
+Which bucket is the caller's to say, because only the fab knows whether a machine that was off was
+broken or simply not wanted. The default is `UnscheduledDowntime` - the reading that cannot flatter:
+
+```csharp
+productivity.Restore(snapshot, EquipmentState.NonScheduled);   // a fab that powers down at night
+```
+
+### An outage is one failure and one repair
+
+A restart charged to unscheduled downtime is one interruption, counted the way the equivalent
+`MoveTo` would count it: a failure when the machine went off, and a repair when somebody brings it
+back - **with the whole outage inside the repair**, because the stretch is dated from the capture
+rather than from the restore. A tool that was *already* down when it was captured has one stretch
+and not two, so no second failure is counted.
+
+That last paragraph is the part this package got wrong first. The stretch used to start at the
+restore, which counted the repair and not the failure - and a tool could end a day with more repairs
+than failures, which E10 can never allow. The test that found it runs a day twice, once through a
+capture and a restore, and compares the two reports figure for figure.
+
+### A restore with no gap is a hand-over
+
+Capture and restore at the same instant - a process handing over to its replacement rather than a
+machine coming back from the dead - and nothing is charged and nothing is counted. The tool comes
+back exactly as it was. Inventing a failure out of a process restarting instantly would put the
+counts and the buckets out of step with each other.
+
 ## What is not here, and why
 
 - **No mapping from E116's three states onto these six**, and this is the one worth reading. It is

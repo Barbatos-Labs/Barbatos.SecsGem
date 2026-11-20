@@ -539,6 +539,148 @@ public sealed class ControlJobManager
         }
     }
 
+    // --------------------------------------------------------- outliving the process
+
+    /// <summary>Writes down everything this manager holds.</summary>
+    /// <returns>A faithful record, including the states a restart will not claim again.</returns>
+    /// <remarks>Taken under the manager's lock, so the jobs and the queue can never disagree.</remarks>
+    public ControlJobManagerSnapshot Capture()
+    {
+        lock (_gate)
+        {
+            return new ControlJobManagerSnapshot
+            {
+                Jobs = [.. _jobs.Values.Select(job => new ControlJobSnapshot
+                {
+                    ControlJobId = job.ControlJobId,
+                    State = job.State,
+                    Completion = job.Completion,
+                    Carriers = [.. job.Carriers],
+                    StartMethod = job.StartMethod,
+                    ProcessOrder = job.ProcessOrder,
+                    ProcessingSpecification = job.ProcessingSpecification,
+                })],
+                Queue = [.. _queue],
+            };
+        }
+    }
+
+    /// <summary>Reads a snapshot back into a manager that has no jobs yet.</summary>
+    /// <param name="snapshot">What <see cref="Capture"/> wrote.</param>
+    /// <returns>What came back, and what a restarted machine was not allowed to claim.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="snapshot"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// A job's definition is a host instruction, so all of it comes back: the carriers it names,
+    /// the start method, the process order, the recipe, and the order of the queue. A machine that
+    /// came back with its lots in a different order would run the wrong one next.
+    /// </para>
+    /// <para>
+    /// <strong>What does not come back is a job in the middle of running.</strong>
+    /// <see cref="ControlJobState.Queued"/> is the one state a restart can honestly keep - the
+    /// job has not started, and it is still wanted. Everything else was in progress when the
+    /// power went, and E94 has exactly one ending with a reason beside it, so that is where those
+    /// go:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>
+    /// <see cref="ControlJobState.Selected"/> and
+    /// <see cref="ControlJobState.WaitingForStart"/> end
+    /// <see cref="ControlJobCompletion.Cancelled"/> - material was being brought in and nothing
+    /// was ever processed, which is exactly what cancelled means in E94.
+    /// </item>
+    /// <item>
+    /// <see cref="ControlJobState.Executing"/> and <see cref="ControlJobState.Paused"/> end
+    /// <see cref="ControlJobCompletion.Aborted"/> - part of the lot went through, and the record
+    /// has to say so.
+    /// </item>
+    /// </list>
+    /// <para>
+    /// Restoring either as it was would have the machine telling a host it is running a lot it is
+    /// not, and putting them back in the queue would be worse: it would lose the fact that some of
+    /// the material has already been through, and a host would reasonably expect a fresh lot. A
+    /// job that has ended comes back as itself, with the completion it recorded, because that is
+    /// history rather than a claim about now.
+    /// </para>
+    /// <para>
+    /// Refused outright for a manager that already has jobs. Nothing is raised while restoring:
+    /// these are not transitions a host should hear about as though the machine had just made
+    /// them, and the endings above in particular are a restart's bookkeeping rather than news.
+    /// </para>
+    /// </remarks>
+    public ControlJobRestoreReport Restore(ControlJobManagerSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        lock (_gate)
+        {
+            if (_jobs.Count > 0)
+            {
+                return ControlJobRestoreReport.Denied(
+                    $"this manager already has {_jobs.Count} control job(s); a snapshot is read into an empty one.");
+            }
+
+            List<string> restored = [];
+            Dictionary<string, string> adjusted = new(StringComparer.Ordinal);
+
+            foreach (var job in snapshot.Jobs)
+            {
+                if (job.ControlJobId.Length == 0)
+                {
+                    continue;
+                }
+
+                var (state, completion) = job.State switch
+                {
+                    ControlJobState.Queued => (ControlJobState.Queued, (ControlJobCompletion?)null),
+                    ControlJobState.Completed => (ControlJobState.Completed, job.Completion),
+                    ControlJobState.Selected or ControlJobState.WaitingForStart
+                        => (ControlJobState.Completed, ControlJobCompletion.Cancelled),
+                    _ => (ControlJobState.Completed, ControlJobCompletion.Aborted),
+                };
+
+                _jobs[job.ControlJobId] = new ControlJob(job.ControlJobId)
+                {
+                    State = state,
+                    Completion = completion,
+                    Carriers = [.. job.Carriers],
+                    StartMethod = job.StartMethod,
+                    ProcessOrder = job.ProcessOrder,
+                    ProcessingSpecification = job.ProcessingSpecification,
+                };
+
+                if (state != job.State)
+                {
+                    adjusted[job.ControlJobId] =
+                        $"was {job.State} when the machine stopped, so it comes back {state} ({completion}): "
+                        + "a restarted machine is not running a lot, and E94 records how a job ended beside "
+                        + "the one ending it has.";
+                }
+
+                restored.Add(job.ControlJobId);
+            }
+
+            // Only the jobs that really are queued, in the order the host asked for. A finished
+            // job in the queue would be offered as the next lot.
+            foreach (var controlJobId in snapshot.Queue)
+            {
+                if (_jobs.TryGetValue(controlJobId, out var queued)
+                    && queued.State is ControlJobState.Queued
+                    && !_queue.Contains(controlJobId))
+                {
+                    _queue.Add(controlJobId);
+                }
+            }
+
+            return new ControlJobRestoreReport
+            {
+                IsAccepted = true,
+                Restored = restored,
+                Adjusted = adjusted,
+            };
+        }
+    }
+
     // --------------------------------------------------------------- the pieces
 
     private ControlJobResult Finish(string controlJobId, ControlJobCompletion completion)

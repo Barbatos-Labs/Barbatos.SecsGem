@@ -106,3 +106,20 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extension on `ISecsGemBuil
 
 One method, because E90 has one side. It composes with `AddCarrierEquipment` and `AddControlJobs`:
 every provider answers, through `CompositeObjectProvider`.
+
+## Outliving the process
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `SubstrateTracker.Capture` | `SubstrateTrackerSnapshot Capture()` | A faithful record, taken under the lock. |
+| `SubstrateTracker.Restore` | `SubstrateRestoreReport Restore(SubstrateTrackerSnapshot snapshot)` | Into a tracker with no substrates. Raises nothing. |
+
+`SubstrateTrackerSnapshot` holds `Locations` (`IReadOnlyList<string>` - names only) and
+`Substrates` (`IReadOnlyList<SubstrateSnapshot>`). `SubstrateSnapshot` carries every `Substrate`
+property. `SubstrateRestoreReport` has the same shape as the other restore reports: `IsAccepted`,
+`Reason`, `Restored`, `Adjusted`, `Count`.
+
+**This is the one place in the stack where a snapshot keeps an observation** - a wafer's location
+and transport state - because E90 has no way to re-sense where a wafer is and a tracker that forgot
+would lose the lot. A substrate that was `InProcess` comes back `Stopped`. Both are explained in the
+[README](README.md#outliving-the-process-and-the-one-exception-in-this-stack).

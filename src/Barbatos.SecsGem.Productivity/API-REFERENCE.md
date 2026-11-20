@@ -135,3 +135,25 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extension on `ISecsGemBuil
 message. The only reason it hangs off the SECS builder is the clock: `AddSecsGem` already registers
 a `TimeProvider`, and a package whose whole output is durations should measure with the one the
 application chose. Calling it twice is not a start-up failure, and the first configuration survives.
+
+## Outliving the process
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `ProductivityTracker.Capture` | `ProductivityTrackerSnapshot Capture()` | Folds the open stretch into its bucket, so a snapshot is a whole window. |
+| `ProductivityTracker.Restore` | `ProductivityRestoreReport Restore(ProductivityTrackerSnapshot snapshot, EquipmentState whileOff = EquipmentState.UnscheduledDowntime)` | Into a tracker that has accounted for nothing. Raises nothing. |
+
+`ProductivityTrackerSnapshot` holds `CapturedAt`, `Since`, the state with its reason and entry
+time, all six buckets, and every count including `CompletedRepairTime` and the two theoretical
+times.
+
+`ProductivityRestoreReport`: `IsAccepted`, `Reason`, **`Unaccounted`** (`TimeSpan`) and
+**`UnaccountedChargedTo`** (`EquipmentState`). Unlike E116's, the outage *is* charged - every E10
+ratio divides by some sum of the buckets, so an hour in none of them would flatter one of them -
+and `whileOff` says which bucket. The default is `UnscheduledDowntime`, the reading that cannot
+flatter.
+
+A restore with no gap is a hand-over: nothing charged, nothing counted, the tool back exactly as it
+was. A restore with a gap is one interruption - a failure when the machine went off and a repair
+when it comes back, with the whole outage inside the repair. See the
+[README](README.md#outliving-the-process-and-where-the-hours-the-tool-was-off-go).

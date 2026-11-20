@@ -100,6 +100,7 @@ internal static class Program
         await Run("productivity: E10's buckets add up and E79's four factors multiply out", ProductivityResolvesAsync).ConfigureAwait(false);
         await Run("performanceflow: a shift driven through E116 lands in E10 with no code between", PerformanceFlowResolvesAsync).ConfigureAwait(false);
         await Run("materialflow: a control job waits for its carriers and starts on the last one", ControlJobCarrierResolvesAsync).ConfigureAwait(false);
+        await Run("state: six state machines written down, read back, and honest about the outage", StateSurvivesARestartAsync).ConfigureAwait(false);
 
         Console.WriteLine();
 
@@ -1441,6 +1442,110 @@ internal static class Program
             Assert(carriers.ReadCarrierId(carrierId, verified: true).IsAccepted, $"{carrierId}'s label could not be read");
             Assert(carriers.ReadSlotMap(carrierId, slotMap, verified: true).IsAccepted, $"{carrierId} could not be mapped");
         }
+    }
+
+    /// <summary>
+    /// Every state machine written down and read back, out of the packed assemblies.
+    /// </summary>
+    /// <remarks>
+    /// Worth a check of its own because the snapshot types are the one part of this stack a
+    /// consumer is expected to serialize itself - so they have to be reachable, public and
+    /// settable from outside the assembly that defines them, which a ProjectReference build and an
+    /// internals-free test suite both check less directly than a consumer does.
+    /// </remarks>
+    private static Task StateSurvivesARestartAsync()
+    {
+        var clock = new SmokeClock(new DateTimeOffset(2026, 3, 1, 6, 0, 0, TimeSpan.Zero));
+
+        var carriers = new CarrierManager();
+
+        carriers.AddPort(1);
+        Assert(carriers.SetServiceStatus(1, inService: true).IsAccepted, "port 1 could not be put in service");
+        Assert(carriers.SetTransferState(1, PortTransferState.ReadyToLoad).IsAccepted, "port 1 could not be readied");
+        Assert(carriers.PlaceCarrier(1, "CAR-001").IsAccepted, "CAR-001 could not be placed");
+        Assert(carriers.ReadCarrierId("CAR-001", verified: true).IsAccepted, "CAR-001's label could not be read");
+        Assert(
+            carriers.ReadSlotMap("CAR-001", new byte[] { 1, 1, 0, 1 }, verified: true).IsAccepted,
+            "CAR-001 could not be mapped");
+        Assert(carriers.BeginAccess("CAR-001").IsAccepted, "CAR-001 could not be accessed");
+
+        var restartedCarriers = new CarrierManager();
+
+        restartedCarriers.AddPort(1);
+
+        var carrierReport = restartedCarriers.Restore(carriers.Capture());
+
+        Assert(carrierReport.IsAccepted, $"the carrier snapshot was refused: {carrierReport.Reason}");
+
+        var box = restartedCarriers.FindCarrier("CAR-001");
+
+        Assert(box is not null, "CAR-001 did not come back");
+        Assert(box!.IdStatus == CarrierIdStatus.IdNotRead, $"CAR-001 came back {box.IdStatus}, not unread");
+        Assert(
+            box.AccessStatus == CarrierAccessStatus.CarrierStopped,
+            $"CAR-001 came back {box.AccessStatus}, not stopped");
+
+        // E94: a lot that was running ends the way an interruption ends.
+        var jobs = new ControlJobManager();
+
+        Assert(jobs.Create("CJ-1", ["CAR-001"]).IsAccepted, "CJ-1 could not be created");
+        Assert(jobs.Create("CJ-2", ["CAR-002"]).IsAccepted, "CJ-2 could not be created");
+        Assert(jobs.Select("CJ-1").IsAccepted, "CJ-1 could not be selected");
+        Assert(jobs.MaterialReady("CJ-1").IsAccepted, "CJ-1's material could not become ready");
+
+        var restartedJobs = new ControlJobManager();
+
+        Assert(restartedJobs.Restore(jobs.Capture()).IsAccepted, "the control job snapshot was refused");
+        Assert(
+            restartedJobs.Find("CJ-1")!.Completion == ControlJobCompletion.Aborted,
+            $"CJ-1 came back {restartedJobs.Find("CJ-1")!.Completion}, not aborted");
+        Assert(restartedJobs.Queue.Count == 1, $"the queue came back with {restartedJobs.Queue.Count} job(s), not one");
+
+        // And the two that answer the outage differently, which is this chapter's point.
+        var performance = new PerformanceTracker(clock);
+
+        performance.AddModule("PM1");
+        Assert(performance.BeginTask("PM1", "RECIPE-7", PerformanceTaskTypes.Process).IsAccepted, "PM1 could not start");
+        clock.Tick(TimeSpan.FromHours(2));
+
+        var shift = new ProductivityTracker(clock);
+
+        Assert(shift.MoveTo(EquipmentState.Productive).IsAccepted, "the tool could not go productive");
+        clock.Tick(TimeSpan.FromHours(2));
+
+        var modules = performance.Capture();
+        var window = shift.Capture();
+
+        clock.Tick(TimeSpan.FromHours(3));
+
+        var restartedPerformance = new PerformanceTracker(clock);
+
+        restartedPerformance.AddModule("PM1");
+
+        var performanceReport = restartedPerformance.Restore(modules);
+        var statistics = restartedPerformance.Statistics("PM1")!;
+
+        Assert(
+            performanceReport.Unaccounted == TimeSpan.FromHours(3),
+            $"E116 reported {performanceReport.Unaccounted} unaccounted for, not three hours");
+        Assert(statistics.TasksAbandoned == 1, $"{statistics.TasksAbandoned} task(s) abandoned, not one");
+        Assert(
+            statistics.TimeExecuting == TimeSpan.FromHours(4),
+            $"E116 kept {statistics.TimeExecuting} of executing time, so the outage was charged to a state");
+
+        var restartedShift = new ProductivityTracker(clock);
+        var shiftReport = restartedShift.Restore(window);
+        var report = restartedShift.Report();
+
+        Assert(
+            shiftReport.UnaccountedChargedTo == EquipmentState.UnscheduledDowntime,
+            $"E10 charged the outage to {shiftReport.UnaccountedChargedTo}");
+        Assert(
+            report.Total == report.NonScheduled + report.UnscheduledDowntime + report.ScheduledDowntime
+                + report.Engineering + report.Standby + report.Productive,
+            "E10's six buckets stopped adding up to the window across a restart");
+
+        return Task.CompletedTask;
     }
 
     /// <summary>A clock the smoke test moves by hand, so a day takes no time to measure.</summary>

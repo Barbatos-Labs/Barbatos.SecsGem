@@ -300,12 +300,192 @@ public sealed class ProductivityTracker
         }
     }
 
+    /// <summary>Writes down everything this tracker holds.</summary>
+    /// <returns>A faithful record of the window, the six buckets and every count.</returns>
+    /// <remarks>
+    /// Taken under the tracker's lock, and the open stretch is folded into its bucket first, so a
+    /// snapshot is a complete window rather than one with the current state's time still running.
+    /// </remarks>
+    public ProductivityTrackerSnapshot Capture()
+    {
+        lock (_gate)
+        {
+            var elapsed = _clock.GetElapsedTime(_stateStamp, _clock.GetTimestamp());
+
+            return new ProductivityTrackerSnapshot
+            {
+                CapturedAt = _clock.GetUtcNow(),
+                Since = _since,
+                State = _state,
+                StateReason = _reason,
+                StateSince = _stateSince,
+                NonScheduled = Bucket(EquipmentState.NonScheduled, elapsed),
+                UnscheduledDowntime = Bucket(EquipmentState.UnscheduledDowntime, elapsed),
+                ScheduledDowntime = Bucket(EquipmentState.ScheduledDowntime, elapsed),
+                Engineering = Bucket(EquipmentState.Engineering, elapsed),
+                Standby = Bucket(EquipmentState.Standby, elapsed),
+                Productive = Bucket(EquipmentState.Productive, elapsed),
+                Failures = _failures,
+                ScheduledInterrupts = _scheduledInterrupts,
+                Repairs = _repairs,
+                CompletedRepairTime = _completedRepairTime,
+                Cycles = _cycles,
+                ActualUnits = _actualUnits,
+                EffectiveUnits = _effectiveUnits,
+                TheoreticalActualTime = _theoreticalActualTime,
+                TheoreticalEffectiveTime = _theoreticalEffectiveTime,
+            };
+        }
+    }
+
+    /// <summary>Reads a snapshot back into a tracker that has accounted for nothing yet.</summary>
+    /// <param name="snapshot">What <see cref="Capture"/> wrote.</param>
+    /// <param name="whileOff">Which bucket the time the tool was off belongs in.</param>
+    /// <returns>What came back, and where that time went.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="snapshot"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>Nearly all of this is a ledger, so nearly all of it comes back.</strong> E10 is an
+    /// accounting standard: the six buckets, the failure and repair counts, the units and their
+    /// theoretical times are a record of a window, and a tracker that lost them to a reboot would
+    /// report a day that did not happen. <see cref="ProductivityReport.Since"/> comes back too,
+    /// because the window is the thing being reported on.
+    /// </para>
+    /// <para>
+    /// <strong>Which leaves the time the tool was off, and here this package does the opposite of
+    /// <c>Barbatos.SecsGem.PerformanceTracking</c>.</strong> E116 hands that interval back
+    /// uncharged, because its three states have nowhere honest to put it. E10 has six states and
+    /// two of them are exactly this: a tool nobody scheduled, and a tool that was scheduled and
+    /// could not work. And it <em>must</em> be charged, because every E10 ratio divides by some sum
+    /// of the buckets - so an hour in none of them is an hour that silently improves whichever
+    /// ratio it would have reduced. The six buckets add up to the window before a restore and they
+    /// add up to it afterwards.
+    /// </para>
+    /// <para>
+    /// Which bucket is the caller's to say, since only the fab knows whether the machine was broken
+    /// or simply not wanted. The default is
+    /// <see cref="EquipmentState.UnscheduledDowntime"/> - the reading that cannot flatter, the same
+    /// choice every default in this stack's joins makes. A fab that powers its tools down between
+    /// shifts passes <see cref="EquipmentState.NonScheduled"/> and gets the other honest answer.
+    /// </para>
+    /// <para>
+    /// Afterwards the tool is in <paramref name="whileOff"/>, entered now, with a stated reason
+    /// saying the machine restarted - so a <see cref="Report"/> taken before the application has
+    /// told the tracker anything still describes something true. The application then calls
+    /// <see cref="MoveTo"/> when it knows what the tool is actually doing, and if that is the same
+    /// state, E10's own rule about a reason changing without a move applies and nothing is counted
+    /// twice.
+    /// </para>
+    /// <para>
+    /// Refused outright for a tracker that has already accounted for something, because adding one
+    /// ledger to another is one wrong ledger. Nothing is raised while restoring.
+    /// </para>
+    /// </remarks>
+    public ProductivityRestoreReport Restore(
+        ProductivityTrackerSnapshot snapshot,
+        EquipmentState whileOff = EquipmentState.UnscheduledDowntime)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        lock (_gate)
+        {
+            for (var index = 0; index < StateCount; index++)
+            {
+                if (_buckets[index] != TimeSpan.Zero)
+                {
+                    return ProductivityRestoreReport.Denied(
+                        "this tracker has already accounted for time; a snapshot is read into one that has "
+                        + "not, because two ledgers added together are one wrong ledger.");
+                }
+            }
+
+            if (_failures != 0 || _repairs != 0 || _cycles != 0 || _actualUnits != 0)
+            {
+                return ProductivityRestoreReport.Denied(
+                    "this tracker has already counted something; a snapshot is read into one that has not.");
+            }
+
+            var now = _clock.GetUtcNow();
+            var stamp = _clock.GetTimestamp();
+            var off = snapshot.CapturedAt == default || now <= snapshot.CapturedAt
+                ? TimeSpan.Zero
+                : now - snapshot.CapturedAt;
+
+            _buckets[(int)EquipmentState.NonScheduled] = snapshot.NonScheduled;
+            _buckets[(int)EquipmentState.UnscheduledDowntime] = snapshot.UnscheduledDowntime;
+            _buckets[(int)EquipmentState.ScheduledDowntime] = snapshot.ScheduledDowntime;
+            _buckets[(int)EquipmentState.Engineering] = snapshot.Engineering;
+            _buckets[(int)EquipmentState.Standby] = snapshot.Standby;
+            _buckets[(int)EquipmentState.Productive] = snapshot.Productive;
+
+            _failures = snapshot.Failures;
+            _scheduledInterrupts = snapshot.ScheduledInterrupts;
+            _repairs = snapshot.Repairs;
+            _completedRepairTime = snapshot.CompletedRepairTime;
+            _cycles = snapshot.Cycles;
+            _actualUnits = snapshot.ActualUnits;
+            _effectiveUnits = snapshot.EffectiveUnits;
+            _theoreticalActualTime = snapshot.TheoreticalActualTime;
+            _theoreticalEffectiveTime = snapshot.TheoreticalEffectiveTime;
+
+            _since = snapshot.Since == default ? now : snapshot.Since;
+
+            if (off == TimeSpan.Zero)
+            {
+                // No gap, so nothing happened to account for: this is a hand-over rather than an
+                // outage, and the tool comes back exactly as it was. Charging a state and counting
+                // an interruption here would invent a failure out of a process restarting
+                // instantly, and the counts would stop agreeing with the buckets.
+                _state = snapshot.State;
+                _reason = snapshot.StateReason;
+                _stateSince = snapshot.StateSince == default ? now : snapshot.StateSince;
+                _stateStamp = stamp;
+            }
+            else
+            {
+                // The stretch the machine was off is left *open* in the state it is charged to,
+                // by winding this state's stamp back to the capture, rather than added to the
+                // bucket here. Every other method in this class folds the open stretch in, so the
+                // window and the buckets agree from the first moment - and a repair that finishes
+                // after the restart has the whole outage inside it, which it would not if the
+                // clock on this state started now.
+                _state = whileOff;
+                _reason = whileOff is EquipmentState.Productive ? string.Empty : "the machine restarted";
+                _stateSince = snapshot.CapturedAt;
+                _stateStamp = stamp - Stamps(off);
+
+                // Entering a downtime state is an interruption whoever caused it, so a restart is
+                // counted the way the equivalent MoveTo would count it - unless the tool was
+                // already in that state when it was captured, which is one stretch and not two.
+                if (snapshot.State != whileOff)
+                {
+                    if (whileOff is EquipmentState.UnscheduledDowntime)
+                    {
+                        _failures++;
+                    }
+                    else if (whileOff is EquipmentState.ScheduledDowntime)
+                    {
+                        _scheduledInterrupts++;
+                    }
+                }
+            }
+
+            return new ProductivityRestoreReport
+            {
+                IsAccepted = true,
+                Unaccounted = off,
+                UnaccountedChargedTo = off == TimeSpan.Zero ? snapshot.State : whileOff,
+            };
+        }
+    }
+
     /// <summary>Where the tool's time went, and what that says about it.</summary>
-    /// <returns>A snapshot taken now.</returns>
+    /// <returns>A report covering the window so far.</returns>
     /// <remarks>
     /// The current state's elapsed time is counted in, so the six buckets always add up to the
-    /// window. Asking twice without the tool moving gives two different answers, and both are
-    /// right.
+    /// window - across a <see cref="Restore"/> as well, which is why the time a tool spent switched
+    /// off has to be charged to one of them. Asking twice without the tool moving gives two
+    /// different answers, and both are right.
     /// </remarks>
     public ProductivityReport Report()
     {
@@ -371,6 +551,16 @@ public sealed class ProductivityTracker
 
     private static bool IsUptime(EquipmentState state)
         => state is EquipmentState.Engineering or EquipmentState.Standby or EquipmentState.Productive;
+
+    /// <summary>How many of this clock's timestamp units an interval is.</summary>
+    /// <remarks>
+    /// Only <see cref="Restore"/> needs this, because it is the one place that has to name a
+    /// moment in the past in a unit the clock chose. Scaled through <see cref="double"/> rather
+    /// than by multiplying ticks, which overflows a <see cref="long"/> for an outage of about a
+    /// day on a clock that counts in ticks - and a day is a perfectly ordinary outage.
+    /// </remarks>
+    private long Stamps(TimeSpan interval)
+        => (long)(interval.Ticks * ((double)_clock.TimestampFrequency / TimeSpan.TicksPerSecond));
 
     private TimeSpan Bucket(EquipmentState state, TimeSpan elapsed)
         => _buckets[(int)state] + (_state == state ? elapsed : TimeSpan.Zero);

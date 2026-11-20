@@ -119,6 +119,176 @@ public sealed class PerformanceTracker
         }
     }
 
+    // --------------------------------------------------------- outliving the process
+
+    /// <summary>Writes down everything this tracker holds.</summary>
+    /// <returns>A faithful record of every module's ledger and of what each was doing.</returns>
+    /// <remarks>
+    /// <para>
+    /// Taken under the tracker's lock, and stamped, because the stamp is what makes the outage
+    /// measurable on the way back in.
+    /// </para>
+    /// <para>
+    /// The stretch each module is in the middle of is folded into its total first, the same way
+    /// <see cref="Statistics"/> reports it - so a snapshot is a whole ledger rather than one
+    /// missing everything since the last transition. A module that has been idle all shift has a
+    /// zero idle total and a very long open stretch, and a capture that read only the total would
+    /// have thrown the shift away.
+    /// </para>
+    /// </remarks>
+    public PerformanceTrackerSnapshot Capture()
+    {
+        lock (_gate)
+        {
+            var stamp = _clock.GetTimestamp();
+
+            return new PerformanceTrackerSnapshot
+            {
+                CapturedAt = _clock.GetUtcNow(),
+                Modules = [.. _modules.Values
+                    .OrderBy(module => module.ModuleId, StringComparer.Ordinal)
+                    .Select(module =>
+                    {
+                        var elapsed = _clock.GetElapsedTime(module.StateStamp, stamp);
+
+                        return new PerformanceModuleSnapshot
+                        {
+                            ModuleId = module.ModuleId,
+                            State = module.State,
+                            PreviousState = module.PreviousState,
+                            StateSince = module.StateSince,
+                            AccountingSince = module.AccountingSince,
+                            TaskName = module.CurrentTask?.Name ?? string.Empty,
+                            TaskType = module.CurrentTask?.TaskType ?? string.Empty,
+                            BlockedReasonCode = module.BlockedReason?.Code ?? string.Empty,
+                            BlockedReasonText = module.BlockedReason?.Text ?? string.Empty,
+                            IdleTotal = module.IdleTotal + Only(module, PerformanceState.Idle, elapsed),
+                            ExecutingTotal = module.ExecutingTotal + Only(module, PerformanceState.Executing, elapsed),
+                            BlockedTotal = module.BlockedTotal + Only(module, PerformanceState.Blocked, elapsed),
+                            TasksCompleted = module.TasksCompleted,
+                            TasksAbandoned = module.TasksAbandoned,
+                        };
+                    })],
+            };
+        }
+    }
+
+    /// <summary>Reads a snapshot back into a tracker whose modules have accounted for nothing yet.</summary>
+    /// <param name="snapshot">What <see cref="Capture"/> wrote.</param>
+    /// <returns>What came back, what was not claimed again, and how long nothing was accounted for.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="snapshot"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>The ledger comes back and the claim does not.</strong> The three accumulated times
+    /// and the two task counts are a record of what happened, so a restart keeps them - a shift
+    /// report that lost the morning because the machine was upgraded at lunch would be worse than
+    /// useless. What a module was <em>doing</em> is a statement about now, and after a restart it
+    /// is doing nothing: every module comes back <see cref="PerformanceState.Idle"/>, with its
+    /// state entered now, no task and no blocked reason.
+    /// </para>
+    /// <para>
+    /// <strong>A task that was running was abandoned, and the count says so.</strong> That is what
+    /// <see cref="PerformanceStatistics.TasksAbandoned"/> is for, and a restart is the plainest
+    /// case of it there is: the recipe did not finish, and nobody is going to call
+    /// <see cref="EndTask"/> for it. Leaving the count alone would make a machine that reboots
+    /// mid-recipe look like one that never fails to finish.
+    /// </para>
+    /// <para>
+    /// <strong>The time the machine was off is charged to nothing</strong> and handed back as
+    /// <see cref="PerformanceRestoreReport.Unaccounted"/>. E116 has three states and none of them
+    /// means switched off, so there is nowhere honest to put it; see that property for what
+    /// follows from that, and for why
+    /// <c>Barbatos.SecsGem.Productivity</c> answers the same question differently.
+    /// </para>
+    /// <para>
+    /// <strong>A snapshot does not invent hardware.</strong> Modules are declared with
+    /// <see cref="AddModule"/>, from configuration, so a module in the snapshot this tracker does
+    /// not have is reported and skipped - the same rule E87's load ports keep.
+    /// </para>
+    /// <para>
+    /// Refused outright for a tracker that has already accounted for something, because adding one
+    /// ledger to another would double a shift. Nothing is raised while restoring.
+    /// </para>
+    /// </remarks>
+    public PerformanceRestoreReport Restore(PerformanceTrackerSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        lock (_gate)
+        {
+            foreach (var module in _modules.Values)
+            {
+                if (module.IdleTotal != TimeSpan.Zero
+                    || module.ExecutingTotal != TimeSpan.Zero
+                    || module.BlockedTotal != TimeSpan.Zero
+                    || module.TasksCompleted != 0
+                    || module.TasksAbandoned != 0
+                    || module.HasTask)
+                {
+                    return PerformanceRestoreReport.Denied(
+                        $"module '{module.ModuleId}' has already accounted for something; a snapshot is read "
+                        + "into a tracker that has not, because two ledgers added together are one wrong one.");
+                }
+            }
+
+            var now = _clock.GetUtcNow();
+            var stamp = _clock.GetTimestamp();
+            List<string> restored = [];
+            Dictionary<string, string> adjusted = new(StringComparer.Ordinal);
+
+            foreach (var saved in snapshot.Modules)
+            {
+                if (!_modules.TryGetValue(saved.ModuleId, out var module))
+                {
+                    adjusted[saved.ModuleId] =
+                        "the snapshot has this module and this tracker does not; modules are declared from "
+                        + "configuration, so it was skipped rather than invented.";
+                    continue;
+                }
+
+                module.IdleTotal = saved.IdleTotal;
+                module.ExecutingTotal = saved.ExecutingTotal;
+                module.BlockedTotal = saved.BlockedTotal;
+                module.TasksCompleted = saved.TasksCompleted;
+                module.TasksAbandoned = saved.TasksAbandoned
+                    + (saved.TaskName.Length > 0 ? 1 : 0);
+                module.AccountingSince = saved.AccountingSince;
+                module.State = PerformanceState.Idle;
+                module.PreviousState = saved.State;
+                module.StateSince = now;
+                module.StateStamp = stamp;
+                module.CurrentTask = null;
+                module.BlockedReason = null;
+
+                if (saved.TaskName.Length > 0)
+                {
+                    adjusted[saved.ModuleId] =
+                        $"was {saved.State} running '{saved.TaskName}'; the task was abandoned by the restart "
+                        + $"and counted as such, and the module comes back {PerformanceState.Idle}.";
+                }
+                else if (saved.State is not PerformanceState.Idle)
+                {
+                    adjusted[saved.ModuleId] =
+                        $"was {saved.State}"
+                        + (saved.BlockedReasonCode.Length > 0 ? $" ({saved.BlockedReasonCode})" : string.Empty)
+                        + $"; a restarted module is {PerformanceState.Idle} until something tells it otherwise.";
+                }
+
+                restored.Add(saved.ModuleId);
+            }
+
+            return new PerformanceRestoreReport
+            {
+                IsAccepted = true,
+                Restored = restored,
+                Adjusted = adjusted,
+                Unaccounted = snapshot.CapturedAt == default || now <= snapshot.CapturedAt
+                    ? TimeSpan.Zero
+                    : now - snapshot.CapturedAt,
+            };
+        }
+    }
+
     /// <summary>Finds a module.</summary>
     /// <param name="moduleId">Which one.</param>
     /// <returns>The module, or <see langword="null"/>.</returns>

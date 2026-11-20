@@ -132,3 +132,18 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extension on `ISecsGemBuil
 
 One method, because E94 has one side. It composes with `AddCarrierEquipment` and
 `AddSubstrateTracking`: all three providers answer, through `CompositeObjectProvider`.
+
+## Outliving the process
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `ControlJobManager.Capture` | `ControlJobManagerSnapshot Capture()` | Jobs and queue together, under the lock, so they cannot disagree. |
+| `ControlJobManager.Restore` | `ControlJobRestoreReport Restore(ControlJobManagerSnapshot snapshot)` | Into a manager with no jobs. Raises nothing. |
+
+`ControlJobManagerSnapshot` holds `Jobs` (`IReadOnlyList<ControlJobSnapshot>`) and `Queue`
+(`IReadOnlyList<string>`, in order). `ControlJobSnapshot` carries every `ControlJob` property.
+`ControlJobRestoreReport`: `IsAccepted`, `Reason`, `Restored`, `Adjusted`, `Count`.
+
+Only `Queued` survives as itself; a job that was in flight ends `Completed`, cancelled when nothing
+was processed and aborted when something was. The table is in the
+[README](README.md#outliving-the-process).

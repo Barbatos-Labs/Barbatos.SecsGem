@@ -2070,6 +2070,108 @@ internal static class Program
             }
 
             Console.WriteLine();
+            Console.WriteLine("-- and the machine is switched off and on again --");
+            Console.WriteLine();
+
+            {
+                // Every state machine in this sample can be written down and read back. Nothing
+                // here touches a wire: a snapshot is a plain object, and where it goes - a file, a
+                // row, a key - is the application's, which is why none of these packages depends
+                // on a serializer.
+                var carriers = machine.Capture();
+                var wafers = flow.Substrates.Capture();
+                var controlJobs = flow.Jobs.Capture();
+                var performance = flow.Performance.Capture();
+                var shift = _productivity!.Capture();
+
+                Console.WriteLine(
+                    $"   [state] {carriers.Carriers.Count} carrier(s), {wafers.Substrates.Count} substrate(s), "
+                    + $"{controlJobs.Jobs.Count} control job(s), {performance.Modules.Count} module(s) written down");
+
+                // Three hours off, and then a brand new set of everything - as after an upgrade.
+                flow.Clock.Advance(TimeSpan.FromHours(3));
+
+                var restartedCarriers = new CarrierManager();
+
+                restartedCarriers.AddPort(1);
+                restartedCarriers.SetServiceStatus(1, inService: true);
+
+                var restartedCarrierReport = restartedCarriers.Restore(carriers);
+                var restartedSubstrates = new SubstrateTracker();
+                var restartedSubstrateReport = restartedSubstrates.Restore(wafers);
+                var restartedJobs = new ControlJobManager();
+                var restartedJobReport = restartedJobs.Restore(controlJobs);
+
+                Console.WriteLine();
+
+                foreach (var (what, why) in restartedCarrierReport.Adjusted
+                    .Concat(restartedSubstrateReport.Adjusted)
+                    .Concat(restartedJobReport.Adjusted))
+                {
+                    Console.WriteLine($"   [state] {what}: {why}");
+                }
+
+                // What a host is entitled to be told: the lot is still known and nothing about it
+                // is believed.
+                var box = restartedCarriers.FindCarrier(CarrierName);
+
+                Console.WriteLine();
+                Console.WriteLine(
+                    $"   {CarrierName} is still known - {box?.IdStatus}, {box?.AccessStatus}, "
+                    + $"verified: {box?.IsVerified} - so the sequence that confirms it runs again");
+
+                ok &= box is not null
+                    && box.IdStatus == CarrierIdStatus.IdNotRead
+                    && box.SlotMapStatus == CarrierSlotMapStatus.SlotMapNotRead
+                    && box.AccessStatus == CarrierAccessStatus.CarrierStopped
+                    && !box.IsVerified;
+
+                // And a host asking the restarted machine gets the same answer, because E87's
+                // attributes are read off the same carrier objects.
+                ok &= restartedCarriers.Carriers.Count == carriers.Carriers.Count;
+
+                // E116 and E10 are the pair worth watching, because they answer the same question
+                // about those three hours differently - and both answers are in the two reports.
+                var restartedPerformance = new PerformanceTracker(flow.Clock);
+
+                restartedPerformance.AddModule(MachineModule);
+                restartedPerformance.AddModule(ChamberModule);
+
+                var performanceReport = restartedPerformance.Restore(performance);
+                var restartedShift = new ProductivityTracker(flow.Clock);
+                var shiftReport = restartedShift.Restore(shift);
+
+                Console.WriteLine();
+                Console.WriteLine(
+                    $"   E116: {performanceReport.Unaccounted} unaccounted for, charged to nothing "
+                    + "- none of its three states means switched off");
+                Console.WriteLine(
+                    $"   E10 : {shiftReport.Unaccounted} charged to {shiftReport.UnaccountedChargedTo} "
+                    + "- every E10 ratio divides by its buckets, so they have to add up");
+
+                var restored = restartedShift.Report();
+
+                Console.WriteLine(
+                    $"   and they do: {restored.Total} = "
+                    + $"{restored.NonScheduled + restored.UnscheduledDowntime + restored.ScheduledDowntime + restored.Engineering + restored.Standby + restored.Productive}");
+
+                ok &= performanceReport.Unaccounted == TimeSpan.FromHours(3)
+                    && shiftReport.Unaccounted == TimeSpan.FromHours(3)
+                    && shiftReport.UnaccountedChargedTo == EquipmentState.UnscheduledDowntime
+                    && restored.Total == restored.NonScheduled + restored.UnscheduledDowntime
+                        + restored.ScheduledDowntime + restored.Engineering + restored.Standby
+                        + restored.Productive;
+
+                // And the wafers, which are the one thing a snapshot keeps that the machine
+                // observed: nothing here can look inside a chamber.
+                Console.WriteLine(
+                    $"   and {restartedSubstrates.Substrates.Count} wafer(s) are still where they were, "
+                    + "because nothing here can look inside a chamber to find out again");
+
+                ok &= restartedSubstrates.Substrates.Count == wafers.Substrates.Count;
+            }
+
+            Console.WriteLine();
             Console.WriteLine("-- and then the carrier leaves --");
             Console.WriteLine();
 

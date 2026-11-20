@@ -252,6 +252,40 @@ and E90, this package does not publish them: a `CEID` belongs to the equipment t
 nothing here can know which number a machine gave to "control job completed". The completion rides
 along on the one transition that is an ending, so a handler needs no second lookup.
 
+## Outliving the process
+
+```csharp
+var snapshot = jobs.Capture();
+// ... the machine restarts ...
+var report = jobs.Restore(snapshot);
+```
+
+A job's definition is a host instruction, so all of it comes back - the carriers it names, the
+start method, the process order, the recipe - and so does **the order of the queue**, which is the
+whole reason a queue is worth writing down: a machine that came back with its lots in a different
+order would run the wrong one next.
+
+### A lot that was running does not come back running
+
+`Queued` is the one state a restart can honestly keep. Everything else was in flight when the power
+went, and E94 has exactly one ending with the reason recorded beside it - so that is where those go,
+and the reason carries the difference:
+
+| It was | It comes back | Because |
+| --- | --- | --- |
+| `Queued` | `Queued` | it has not started, and it is still wanted |
+| `Selected`, `WaitingForStart` | `Completed` · `Cancelled` | material was being brought in and nothing was processed, which is what cancelled means in E94 |
+| `Executing`, `Paused` | `Completed` · `Aborted` | part of the lot went through, and the record has to say so |
+| `Completed` | itself, with its own completion | history, not a claim about now |
+
+Putting an interrupted lot back in the **queue** would be worse than either: it would lose the fact
+that some of the material has already been through, and a host reading `Queued` would reasonably
+expect a fresh lot. A host reading `Aborted` knows to look.
+
+Only jobs that really are queued go back in the queue, nothing is raised while restoring - a host
+that heard "CJ-1 completed, aborted" as a transition would believe the machine had just aborted a
+lot - and a manager that already has jobs refuses.
+
 ## What is not here yet
 
 - **E40 process jobs**, which are what a control job delegates the actual processing to. Another
@@ -263,8 +297,8 @@ along on the one transition that is an ending, so a handler needs no second look
 - **E30 remote commands** as a second way in. A GEM machine may also accept `PP-SELECT`, `START`
   and `STOP` over S2F41; mapping those onto this manager is a few lines in an application that has
   both.
-- **Queue persistence.** The jobs are in memory; a machine that reboots is given its queue again by
-  its host, which is what E94 expects.
+- Writing the snapshot anywhere. `Capture` hands back a plain object and this package depends on no
+  serializer; where it goes is the application's.
 
 ## Documentation
 

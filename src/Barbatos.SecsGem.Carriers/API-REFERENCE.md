@@ -193,3 +193,24 @@ once.
 
 Calling `AddCarrierEquipment` twice is harmless too: both sets go in through the builder's
 `DeclareOnce`. The manager is a `TryAdd` singleton, so the first `configure` is the one that runs.
+
+## Outliving the process
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `CarrierManager.Capture` | `CarrierManagerSnapshot Capture()` | A faithful record, taken under the lock, including the states a restart will not claim again. |
+| `CarrierManager.Restore` | `CarrierRestoreReport Restore(CarrierManagerSnapshot snapshot)` | Into a manager with no carriers. Raises nothing. |
+
+`CarrierManagerSnapshot` holds `Ports` (`IReadOnlyList<LoadPortSnapshot>`) and `Carriers`
+(`IReadOnlyList<CarrierSnapshot>`). `CarrierSnapshot` carries every `Carrier` property plus the
+`SlotMap` as an `IReadOnlyList<byte>`; `LoadPortSnapshot` carries every `LoadPort` property. All
+`init`-only with no constructor, so `System.Text.Json` round-trips them and this package depends on
+no serializer.
+
+`CarrierRestoreReport`: `IsAccepted` (`required bool` - false only when nothing was attempted),
+`Reason`, `Restored` (`IReadOnlyList<string>` - carrier identifiers and `port 1`), `Adjusted`
+(`IReadOnlyDictionary<string, string>` - what was not restored as recorded, and why) and `Count`.
+
+What comes back and what does not is in the [README](README.md#outliving-the-process); the short
+version is that a host's instructions survive and the machine's observations do not, and a carrier
+that was `InAccess` comes back `CarrierStopped`.

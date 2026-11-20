@@ -223,6 +223,51 @@ transition. They are raised **after** the state has moved and **inside** the tra
 handler reading the module sees the state the event announces - and must not call back in. Queue
 the work.
 
+## Outliving the process: the ledger comes back, the claim does not
+
+```csharp
+var snapshot = performance.Capture();
+// ... the machine restarts ...
+var report = performance.Restore(snapshot);
+```
+
+The three accumulated times and the two task counts are a **record of what happened**, so a restart
+keeps them: a shift report that lost the morning because the machine was upgraded at lunch would be
+worse than useless. What a module was *doing* is a **statement about now**, and after a restart it
+is doing nothing - so every module comes back `Idle`, with its state entered now, no task and no
+blocked reason.
+
+**A task that was running was abandoned, and the count says so.** Nobody is ever going to call
+`EndTask` for it. Leaving `TasksAbandoned` alone would make a machine that reboots mid-recipe look
+like one that never fails to finish.
+
+### The time the machine was off is charged to nothing
+
+```csharp
+report.Unaccounted;   // 02:00:00
+```
+
+E116 has three states - idle, executing, blocked - and **none of them means switched off**. So
+there is nowhere honest to put those two hours, and they are handed back here instead, for the
+application to record wherever it records downtime.
+
+The consequence is worth knowing rather than discovering: after a restore the three times no longer
+add up to `now - Since`, by exactly the outage. This README already says those two need not agree,
+and this is the honest reason they do not.
+
+**[`Barbatos.SecsGem.Productivity`](../Barbatos.SecsGem.Productivity/README.md) answers the same
+question the other way**, and the difference is about the standards rather than about taste: E10 has
+six states, two of them are exactly "a tool nobody scheduled" and "a tool that was scheduled and
+could not work", and every E10 ratio divides by some sum of its buckets - so an hour in none of them
+would silently flatter one of them. E116 defines no ratio that the outage would distort, and no
+state it belongs in.
+
+A capture folds each module's open stretch into its total first, so a snapshot is a whole ledger
+rather than one missing everything since the last transition. **A snapshot does not invent
+hardware** - a module the snapshot has and this tracker does not is reported and skipped, the same
+rule E87's load ports keep - and a tracker that has already accounted for something refuses,
+because two ledgers added together are one wrong one.
+
 ## What is not here, and why
 
 - **No module hierarchy.** A cluster tool's modules are a flat set, and the tool itself is another

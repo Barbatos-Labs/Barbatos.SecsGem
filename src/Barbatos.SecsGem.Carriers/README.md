@@ -208,12 +208,72 @@ Events are raised **after** the state has moved and **inside** the manager's loc
 reading the carrier sees the state the event announces - and must not call back into the manager.
 Queue the work.
 
+## Outliving the process
+
+The states are in memory, and `Capture` writes them down:
+
+```csharp
+var snapshot = carriers.Capture();          // a plain object; serialize it with whatever you use
+
+// ... the machine is upgraded, crashes, or is simply switched off ...
+
+var report = carriers.Restore(snapshot);
+```
+
+**The rule: what a host told this machine comes back, and what the machine observed does not.** A
+reboot does not change what anybody asked for, and it says nothing at all about where the boxes are
+now.
+
+| Comes back | Does not |
+| --- | --- |
+| whether a port is in service | whether a carrier is on it, and its transfer state beyond being in service |
+| who drives a port - `AccessMode` | which carrier it is associated with |
+| a reservation, and who it is for | which port a carrier was at |
+| a carrier's identity, lot, usage, capacity | `IdStatus`, `SlotMapStatus`, the slot map itself, the substrate count |
+
+The identifier and the slot map go back to unread because **E87 wants a carrier re-read after a
+restart**, and a machine that claimed a verification it never performed would process a lot nobody
+confirmed. The lot identifier survives, so the sequence runs again knowing what it is looking at:
+
+```csharp
+carriers.FindCarrier("CAR-001")!.LotId;      // LOT-7
+carriers.FindCarrier("CAR-001")!.IsVerified; // false
+
+carriers.SetTransferState(1, PortTransferState.ReadyToLoad);
+carriers.PlaceCarrier(1, "CAR-001");
+carriers.ReadCarrierId("CAR-001", verified: true);   // and on as normal
+```
+
+### A carrier that was in access comes back stopped
+
+Not `NotAccessed`, which E87 rules out itself once the substrates have been touched - that is
+exactly why its access state machine has no way back. And not `InAccess`, which would have a
+machine that has just started claiming it is working on something. `CarrierStopped` is E87's own
+"finished early: a fault, or a host that said stop", and losing power part way through a carrier is
+a fault. The other three states are history rather than a claim about now, and come back as
+themselves.
+
+### Two more rules worth knowing
+
+**A snapshot does not invent hardware.** Ports are declared from configuration with `AddPort`, so a
+port in the snapshot this manager does not have is reported in `Adjusted` and skipped. A machine
+that came back with a load port its configuration no longer mentions would be a worse surprise than
+one that said so.
+
+**Nothing is raised while restoring.** A host that heard "carrier stopped" as a transition would
+believe the machine had just stopped one. `CarrierRestoreReport.Adjusted` is how an application
+tells it something true instead - every entry names a carrier or a port and says why it is not what
+the file said.
+
+Restoring is refused outright for a manager that already has carriers: merging two beliefs about
+the same box has no right answer.
+
 ## What is not here yet
 
 - **The E87 messages that need an undefined item**: S3F19/F20, S3F21/F22, S3F27/F28, S3F31/F32.
   Their content is on stream 14 instead, which is where E87 puts it.
-- A manager that outlives the process. The states are in memory; a machine that reboots with a
-  carrier on a port re-reads the label, which is also what E87 expects.
+- Writing the snapshot anywhere. `Capture` hands back a plain object and this package depends on no
+  serializer; where it goes is the application's, the same way its container is.
 - `ContentMap`, as distinct from `SlotMap`. One byte per slot covers what a machine knows; naming
   which substrate is in which slot is E90's job - and
   [`Barbatos.SecsGem.MaterialFlow`](../Barbatos.SecsGem.MaterialFlow/README.md) is where the two

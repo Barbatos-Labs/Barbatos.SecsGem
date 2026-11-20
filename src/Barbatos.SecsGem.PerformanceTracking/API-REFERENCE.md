@@ -142,3 +142,21 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extension on `ISecsGemBuil
 One method, because E116 has one side. It composes with `AddCarrierEquipment`,
 `AddSubstrateTracking`, `AddControlJobs` and `AddProcessJobEquipment`: every provider answers,
 through `CompositeObjectProvider`. Calling it twice is not a start-up failure.
+
+## Outliving the process
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `PerformanceTracker.Capture` | `PerformanceTrackerSnapshot Capture()` | Folds each module's open stretch into its total, so a snapshot is a whole ledger. |
+| `PerformanceTracker.Restore` | `PerformanceRestoreReport Restore(PerformanceTrackerSnapshot snapshot)` | Into a tracker that has accounted for nothing. Raises nothing. |
+
+`PerformanceTrackerSnapshot` holds `CapturedAt` (`DateTimeOffset`) and `Modules`
+(`IReadOnlyList<PerformanceModuleSnapshot>`). `PerformanceModuleSnapshot` carries the three totals,
+the two counts, `AccountingSince`, the state and its entry time, and the task and blocked reason
+flattened to strings.
+
+`PerformanceRestoreReport`: `IsAccepted`, `Reason`, `Restored`, `Adjusted`, `Count` and
+**`Unaccounted`** (`TimeSpan`) - the interval between the capture and the restore, which is charged
+to **nothing**, because E116 has no state that means switched off. See the
+[README](README.md#outliving-the-process-the-ledger-comes-back-the-claim-does-not), which also says
+why `Barbatos.SecsGem.Productivity` answers that the other way.

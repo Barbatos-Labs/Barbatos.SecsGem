@@ -110,6 +110,191 @@ public sealed class CarrierManager
         }
     }
 
+    // --------------------------------------------------------- outliving the process
+
+    /// <summary>Writes down everything this manager holds.</summary>
+    /// <returns>A faithful record, including the states a restart will not claim again.</returns>
+    /// <remarks>
+    /// A consistent snapshot: taken under the manager's lock, so it is never half of one
+    /// transition and half of the next. What is done with it afterwards - a file, a row, a key -
+    /// is the application's, and this package depends on no serializer to make that possible.
+    /// </remarks>
+    public CarrierManagerSnapshot Capture()
+    {
+        lock (_gate)
+        {
+            return new CarrierManagerSnapshot
+            {
+                Ports = [.. _ports.Values.OrderBy(port => port.PortId).Select(port => new LoadPortSnapshot
+                {
+                    PortId = port.PortId,
+                    TransferState = port.TransferState,
+                    AccessMode = port.AccessMode,
+                    AssociationState = port.AssociationState,
+                    ReservationState = port.ReservationState,
+                    AssociatedCarrierId = port.AssociatedCarrierId,
+                    ReservedForCarrierId = port.ReservedForCarrierId,
+                })],
+                Carriers = [.. _carriers.Values.Select(carrier => new CarrierSnapshot
+                {
+                    CarrierId = carrier.CarrierId,
+                    IdStatus = carrier.IdStatus,
+                    SlotMapStatus = carrier.SlotMapStatus,
+                    AccessStatus = carrier.AccessStatus,
+                    PortId = carrier.PortId,
+                    SlotMap = [.. carrier.SlotMap.Span],
+                    Capacity = carrier.Capacity,
+                    SubstrateCount = carrier.SubstrateCount,
+                    LotId = carrier.LotId,
+                    Usage = carrier.Usage,
+                })],
+            };
+        }
+    }
+
+    /// <summary>Reads a snapshot back into a manager that has no carriers yet.</summary>
+    /// <param name="snapshot">What <see cref="Capture"/> wrote.</param>
+    /// <returns>What came back, and what a restarted machine was not allowed to claim.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="snapshot"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>The rule: what the host told this machine comes back, and what the machine
+    /// observed does not.</strong> A reboot does not change what a host asked for, and it says
+    /// nothing at all about where the boxes are now.
+    /// </para>
+    /// <para>
+    /// So a port's access mode, whether it is in service, and any reservation a host placed all
+    /// come back. Its association with a carrier does not, and nor does its transfer state beyond
+    /// being in service: a port holding a carrier is a thing the machine senses, and after a
+    /// restart it has not sensed anything yet. Every port comes back
+    /// <see cref="PortTransferState.TransferBlocked"/> when it was in service, which is the
+    /// resting state in service and not an error.
+    /// </para>
+    /// <para>
+    /// A carrier's identity, lot, usage and capacity come back - a host said those. Its
+    /// <see cref="CarrierIdStatus"/> and <see cref="CarrierSlotMapStatus"/> do not: they go back
+    /// to <see cref="CarrierIdStatus.IdNotRead"/> and
+    /// <see cref="CarrierSlotMapStatus.SlotMapNotRead"/>, with the slot map itself dropped,
+    /// because E87 wants a carrier re-read after a restart and a machine that claimed a
+    /// verification it did not perform would process a lot nobody confirmed. Which port it was at
+    /// goes too, for the same reason.
+    /// </para>
+    /// <para>
+    /// <strong>A carrier that was in access comes back
+    /// <see cref="CarrierAccessStatus.CarrierStopped"/>.</strong> Not
+    /// <see cref="CarrierAccessStatus.NotAccessed"/>, which would be a lie E87 names itself - the
+    /// substrates in it have been touched, and that is exactly why its access state machine has no
+    /// way back. Stopped is "finished early: a fault, or a host that said stop", and losing power
+    /// part way through a carrier is a fault. The two endings come back as themselves, because
+    /// they are history rather than a claim about now.
+    /// </para>
+    /// <para>
+    /// <strong>A snapshot does not invent hardware.</strong> Ports are declared with
+    /// <see cref="AddPort"/>, from configuration, so a port in the snapshot that this manager does
+    /// not have is reported and skipped rather than created: a machine that came back with a load
+    /// port its configuration no longer mentions would be a worse surprise than one that said so.
+    /// </para>
+    /// <para>
+    /// Refused outright for a manager that already has carriers, because merging two beliefs about
+    /// the same box has no right answer. Nothing is raised while restoring: these are not
+    /// transitions a host should hear about as though the machine had just made them.
+    /// </para>
+    /// </remarks>
+    public CarrierRestoreReport Restore(CarrierManagerSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        lock (_gate)
+        {
+            if (_carriers.Count > 0)
+            {
+                return CarrierRestoreReport.Denied(
+                    $"this manager already has {_carriers.Count} carrier(s); a snapshot is read into an empty one.");
+            }
+
+            List<string> restored = [];
+            Dictionary<string, string> adjusted = new(StringComparer.Ordinal);
+
+            foreach (var port in snapshot.Ports)
+            {
+                if (!_ports.TryGetValue(port.PortId, out var existing))
+                {
+                    adjusted[$"port {port.PortId}"] =
+                        "the snapshot has this port and this manager does not; ports are declared from "
+                        + "configuration, so it was skipped rather than invented.";
+                    continue;
+                }
+
+                existing.AccessMode = port.AccessMode;
+                existing.TransferState = port.TransferState is PortTransferState.OutOfService
+                    ? PortTransferState.OutOfService
+                    : PortTransferState.TransferBlocked;
+                existing.ReservationState = port.ReservationState;
+                existing.ReservedForCarrierId = port.ReservedForCarrierId;
+                existing.AssociationState = PortAssociationState.NotAssociated;
+                existing.AssociatedCarrierId = null;
+
+                if (port.TransferState is not (PortTransferState.OutOfService or PortTransferState.TransferBlocked))
+                {
+                    adjusted[$"port {port.PortId}"] =
+                        $"was {port.TransferState}; a restarted machine has sensed nothing, so it is "
+                        + $"{PortTransferState.TransferBlocked}.";
+                }
+                else if (port.AssociationState is PortAssociationState.Associated)
+                {
+                    adjusted[$"port {port.PortId}"] =
+                        $"was associated with '{port.AssociatedCarrierId}'; which box is on a port is sensed, not remembered.";
+                }
+
+                restored.Add($"port {port.PortId}");
+            }
+
+            foreach (var carrier in snapshot.Carriers)
+            {
+                if (carrier.CarrierId.Length == 0)
+                {
+                    continue;
+                }
+
+                var access = carrier.AccessStatus is CarrierAccessStatus.InAccess
+                    ? CarrierAccessStatus.CarrierStopped
+                    : carrier.AccessStatus;
+
+                _carriers[carrier.CarrierId] = new Carrier(carrier.CarrierId)
+                {
+                    AccessStatus = access,
+                    Capacity = carrier.Capacity,
+                    LotId = carrier.LotId,
+                    Usage = carrier.Usage,
+                };
+
+                if (access != carrier.AccessStatus)
+                {
+                    adjusted[carrier.CarrierId] =
+                        $"was {carrier.AccessStatus} when the machine stopped, so it comes back "
+                        + $"{access}: losing power part way through a carrier is a fault, and E87 has no way "
+                        + "back to never-accessed once the substrates have been touched.";
+                }
+                else if (carrier.IdStatus is not CarrierIdStatus.IdNotRead
+                    || carrier.SlotMapStatus is not CarrierSlotMapStatus.SlotMapNotRead)
+                {
+                    adjusted[carrier.CarrierId] =
+                        $"was identifier {carrier.IdStatus}, slot map {carrier.SlotMapStatus}; both go back to "
+                        + "unread, because E87 wants a carrier re-read after a restart.";
+                }
+
+                restored.Add(carrier.CarrierId);
+            }
+
+            return new CarrierRestoreReport
+            {
+                IsAccepted = true,
+                Restored = restored,
+                Adjusted = adjusted,
+            };
+        }
+    }
+
     /// <summary>Finds a carrier.</summary>
     /// <param name="carrierId">Which one.</param>
     /// <returns>The carrier, or <see langword="null"/>.</returns>

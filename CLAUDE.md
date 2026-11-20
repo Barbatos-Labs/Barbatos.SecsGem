@@ -65,6 +65,31 @@ the other direction is methods, which hold no lock when they begin.
 - A new format is a new assembly implementing `ISecsFormatReader`/`ISecsFormatWriter` plus an
   `AddSecsXxx()` method. **If adding a format edits `Core`, the design is wrong.**
 
+## State that outlives the process
+
+Every state machine here - E87's carriers, E90's substrates, E94's and E40's queues, E116's modules,
+E10's buckets - has `Capture()` and `Restore()`. Two rules hold across all six, and a new one must
+keep them:
+
+- **The snapshot is faithful; the judgement is in `Restore`.** The record says what was true,
+  including the states a restart will not claim again. Putting the filtering in `Capture` would hide
+  the rules in the file instead of in testable code.
+- **What a host told the machine comes back; what the machine observed does not.** A reboot does not
+  change what anybody asked for, and it says nothing about where the material is now. There is
+  exactly one exception, E90's wafer positions, because nothing can re-sense them - and it is
+  documented as an exception rather than left to be found.
+
+Three corollaries worth stating because each has a test: a snapshot **does not invent hardware**
+(ports and modules come from configuration, so unknown ones are reported and skipped); anything that
+was **in progress ends the way an interruption ends**, never the way it started; and `Restore`
+**raises nothing**, because a host hearing those as transitions would believe the machine had just
+made them. What was not restored as recorded comes back in the report's `Adjusted`.
+
+Where the time a machine was switched off goes is the standard's answer, not a house style: E10
+charges it to a bucket the caller names, because every E10 ratio divides by some sum of them, and
+E116 charges it to nothing and hands it back, because its three states have nowhere honest to put
+it. Both are written down in those packages' READMEs.
+
 ## Non-negotiables
 
 - **.NET 8, 9, 10 only.** Never add `netstandard` or a `net6`/`net7` shim. TFMs come from

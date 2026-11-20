@@ -184,6 +184,47 @@ Events are raised **after** the state has moved and **inside** the tracker's loc
 reading the substrate sees the state the event announces - and must not call back in. Queue the
 work.
 
+## Outliving the process, and the one exception in this stack
+
+```csharp
+var snapshot = substrates.Capture();
+// ... the machine restarts ...
+var report = substrates.Restore(snapshot);
+```
+
+Everywhere else in this stack the rule is that a host's instructions survive a restart and the
+machine's observations do not: a carrier's label is read again, a load port's association is sensed
+again. **A wafer's position cannot be.** Most tools have no way to find out what is on a chuck
+without moving it, and a tracker that came back empty would have lost twenty-five wafers somewhere
+inside a machine with nothing recording that they exist.
+
+So `LocationId` and `TransportState` come back as recorded. That is the exception, it is the only
+one, and it is written down here rather than left to be discovered.
+
+### Work that was happening when the power went did not finish
+
+A substrate restored as `InProcess` is one **nothing is ever coming back for**: E90 ends work only
+from `InProcess`, and the recipe that would have ended it stopped running before the restart. So it
+comes back `Stopped`, which is E90's own word for work that ended early - the same reading E87's
+carrier takes, for the same reason.
+
+```csharp
+substrates.FindSubstrate("W01")!.ProcessingState;   // Stopped, not InProcess
+report.Adjusted["W01"];                             // and why
+```
+
+Every other processing state is a record of work already finished or not yet begun, and comes back
+as itself. A wafer nobody got to still `NeedsProcessing`.
+
+### Locations
+
+They come back by name, as the machine's own geography, and **which of them is occupied is worked
+out again from the substrates** rather than taken from the snapshot - so the two can never
+disagree. A location a substrate names that the snapshot did not list is declared anyway, because a
+wafer somewhere unnamed is worse than an extra name.
+
+Restoring raises nothing and is refused for a tracker that already has substrates.
+
 ## What is not here yet
 
 - **Substrate history.** E90 defines one; this package keeps the current state and raises an event
@@ -192,8 +233,8 @@ work.
 - **E40 process jobs**, which is what gives a substrate its recipe. Another object model over the
   same stream 14. E94 control jobs - a substrate's place in a lot - now have a package of their
   own: [`Barbatos.SecsGem.ControlJobs`](../Barbatos.SecsGem.ControlJobs/README.md).
-- A tracker that outlives the process. The states are in memory; a machine that reboots re-reads
-  its carriers, which is what E87 and E90 both expect.
+- Writing the snapshot anywhere. `Capture` hands back a plain object and this package depends on no
+  serializer; where it goes is the application's.
 
 ## Documentation
 

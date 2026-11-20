@@ -809,6 +809,167 @@ public sealed class ProcessJobManager
         }
     }
 
+    // --------------------------------------------------------- outliving the process
+
+    /// <summary>Writes down everything this manager holds.</summary>
+    /// <returns>A faithful record, including the states a restart will not claim again.</returns>
+    /// <remarks>
+    /// Taken under the manager's lock, so the jobs and the queue can never disagree.
+    /// <see cref="JobSpace"/> is deliberately not in it: how many jobs a machine can hold is its
+    /// own configuration, not something a host set, and a snapshot that carried it could put a
+    /// restarted machine's limit back to whatever it was two upgrades ago.
+    /// </remarks>
+    public ProcessJobManagerSnapshot Capture()
+    {
+        lock (_gate)
+        {
+            return new ProcessJobManagerSnapshot
+            {
+                Jobs = [.. _jobs.Values.Select(job => new ProcessJobSnapshot
+                {
+                    ProcessJobId = job.ProcessJobId,
+                    State = job.State,
+                    Completion = job.Completion,
+                    RecipeId = job.RecipeId,
+                    RecipeMethod = job.RecipeMethod,
+                    StartsAutomatically = job.StartsAutomatically,
+                    MaterialOrder = job.MaterialOrder,
+                    PauseEventId = job.PauseEventId,
+                    Material = [.. job.Material],
+                    Parameters = new Dictionary<string, string>(job.Parameters, StringComparer.Ordinal),
+                })],
+                Queue = [.. _queue],
+            };
+        }
+    }
+
+    /// <summary>Reads a snapshot back into a manager that has no jobs yet.</summary>
+    /// <param name="snapshot">What <see cref="Capture"/> wrote.</param>
+    /// <returns>What came back, and what a restarted machine was not allowed to claim.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="snapshot"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// The same rule E94's queue follows, because it is the same question: a job's definition is a
+    /// host instruction and comes back whole - recipe, method, material, parameters, order, the
+    /// event that pauses it - and so does the order of the queue, which E40 lets a host set.
+    /// </para>
+    /// <para>
+    /// <strong>A job in the middle of running does not come back running.</strong>
+    /// <see cref="ProcessJobState.Queued"/> is the one state a restart can honestly keep. E40 has
+    /// one terminal state, <see cref="ProcessJobState.ProcessComplete"/>, with the reason recorded
+    /// beside it, so everything that was in flight ends there:
+    /// <see cref="ProcessJobState.SettingUp"/> and
+    /// <see cref="ProcessJobState.WaitingForStart"/> end
+    /// <see cref="ProcessJobCompletion.Cancelled"/>, because no material went through; the rest -
+    /// processing, pausing, paused, stopping, aborting - end
+    /// <see cref="ProcessJobCompletion.Aborted"/>, because some of it did.
+    /// </para>
+    /// <para>
+    /// <strong>A snapshot does not raise the job space.</strong> If more jobs were captured than
+    /// <see cref="JobSpace"/> now allows - a machine reconfigured downwards between runs - the
+    /// ones past the limit are reported and skipped rather than loaded, because the limit is the
+    /// machine's statement about itself and a restart is not an argument against it. The queue
+    /// order decides which ones those are, so the jobs a host put first are the jobs that survive.
+    /// </para>
+    /// <para>
+    /// Refused outright for a manager that already has jobs. Nothing is raised while restoring.
+    /// </para>
+    /// </remarks>
+    public ProcessJobRestoreReport Restore(ProcessJobManagerSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        lock (_gate)
+        {
+            if (_jobs.Count > 0)
+            {
+                return ProcessJobRestoreReport.Denied(
+                    $"this manager already has {_jobs.Count} process job(s); a snapshot is read into an empty one.");
+            }
+
+            List<string> restored = [];
+            Dictionary<string, string> adjusted = new(StringComparer.Ordinal);
+
+            // Queued first and in order, so that a job space smaller than the snapshot keeps the
+            // ones a host asked for first rather than whichever the dictionary happened to yield.
+            Dictionary<string, int> places = new(StringComparer.Ordinal);
+
+            for (var place = 0; place < snapshot.Queue.Count; place++)
+            {
+                places.TryAdd(snapshot.Queue[place], place);
+            }
+
+            var ordered = snapshot.Jobs
+                .OrderBy(job => places.TryGetValue(job.ProcessJobId, out var place) ? place : int.MaxValue)
+                .ToArray();
+
+            foreach (var job in ordered)
+            {
+                if (job.ProcessJobId.Length == 0)
+                {
+                    continue;
+                }
+
+                if (JobSpace is { } limit && _jobs.Count >= limit)
+                {
+                    adjusted[job.ProcessJobId] =
+                        $"the snapshot holds more jobs than this machine's job space of {limit}, so it was "
+                        + "skipped: a restart is not an argument against the machine's own limit.";
+                    continue;
+                }
+
+                var (state, completion) = job.State switch
+                {
+                    ProcessJobState.Queued => (ProcessJobState.Queued, (ProcessJobCompletion?)null),
+                    ProcessJobState.ProcessComplete => (ProcessJobState.ProcessComplete, job.Completion),
+                    ProcessJobState.SettingUp or ProcessJobState.WaitingForStart
+                        => (ProcessJobState.ProcessComplete, ProcessJobCompletion.Cancelled),
+                    _ => (ProcessJobState.ProcessComplete, ProcessJobCompletion.Aborted),
+                };
+
+                _jobs[job.ProcessJobId] = new ProcessJob(job.ProcessJobId)
+                {
+                    State = state,
+                    Completion = completion,
+                    RecipeId = job.RecipeId,
+                    RecipeMethod = job.RecipeMethod,
+                    StartsAutomatically = job.StartsAutomatically,
+                    MaterialOrder = job.MaterialOrder,
+                    PauseEventId = job.PauseEventId,
+                    Material = [.. job.Material],
+                    Parameters = new Dictionary<string, string>(job.Parameters, StringComparer.Ordinal),
+                };
+
+                if (state != job.State)
+                {
+                    adjusted[job.ProcessJobId] =
+                        $"was {job.State} when the machine stopped, so it comes back {state} ({completion}): "
+                        + "a restarted machine is not processing anything, and E40 records how a job ended "
+                        + "beside the one ending it has.";
+                }
+
+                restored.Add(job.ProcessJobId);
+            }
+
+            foreach (var processJobId in snapshot.Queue)
+            {
+                if (_jobs.TryGetValue(processJobId, out var queued)
+                    && queued.State is ProcessJobState.Queued
+                    && !_queue.Contains(processJobId))
+                {
+                    _queue.Add(processJobId);
+                }
+            }
+
+            return new ProcessJobRestoreReport
+            {
+                IsAccepted = true,
+                Restored = restored,
+                Adjusted = adjusted,
+            };
+        }
+    }
+
     // --------------------------------------------------------------- the pieces
 
     private ProcessJobResult Transition(

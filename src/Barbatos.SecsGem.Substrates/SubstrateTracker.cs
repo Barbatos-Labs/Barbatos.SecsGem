@@ -131,6 +131,157 @@ public sealed class SubstrateTracker
         }
     }
 
+    // --------------------------------------------------------- outliving the process
+
+    /// <summary>Writes down everything this tracker holds.</summary>
+    /// <returns>A faithful record, including the state a restart will not claim again.</returns>
+    /// <remarks>Taken under the tracker's lock, so it is never half of one transition and half of the next.</remarks>
+    public SubstrateTrackerSnapshot Capture()
+    {
+        lock (_gate)
+        {
+            return new SubstrateTrackerSnapshot
+            {
+                Locations = [.. _locations.Keys.Order(StringComparer.Ordinal)],
+                Substrates = [.. _substrates.Values.Select(substrate => new SubstrateSnapshot
+                {
+                    SubstrateId = substrate.SubstrateId,
+                    LocationId = substrate.LocationId,
+                    SourceLocationId = substrate.SourceLocationId,
+                    DestinationLocationId = substrate.DestinationLocationId,
+                    TransportState = substrate.TransportState,
+                    ProcessingState = substrate.ProcessingState,
+                    SlotId = substrate.SlotId,
+                    LotId = substrate.LotId,
+                    Usage = substrate.Usage,
+                    SubstrateType = substrate.SubstrateType,
+                    AcquiredId = substrate.AcquiredId,
+                })],
+            };
+        }
+    }
+
+    /// <summary>Reads a snapshot back into a tracker that has no substrates yet.</summary>
+    /// <param name="snapshot">What <see cref="Capture"/> wrote.</param>
+    /// <returns>What came back, and what a restarted machine was not allowed to claim.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="snapshot"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>This is the one place in the stack where a snapshot keeps an observation, and it is
+    /// worth being plain about why.</strong> Everywhere else the rule is that what a host said
+    /// comes back and what the machine sensed does not - a carrier's label is re-read, a load
+    /// port's association is sensed again. A wafer's position cannot be. Most tools have no way to
+    /// find out what is on a chuck or in a slot without moving it, and a tracker that came back
+    /// empty would have lost the lot: twenty-five wafers somewhere inside a machine with nothing
+    /// recording that they exist. So the location and the transport state come back as recorded,
+    /// and this paragraph is the exception rather than a gap somebody will have to find.
+    /// </para>
+    /// <para>
+    /// The identity does too, which needs no defence: a lot identifier, a substrate type and an
+    /// identifier read off the wafer are all things the machine was told.
+    /// </para>
+    /// <para>
+    /// <strong>A substrate that was in process comes back
+    /// <see cref="SubstrateProcessingState.Stopped"/>.</strong> Work that was happening when the
+    /// power went did not finish, and E90 ends work only from
+    /// <see cref="SubstrateProcessingState.InProcess"/> - so a wafer restored as in process would
+    /// be one nothing is ever coming back for, waiting for a recipe that stopped running before
+    /// the restart. Stopped is E90's own word for work that ended early, which is what happened.
+    /// The other processing states are a record of work already finished or not yet begun, and
+    /// come back as themselves.
+    /// </para>
+    /// <para>
+    /// Locations come back by name, as the machine's own geography; which of them is occupied is
+    /// worked out again from the substrates rather than taken from the snapshot, so the two can
+    /// never disagree. A location a substrate names that the snapshot did not list is declared,
+    /// because a wafer somewhere unnamed would be worse than an extra name.
+    /// </para>
+    /// <para>
+    /// Refused outright for a tracker that already has substrates. Nothing is raised while
+    /// restoring: these are not transitions a host should hear about as though the machine had
+    /// just made them.
+    /// </para>
+    /// </remarks>
+    public SubstrateRestoreReport Restore(SubstrateTrackerSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        lock (_gate)
+        {
+            if (_substrates.Count > 0)
+            {
+                return SubstrateRestoreReport.Denied(
+                    $"this tracker already has {_substrates.Count} substrate(s); a snapshot is read into an empty one.");
+            }
+
+            foreach (var locationId in snapshot.Locations)
+            {
+                if (locationId.Length > 0)
+                {
+                    _locations.TryAdd(locationId, new SubstrateLocation(locationId));
+                }
+            }
+
+            List<string> restored = [];
+            Dictionary<string, string> adjusted = new(StringComparer.Ordinal);
+
+            foreach (var substrate in snapshot.Substrates)
+            {
+                if (substrate.SubstrateId.Length == 0)
+                {
+                    continue;
+                }
+
+                var processing = substrate.ProcessingState is SubstrateProcessingState.InProcess
+                    ? SubstrateProcessingState.Stopped
+                    : substrate.ProcessingState;
+
+                _substrates[substrate.SubstrateId] = new Substrate(substrate.SubstrateId)
+                {
+                    LocationId = substrate.LocationId,
+                    SourceLocationId = substrate.SourceLocationId,
+                    DestinationLocationId = substrate.DestinationLocationId,
+                    TransportState = substrate.TransportState,
+                    ProcessingState = processing,
+                    SlotId = substrate.SlotId,
+                    LotId = substrate.LotId,
+                    Usage = substrate.Usage,
+                    SubstrateType = substrate.SubstrateType,
+                    AcquiredId = substrate.AcquiredId,
+                };
+
+                // A wafer whose location was never declared is still a wafer, so the name is
+                // declared rather than the substrate dropped.
+                if (substrate.LocationId.Length > 0)
+                {
+                    var location = _locations.TryGetValue(substrate.LocationId, out var known)
+                        ? known
+                        : _locations[substrate.LocationId] = new SubstrateLocation(substrate.LocationId);
+
+                    location.State = SubstrateLocationState.Occupied;
+                    location.SubstrateId = substrate.SubstrateId;
+                }
+
+                if (processing != substrate.ProcessingState)
+                {
+                    adjusted[substrate.SubstrateId] =
+                        $"was {substrate.ProcessingState} when the machine stopped, so it comes back {processing}: "
+                        + "work that was happening when the power went did not finish, and E90 ends work only "
+                        + "from in process, so nothing would ever have come back for it.";
+                }
+
+                restored.Add(substrate.SubstrateId);
+            }
+
+            return new SubstrateRestoreReport
+            {
+                IsAccepted = true,
+                Restored = restored,
+                Adjusted = adjusted,
+            };
+        }
+    }
+
     /// <summary>A substrate has been found at its source - the start of everything E90 tracks.</summary>
     /// <param name="substrateId">What to call it.</param>
     /// <param name="sourceLocationId">Where it is, which must be a declared and empty location.</param>
