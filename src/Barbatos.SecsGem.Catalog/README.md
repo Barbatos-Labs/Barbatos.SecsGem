@@ -237,6 +237,79 @@ service's own commands, is not in this reference in any form. That is a standard
 not one to extrapolate, and [stream 17](#stream-17-is-the-one-that-failed-that-check) is what
 extrapolating looks like when somebody else has done it.
 
+## The third question: whose vocabulary is it?
+
+Two measures were here before this one. `SecsStreamProvenance` answers *how much* of a stream the
+source documented, and `SecsDataItemInfo.IsNamedByNoMessage` answers whether anything uses a
+definition. Every chapter of this repository then went on to compute a third thing by hand, so it
+is a property now:
+
+```csharp
+var nineteen = SecsCatalog.Streams.Single(stream => stream.Number == 19);
+
+nineteen.Anchoring;                 // S19 5 borrowed anchor(s), 0 own, 1 shared gap(s), 5 own
+nineteen.Anchoring.OwnGaps;         // CKSUM, RCPNS, RCPPNAME, RCPPVAL, RCPREV
+nineteen.Anchoring.BorrowedAnchors; // LENGTH, PPBODY, RCPID, RMACK, TIME
+```
+
+Two independent facts about each item name a stream uses - does the dictionary define it, and does
+any other stream name it - make four buckets that partition exactly:
+
+| | defined | undefined |
+| --- | --- | --- |
+| **named by this stream alone** | `OwnAnchors` - its own documented vocabulary | `OwnGaps` - nothing anywhere to read them against |
+| **shared with other streams** | `BorrowedAnchors` - firm ground, somebody else's | `SharedGaps` - the source's habit, not this stream's hole |
+
+**The gap split has already decided two questions.** `BLKNUM` is a shared gap - one of seven
+block-transfer items this reference defines nowhere - so the blocked transfers of streams 8 and 13
+are left alone, because that vocabulary was never written down. `DSDATA` is an own gap, a hole in
+one row of a stream whose siblings' payloads *are* defined, so a data set is carried untouched
+instead. The older measure called both "undefined"; this one says which kind.
+
+**The anchor split is evidence and not a verdict**, the same caveat the other two carry. Six
+streams have no defined item of their own - 8, 15, 16, 17, 19 and 20 - and two of them are
+implemented here: stream 8 because it is stream 7's design and its items read off `PPID` and
+`PPBODY`, stream 16 because E40 defines the behaviour its rows carry. A stream with no vocabulary
+of its own needs somewhere else to stand; it does not follow that there is nowhere.
+
+And the per-item direction, which is the single most-reused measurement in this repository:
+
+```csharp
+SecsCatalog.TryGetDataItem("GRANT", out var grant);
+grant.Streams;      // 2, 3, 4, 8, 21 - which is why two packages here serve it and a test agrees them
+
+SecsCatalog.TryGetDataItem("RCPSPEC", out var specification);
+specification.Streams;   // 15, 20 - and stream 19 calls the same thing RCPNS, which is undefined
+```
+
+## Three streams called Recipe Management, and two of them by the same name
+
+The catalogue has one pair of streams that share a name, and finding it closed a question rather
+than opening one:
+
+```csharp
+SecsCatalog.Provenance.StreamNameClashes;   // "Recipe Management" is S15 and S19
+```
+
+A shared name is not a fault. What sits underneath this one is:
+
+- **108 rows across streams 15, 19 and 20, and not one of them a definition.** The source
+  documented none of the recipe management it lists.
+- **Streams 15 and 19 use all twenty of the same function numbers.** Four carry the identically
+  named transaction - the directory pair and the download send pair - and two more differ by one
+  word. The rest are shifted: **S19F11 is a recipe delete where S15F11 is a recipe verify.**
+- **Four roles, two vocabularies.** The namespace is `RCPSPEC` in streams 15 and 20 and `RCPNS` in
+  stream 19; the revision is `RCPVER` or `RCPREV`; the parameter pair is `RCPATTRNAME`/`RCPATTRVAL`
+  or `RCPPNAME`/`RCPPVAL`; the checksum is `CHECKSUM` or `CKSUM`. Of those eight names the
+  dictionary defines exactly one - `RCPSPEC`, the one stream 19 does not use.
+
+So a library that implemented stream 19 from this reference would be choosing the undefined
+vocabulary over the defined one, and would answer S19F11 as a delete while a machine built from the
+other half of the same reference means it as a verify. That is a recipe deleted when a host asked
+to check one, which is why no package here implements any of the three. The one piece of good news
+is that all three carry a recipe as `PPBODY`, which stream 7 defines as a `B` - so the payload was
+never the problem; the vocabulary around it was.
+
 ## Not a structural template
 
 `DataItems` is a list of names, in the order they appear in the body. It does **not** record

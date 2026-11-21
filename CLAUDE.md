@@ -155,7 +155,14 @@ Run one target framework at a time.
 
 Before implementing against a stream, ask the catalogue how firm it is -
 `SecsCatalog.TryGetStream(n, out var s)` then `s.Provenance` - and say so in the package's docs
-rather than implying the standard was quoted. `IsEntirelyRepresentative` is true for nine streams
+rather than implying the standard was quoted. Then ask `s.Anchoring`, which is the question that
+has actually decided the last several chapters: of the names the stream uses, which are its own and
+which are borrowed, and are its gaps its own or the whole reference's. A **shared** gap is a
+vocabulary the source never wrote down, so leave those rows alone - that is why no blocked transfer
+is implemented here. An **own** gap is a hole in one row, so carry the field untouched and say so.
+And `i.Streams` on an item answers the other direction: one named by a single stream has nothing to
+check against, and one named by several usually has a package here serving it already, which a test
+must then agree with. `IsEntirelyRepresentative` is true for nine streams
 and two of them are implemented here, so it is not a veto: check the stream against the item
 dictionary and against its standard's subject matter, and record which check it passed. Stream 17
 is the one that failed both.

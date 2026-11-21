@@ -172,17 +172,72 @@ public static class SecsCatalog
             .Where(name => name.Length > 0)
             .ToHashSet(StringComparer.Ordinal);
 
+        // And one pass that answers the question in between the other two: which streams name each
+        // item. Every chapter of this repository computed this by hand before it was a property -
+        // it is what tells an undefined item with a sibling elsewhere apart from one with nothing
+        // anywhere to read it against.
+        var itemStreams = new Dictionary<string, SortedSet<byte>>(StringComparer.Ordinal);
+
+        foreach (var message in messages)
+        {
+            foreach (var name in message.DataItems)
+            {
+                // Unreachable with the current data and kept anyway, the same way the other two
+                // empty-name filters in this file are: ReadMessage turns an empty item field into
+                // no items, so there is no empty name to skip. A refreshed reference with a
+                // trailing comma would otherwise give "" a stream list of its own.
+                if (name.Length == 0)
+                {
+                    continue;
+                }
+
+                if (!itemStreams.TryGetValue(name, out var carrying))
+                {
+                    carrying = [];
+                    itemStreams[name] = carrying;
+                }
+
+                carrying.Add(message.Stream);
+            }
+        }
+
         items = [.. items.Select(item => new SecsDataItemInfo(
             item.Name,
             item.FormatToken,
             item.Format,
             item.Length,
             item.Codes,
-            isNamedByNoMessage: !used.Contains(item.Name)))];
+            isNamedByNoMessage: !used.Contains(item.Name),
+            streams: itemStreams.TryGetValue(item.Name, out var naming) ? [.. naming] : []))];
 
         foreach (var (number, name) in streamNames.OrderBy(pair => pair.Key))
         {
             var ofStream = messages.Where(m => m.Stream == number).OrderBy(m => m.Function).ToArray();
+
+            // Each name this stream uses is two independent facts: does the dictionary define it,
+            // and does any other stream name it. Four buckets, and which bucket an undefined name
+            // falls in is the difference between a vocabulary to leave alone and a field to carry
+            // untouched.
+            var names = ofStream
+                .SelectMany(m => m.DataItems)
+                .Where(item => item.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+
+            List<string> ownAnchors = [];
+            List<string> borrowedAnchors = [];
+            List<string> sharedGaps = [];
+            List<string> ownGaps = [];
+
+            foreach (var item in names)
+            {
+                var shared = itemStreams.TryGetValue(item, out var carrying) && carrying.Count > 1;
+
+                (defined.Contains(item)
+                    ? shared ? borrowedAnchors : ownAnchors
+                    : shared ? sharedGaps : ownGaps).Add(item);
+            }
 
             byStream.Add(new SecsStreamInfo(
                 number,
@@ -192,11 +247,8 @@ public static class SecsCatalog
                     number,
                     ofStream.Length,
                     ofStream.Count(m => m.IsRepresentative),
-                    [.. ofStream
-                        .SelectMany(m => m.DataItems)
-                        .Where(item => !defined.Contains(item))
-                        .Distinct(StringComparer.Ordinal)
-                        .Order(StringComparer.Ordinal)])));
+                    [.. names.Where(item => !defined.Contains(item))]),
+                new SecsStreamAnchoring(number, ownAnchors, borrowedAnchors, sharedGaps, ownGaps)));
         }
 
         return new Loaded(
@@ -213,7 +265,24 @@ public static class SecsCatalog
                 items.Count,
                 used.Count,
                 [.. used.Where(name => !defined.Contains(name)).Order(StringComparer.Ordinal)],
-                [.. items.Where(item => item.IsNamedByNoMessage).Select(item => item.Name).Order(StringComparer.Ordinal)]));
+                [.. items.Where(item => item.IsNamedByNoMessage).Select(item => item.Name).Order(StringComparer.Ordinal)],
+
+                // One line, and it is the headline of a refusal: two streams in this reference
+                // carry the same name, and underneath that they claim the same twenty function
+                // numbers for different transactions.
+                // Grouped without regard to case, which is the one comparison in this repository
+                // that is not Ordinal - and deliberately. Every Ordinal comparison here is over an
+                // identifier, where PUMP and pump are two things; a stream's name is prose from a
+                // reference's table of contents, where "Recipe Management" and "Recipe management"
+                // would be one subject typed twice. The current data cannot tell the two readings
+                // apart, since its one clash is an exact match, so a control on this finds nothing.
+                [.. streamNames
+                    .GroupBy(pair => pair.Value, StringComparer.OrdinalIgnoreCase)
+                    .Where(group => group.Count() > 1)
+                    .OrderBy(group => group.Key, StringComparer.Ordinal)
+                    .Select(group => new SecsStreamNameClash(
+                        group.Key,
+                        [.. group.Select(pair => pair.Key).Order()]))]));
     }
 
     private static SecsMessageInfo ReadMessage(string[] fields)

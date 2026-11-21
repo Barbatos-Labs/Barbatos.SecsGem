@@ -54,6 +54,7 @@ something.
 | `Name` | `string { get; }` | For example `Data Collection`. |
 | `Messages` | `IReadOnlyList<SecsMessageInfo> { get; }` | This stream's messages, ordered by function. |
 | `Provenance` | `SecsStreamProvenance { get; }` | How much of this stream the source actually documented. The question to ask before implementing against it. |
+| `Anchoring` | `SecsStreamAnchoring { get; }` | **Whose** the documented part is: the stream's own vocabulary or somebody else's. The question to ask second. |
 | `ToString()` | `override string` | `S6 Data Collection`. |
 
 The twenty streams:
@@ -70,6 +71,49 @@ The twenty streams:
 | 8 | Control Program Transfer | 20 | Recipe Management System |
 | 9 | System Errors | 21 | Item Transfer |
 | 10 | Terminal Services | | |
+
+## `SecsStreamAnchoring`
+
+`sealed class`. The third provenance measure, and the one every chapter of this repository computed
+by hand before it was a property. `SecsStreamProvenance` says *how much* of a stream the source
+documented; `SecsDataItemInfo.IsNamedByNoMessage` says whether anything uses a definition. This
+says, of the names a stream uses, **which are its own and which are borrowed, and whether its gaps
+are its own or everybody's** - two independent facts per name, so four buckets that partition
+exactly.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `Stream` | `byte { get; }` | |
+| `OwnAnchors` | `IReadOnlyList<string> { get; }` | Defined, and named by this stream alone - its own documented vocabulary. Stream 12 has 27; stream 19 has none. |
+| `BorrowedAnchors` | `IReadOnlyList<string> { get; }` | Defined, and shared - firm ground that is somebody else's. Stream 17 has 14 of these and no own ones, which is what an extrapolation looks like counted. |
+| `SharedGaps` | `IReadOnlyList<string> { get; }` | Undefined, and named by other streams too - the source's habit rather than this stream's hole. All seven block-transfer items are these. |
+| `OwnGaps` | `IReadOnlyList<string> { get; }` | Undefined, and named by this stream alone - nothing anywhere to read them against. `SSID` and `DSDATA` are these. |
+| `DataItemCount` | `int { get; }` | The four added. Empty names are not counted, and that filter is the one line here no test reaches. |
+| `HasNoOwnVocabulary` | `bool { get; }` | True for six streams: 8, 15, 16, 17, 19, 20. **Evidence, not a verdict** - 8 and 16 are implemented here. |
+| `ToString()` | `override string` | `S19 5 borrowed anchor(s), 0 own, 1 shared gap(s), 5 own`. |
+
+The gap split is the half that has already decided two questions. `BLKNUM` is a **shared** gap, so
+the blocked transfers of streams 8 and 13 stay out - that vocabulary was never written down
+anywhere. `DSDATA` is an **own** gap, a hole in one row of a stream whose siblings' payloads are
+defined, so a data set is carried untouched instead. Same word in the older measure; different
+answer in this one.
+
+## `SecsStreamNameClash`
+
+`sealed class`. Stream names that more than one stream carries. There is **one** in the current
+data, and it is the headline of a refusal: streams 15 and 19 are both called `Recipe Management`.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `Name` | `string { get; }` | Matched without regard to case - the one non-ordinal comparison in this repository, because a stream name is prose and not an identifier. A line no test reaches: the one clash is an exact match. |
+| `Streams` | `IReadOnlyList<byte> { get; }` | The streams carrying it, ordered. |
+| `ToString()` | `override string` | `"Recipe Management" is S15 and S19`. |
+
+A shared name is not a fault by itself. What makes this one worth a type is what sits underneath:
+the two streams use **all twenty of the same function numbers**, four of them for the identically
+named transaction and the rest shifted - so S19F11 is a recipe *delete* where S15F11 is a recipe
+*verify*. Neither stream has one documented row. See the repository roadmap for why that closed the
+question rather than opening it.
 
 ## `SecsStreamProvenance`
 
@@ -98,6 +142,7 @@ than the anchored one.
 | `StreamCount` | `int { get; }` | 20. |
 | `MessageCount` | `int { get; }` | 524, and the sum of the streams' own counts - a test asserts that. |
 | `RepresentativeCount` | `int { get; }` | 405. |
+| `StreamNameClashes` | `IReadOnlyList<SecsStreamNameClash> { get; }` | Names more than one stream carries. One entry: `Recipe Management`, streams 15 and 19. |
 | `DefinedCount` | `int { get; }` | `MessageCount - RepresentativeCount`. |
 | `DataItemCount` | `int { get; }` | 375 definitions. |
 | `NamedDataItemCount` | `int { get; }` | 236 distinct names the messages use. Empty names are dropped, which is one of **two lines here no test reaches**: no row in this data has a trailing comma in its item list. |
@@ -159,6 +204,7 @@ nothing.
 | `Length` | `string { get; }` | A count, or **an empty string** for the 58 items the reference gives no length - `SVID` and `CEID` among them. Empty means "not stated", not "zero". |
 | `Codes` | `IReadOnlyList<SecsDataItemCode> { get; }` | Standard values, or empty. 88 of the 375 are coded. |
 | `IsCoded` | `bool { get; }` | |
+| `Streams` | `IReadOnlyList<byte> { get; }` | The streams whose messages name this item, ordered; empty when none do. The most-reused measurement in this repository: `GRANT` is named across five streams, `DATAID` across seven, and `SSID` across one. Empty exactly when `IsNamedByNoMessage` is true, which a test asserts item for item. |
 | `IsNamedByNoMessage` | `bool { get; }` | True for **213 of the 375**: the dictionary defines it and no message in the catalogue uses it. Evidence, not a verdict - E87's `CARRIERSPEC`, `CATTRID`, `CATTRDATA`, `PORTACTION` and `PODID` are all in here and E87 ships on other grounds. What it rules out is reading such an item *in context*, since the reference gives none. |
 | `MeaningOf` | `string? MeaningOf(string value)` | Exact match only: a value inside a documented range such as `7-63` is not found. |
 | `ToString()` | `override string` | `COMMACK B[1]`. |

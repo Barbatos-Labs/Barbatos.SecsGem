@@ -317,6 +317,26 @@ internal static class Program
             sixteen.Provenance.UndefinedDataItems.Contains("PJID", StringComparer.Ordinal),
             "S16's undefined item names do not include PJID, so the item dictionary did not load");
 
+        // The third measure, also computed at load time and from both halves at once: a name's
+        // bucket depends on whether the dictionary defines it AND whether another stream names it,
+        // so a resource that packed one half would put every name in the wrong place.
+        Assert(
+            sixteen.Anchoring.HasNoOwnVocabulary && sixteen.Anchoring.DataItemCount == 13,
+            $"S16 anchoring came out as '{sixteen.Anchoring}'");
+
+        Assert(
+            SecsCatalog.TryGetDataItem("GRANT", out var grant)
+                && grant!.Streams.Count == 5
+                && grant.Streams.Contains((byte)8),
+            "GRANT's stream list did not survive the packed resource");
+
+        // And the one line that closed the recipe question, which only exists if both the stream
+        // table and its names came through.
+        Assert(
+            SecsCatalog.Provenance.StreamNameClashes.Count == 1
+                && SecsCatalog.Provenance.StreamNameClashes[0].Name == "Recipe Management",
+            "the stream name clash is missing, so the stream table packed without its names");
+
         Assert(SecsCatalog.TryGetStream(9, out var nine), "stream 9 is not in the catalogue");
         Assert(
             nine!.Provenance.DefinedCount == nine.Provenance.MessageCount,

@@ -187,7 +187,7 @@ compared, because `DSDATA` has no format to measure and `ACKC13` has no length-e
 ## What can be refused, and what cannot
 
 - **S8F2** carries a `GRANT`, whose four codes are quoted - and from a row that is a definition.
-  `GRANT` is named by seven messages across six streams and **S8F2 is the only one of the seven the
+  `GRANT` is named by seven messages across five streams and **S8F2 is the only one of the seven the
   reference documented**, so the table is anchored on this stream's own row. An unreadable inquire
   is refused `DuplicateOrInvalid`, the second half of whose meaning - "or not one this end
   recognises" - is the nearest the table comes to "that made no sense". Not `Busy`, which would

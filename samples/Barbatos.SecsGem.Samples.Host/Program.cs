@@ -2799,6 +2799,30 @@ internal static class Program
             ok &= locationId!.IsNamedByNoMessage;
         }
 
+        // And the third measure, which is the one that decides whether a stream can be implemented
+        // at all. Stream 12 brought its own vocabulary; stream 19 brought none, and borrowed five
+        // names from streams that spell the same things differently.
+        foreach (var number in new byte[] { 12, 19 })
+        {
+            if (SecsCatalog.TryGetStream(number, out var stream))
+            {
+                Console.WriteLine($"   {stream!.Anchoring}");
+            }
+        }
+
+        // The one line that closed the recipe question. A shared name is not a fault by itself -
+        // what sits underneath is that the two streams claim all twenty of the same function
+        // numbers, and S19F11 is a recipe delete where S15F11 is a recipe verify.
+        foreach (var clash in SecsCatalog.Provenance.StreamNameClashes)
+        {
+            Console.WriteLine(
+                $"   {clash} - and S19F11 is \"{SecsCatalog.NameOf(19, 11)}\""
+                + $" where S15F11 is \"{SecsCatalog.NameOf(15, 11)}\"");
+        }
+
+        ok &= SecsCatalog.Provenance.StreamNameClashes.Count == 1
+            && SecsCatalog.NameOf(19, 11) != SecsCatalog.NameOf(15, 11);
+
         return ok;
     }
 

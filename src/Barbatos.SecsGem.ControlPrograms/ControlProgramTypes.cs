@@ -11,7 +11,7 @@ namespace Barbatos.SecsGem.ControlPrograms;
 /// <remarks>
 /// <para>
 /// Quoted, and from a row that is a definition rather than a representative subset. <c>GRANT</c> is
-/// named by seven messages across six streams - S2F2, S2F40, S3F16, S4F26, S8F2, S21F6 and S21F10 -
+/// named by seven messages across five streams - S2F2, S2F40, S3F16, S4F26, S8F2, S21F6 and S21F10 -
 /// and <strong>S8F2 is the only one of the seven the reference documented</strong>. So the table
 /// below is anchored on this stream's own row, which is unusual enough to be worth saying.
 /// </para>

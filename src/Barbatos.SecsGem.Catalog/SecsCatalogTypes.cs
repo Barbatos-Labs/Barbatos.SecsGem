@@ -25,12 +25,14 @@ public sealed class SecsStreamInfo
         byte number,
         string name,
         IReadOnlyList<SecsMessageInfo> messages,
-        SecsStreamProvenance provenance)
+        SecsStreamProvenance provenance,
+        SecsStreamAnchoring anchoring)
     {
         Number = number;
         Name = name;
         Messages = messages;
         Provenance = provenance;
+        Anchoring = anchoring;
     }
 
     /// <summary>Gets the stream number.</summary>
@@ -50,9 +52,189 @@ public sealed class SecsStreamInfo
     /// </remarks>
     public SecsStreamProvenance Provenance { get; }
 
+    /// <summary>Gets where this stream's firm ground comes from: its own vocabulary or somebody else's.</summary>
+    /// <remarks>
+    /// <see cref="Provenance"/> says <em>how much</em> of the stream is documented.
+    /// <see cref="SecsStreamAnchoring"/> says <em>whose</em> the documented part is, which is a
+    /// different question and the one that separated the last five implementations here from the
+    /// two refusals.
+    /// </remarks>
+    public SecsStreamAnchoring Anchoring { get; }
+
     /// <summary>Returns the stream and its name.</summary>
     /// <returns>For example <c>S6 Data Collection</c>.</returns>
     public override string ToString() => $"S{Number} {Name}";
+}
+
+/// <summary>
+/// Where one stream's firm ground comes from: items it is the only one to name, or items it shares.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The third provenance measure in this package, and the one every chapter of this repository ended
+/// up computing by hand. <see cref="SecsStreamProvenance"/> answers "how much of this stream did
+/// the source document". <see cref="SecsDataItemInfo.IsNamedByNoMessage"/> answers "does anything
+/// use this definition". This answers the question in between: <strong>of the names this stream
+/// uses, which are its own and which are borrowed, and are its gaps its own or everybody's?</strong>
+/// </para>
+/// <para>
+/// Four counts, from two independent facts about each name - whether the dictionary defines it, and
+/// whether any other stream names it:
+/// </para>
+/// <list type="table">
+/// <item>
+/// <term><see cref="OwnAnchors"/></term>
+/// <description>defined, and named by this stream alone - the stream's own documented vocabulary</description>
+/// </item>
+/// <item>
+/// <term><see cref="BorrowedAnchors"/></term>
+/// <description>defined, and shared with other streams - firm ground, but not this stream's</description>
+/// </item>
+/// <item>
+/// <term><see cref="SharedGaps"/></term>
+/// <description>undefined, and named by other streams too - the source's habit rather than this stream's hole</description>
+/// </item>
+/// <item>
+/// <term><see cref="OwnGaps"/></term>
+/// <description>undefined, and named by this stream alone - nothing anywhere to read them against</description>
+/// </item>
+/// </list>
+/// <para>
+/// <strong>Both halves earned their place.</strong> The gap split is what told stream 13's chapter
+/// that <c>BLKNUM</c> was a <em>shared</em> gap - one of seven block-transfer items the source never
+/// defined anywhere - while <c>DSDATA</c> was an <em>own</em> gap, a hole in one row of a stream
+/// whose siblings' payloads are defined. One of those is a vocabulary to leave alone and the other
+/// is a field to carry untouched, and the counts say which is which. The anchor split is what
+/// stream 19's chapter needed: that stream has <strong>no own anchor at all</strong>, because the
+/// one defined item in its slot - <c>RCPSPEC</c> - belongs to streams 15 and 20, and stream 19
+/// calls it <c>RCPNS</c>, which the dictionary does not define.
+/// </para>
+/// <para>
+/// <strong>It is evidence and not a verdict</strong>, which is the same caveat the other two carry
+/// and is worth stating because the numbers tempt. Streams 8 and 16 have no own anchor either and
+/// both are implemented here: stream 8 because it is stream 7's design and its items read off
+/// <c>PPID</c> and <c>PPBODY</c>, and stream 16 because E40 defines the behaviour its rows carry.
+/// A stream with no vocabulary of its own needs somewhere else to stand; it does not follow that
+/// there is nowhere.
+/// </para>
+/// </remarks>
+public sealed class SecsStreamAnchoring
+{
+    internal SecsStreamAnchoring(
+        byte stream,
+        IReadOnlyList<string> ownAnchors,
+        IReadOnlyList<string> borrowedAnchors,
+        IReadOnlyList<string> sharedGaps,
+        IReadOnlyList<string> ownGaps)
+    {
+        Stream = stream;
+        OwnAnchors = ownAnchors;
+        BorrowedAnchors = borrowedAnchors;
+        SharedGaps = sharedGaps;
+        OwnGaps = ownGaps;
+    }
+
+    /// <summary>Gets the stream this is about.</summary>
+    public byte Stream { get; }
+
+    /// <summary>Gets the defined item names only this stream uses, ordered.</summary>
+    /// <remarks>
+    /// The stream's own documented vocabulary. Stream 12 has 27 of these and stream 19 has none.
+    /// </remarks>
+    public IReadOnlyList<string> OwnAnchors { get; }
+
+    /// <summary>Gets the defined item names this stream shares with at least one other, ordered.</summary>
+    /// <remarks>
+    /// Firm ground that belongs to somebody else - <c>LENGTH</c>, <c>TIME</c>, <c>PPBODY</c> and
+    /// the rest. A stream made entirely of these is reusing another stream's vocabulary, which may
+    /// be exactly what it is for: stream 17's fourteen borrowed anchors and no own ones is what an
+    /// extrapolation looks like counted.
+    /// </remarks>
+    public IReadOnlyList<string> BorrowedAnchors { get; }
+
+    /// <summary>Gets the undefined item names this stream shares with at least one other, ordered.</summary>
+    /// <remarks>
+    /// A gap the source has everywhere rather than here - so it says nothing about this stream in
+    /// particular. The seven block-transfer items are all of these.
+    /// </remarks>
+    public IReadOnlyList<string> SharedGaps { get; }
+
+    /// <summary>Gets the undefined item names only this stream uses, ordered.</summary>
+    /// <remarks>
+    /// The ones with nothing anywhere to read them against: no sibling row, no other stream, no
+    /// definition. <c>SSID</c> is one, <c>DSDATA</c> is one, and five of stream 19's six are.
+    /// </remarks>
+    public IReadOnlyList<string> OwnGaps { get; }
+
+    /// <summary>Gets how many distinct item names this stream's bodies use.</summary>
+    /// <remarks>
+    /// Empty names are not counted, and that filter is <strong>the one line of this type no test
+    /// reaches</strong> - the same line, for the same reason, as the one
+    /// <see cref="SecsCatalogProvenance.NamedDataItemCount"/> documents: no row in the current
+    /// data has a trailing comma in its item list, and the reader turns an empty item field into
+    /// no items rather than one empty one. It stays because a refreshed reference with such a row
+    /// would otherwise report <c>""</c> as a name a stream uses, and put it in a bucket.
+    /// </remarks>
+    public int DataItemCount => OwnAnchors.Count + BorrowedAnchors.Count + SharedGaps.Count + OwnGaps.Count;
+
+    /// <summary>Gets a value indicating whether the stream has no defined item of its own.</summary>
+    /// <remarks>
+    /// True for six streams: 8, 15, 16, 17, 19 and 20. Read it as "this stream has to stand on
+    /// somebody else's vocabulary, so find out whose" - two of the six are implemented here.
+    /// </remarks>
+    public bool HasNoOwnVocabulary => OwnAnchors.Count == 0;
+
+    /// <summary>Returns the four counts in one line.</summary>
+    /// <returns>For example <c>S19 5 borrowed anchor(s), 0 own, 1 shared gap(s), 5 own</c>.</returns>
+    public override string ToString()
+        => $"S{Stream} {BorrowedAnchors.Count} borrowed anchor(s), {OwnAnchors.Count} own, "
+            + $"{SharedGaps.Count} shared gap(s), {OwnGaps.Count} own";
+}
+
+/// <summary>
+/// A stream name that more than one stream in the catalogue carries.
+/// </summary>
+/// <remarks>
+/// <para>
+/// There is exactly one in the current data, and finding it is why this type exists:
+/// <strong>streams 15 and 19 are both called "Recipe Management"</strong>. Twenty streams, one
+/// collision.
+/// </para>
+/// <para>
+/// A shared name is not in itself a fault - a reference may well describe one subject across two
+/// streams. What makes this one worth a type is what the rest of the measurement found underneath
+/// it: the two streams use <em>all twenty of the same function numbers</em>, six of them for the
+/// same transaction and fourteen shifted, so S19F11 is a recipe delete where S15F11 is a recipe
+/// verify. Neither stream has a single documented row. A library that picked one and guessed would
+/// delete a recipe when a host asked to check one, which is the sharpest reason this repository has
+/// found for leaving a stream alone.
+/// </para>
+/// </remarks>
+public sealed class SecsStreamNameClash
+{
+    internal SecsStreamNameClash(string name, IReadOnlyList<byte> streams)
+    {
+        Name = name;
+        Streams = streams;
+    }
+
+    /// <summary>Gets the name the streams share.</summary>
+    /// <remarks>
+    /// Names are matched without regard to case, which is the one comparison in this repository
+    /// that is not ordinal: every other one is over an identifier, where <c>PUMP</c> and
+    /// <c>pump</c> are two things, and this one is over prose from a reference's table of
+    /// contents. The current data cannot show the difference - its one clash is an exact match -
+    /// so this is a line no test reaches, kept for the reading rather than for the data.
+    /// </remarks>
+    public string Name { get; }
+
+    /// <summary>Gets the streams carrying it, ordered.</summary>
+    public IReadOnlyList<byte> Streams { get; }
+
+    /// <summary>Returns the name and the streams.</summary>
+    /// <returns>For example <c>"Recipe Management" is S15 and S19</c>.</returns>
+    public override string ToString()
+        => $"\"{Name}\" is {string.Join(" and ", Streams.Select(stream => $"S{stream}"))}";
 }
 
 /// <summary>
@@ -164,7 +346,8 @@ public sealed class SecsCatalogProvenance
         int dataItemCount,
         int namedDataItemCount,
         IReadOnlyList<string> undefinedDataItems,
-        IReadOnlyList<string> unusedDefinitions)
+        IReadOnlyList<string> unusedDefinitions,
+        IReadOnlyList<SecsStreamNameClash> streamNameClashes)
     {
         StreamCount = streamCount;
         MessageCount = messageCount;
@@ -173,7 +356,16 @@ public sealed class SecsCatalogProvenance
         NamedDataItemCount = namedDataItemCount;
         UndefinedDataItems = undefinedDataItems;
         UnusedDefinitions = unusedDefinitions;
+        StreamNameClashes = streamNameClashes;
     }
+
+    /// <summary>Gets the stream names that more than one stream carries, ordered.</summary>
+    /// <remarks>
+    /// One entry in the current data - "Recipe Management", which is both stream 15 and stream 19 -
+    /// and it is the headline of the one refusal this measure was added for. See
+    /// <see cref="SecsStreamNameClash"/> for what else was underneath it.
+    /// </remarks>
+    public IReadOnlyList<SecsStreamNameClash> StreamNameClashes { get; }
 
     /// <summary>Gets how many streams the catalogue has.</summary>
     public int StreamCount { get; }
@@ -339,7 +531,8 @@ public sealed class SecsDataItemInfo
         SecsFormat? format,
         string length,
         IReadOnlyList<SecsDataItemCode> codes,
-        bool isNamedByNoMessage = false)
+        bool isNamedByNoMessage = false,
+        IReadOnlyList<byte>? streams = null)
     {
         Name = name;
         FormatToken = formatToken;
@@ -347,7 +540,26 @@ public sealed class SecsDataItemInfo
         Length = length;
         Codes = codes;
         IsNamedByNoMessage = isNamedByNoMessage;
+        Streams = streams ?? [];
     }
+
+    /// <summary>Gets the streams whose messages name this item, ordered. Empty when none do.</summary>
+    /// <remarks>
+    /// <para>
+    /// The most-reused measurement in this repository's history, finally a property. Before
+    /// implementing against an item it is the first thing worth knowing: <c>GRANT</c> is named by
+    /// seven messages across <strong>six</strong> streams, which is why two packages here serve it
+    /// and a test makes them agree; <c>DATAID</c> is named across eight, which gave stream 13 a
+    /// route for an item its own dictionary entry could not settle; and <c>SSID</c> and
+    /// <c>RCPNS</c> are named by <strong>one</strong> stream each, which is why one needed a type
+    /// that carries both readings and the other helped refuse a stream.
+    /// </para>
+    /// <para>
+    /// Empty exactly when <see cref="IsNamedByNoMessage"/> is true, and a test asserts the two
+    /// agree item for item rather than trusting that they must.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<byte> Streams { get; }
 
     /// <summary>Gets the item's name, for example <c>COMMACK</c>.</summary>
     public string Name { get; }
