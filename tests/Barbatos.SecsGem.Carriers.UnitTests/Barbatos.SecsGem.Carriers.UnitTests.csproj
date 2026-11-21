@@ -26,6 +26,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Carriers\Barbatos.SecsGem.Carriers.csproj" />
+    <!-- The catalogue, for the one test that records why this package's access mode is numbered
+         the opposite way round from the reference's ACCESSMODE - and why that is safe. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
   </ItemGroup>
 
 </Project>

@@ -94,6 +94,50 @@ public class ProcessJobStateAgreesWithTheReferenceTests
     }
 
     [Fact]
+    public void The_other_three_E40_tables_the_reference_defines_and_uses_nowhere_also_agree()
+    {
+        // The sweep that followed the measure found four E40 items specified with full tables and
+        // named by no message. PRSTATE is above; these are the rest, and all three agree - which
+        // is the outcome a measure should be able to reach, not only disagreement.
+        Assert.True(SecsCatalog.TryGetDataItem("PRRECIPEMETHOD", out var method));
+        Assert.True(method!.IsNamedByNoMessage);
+        Assert.Equal("1", method.Codes[0].Value);
+        Assert.Equal((byte)1, (byte)ProcessJobRecipeMethod.WithoutVariableTuning);
+        Assert.Equal((byte)2, (byte)ProcessJobRecipeMethod.WithVariableTuning);
+        Assert.Equal(method.Codes.Count, Enum.GetValues<ProcessJobRecipeMethod>().Length);
+
+        Assert.True(SecsCatalog.TryGetDataItem("PRMTRLORDER", out var order));
+        Assert.True(order!.IsNamedByNoMessage);
+        Assert.Equal((byte)1, (byte)ProcessJobMaterialOrder.ArrivalSequence);
+        Assert.Equal((byte)2, (byte)ProcessJobMaterialOrder.MaximizeThroughput);
+        Assert.Equal((byte)3, (byte)ProcessJobMaterialOrder.ListedSequence);
+        Assert.Equal(order.Codes.Count, Enum.GetValues<ProcessJobMaterialOrder>().Length);
+
+        // Both of these number from 1, not 0 - which is the detail worth pinning, because every
+        // other code table in this repository starts at zero and an enum written to that habit
+        // would be one out across the board.
+        Assert.DoesNotContain("0", method.Codes.Select(code => code.Value));
+        Assert.DoesNotContain("0", order.Codes.Select(code => code.Value));
+
+        Assert.True(SecsCatalog.TryGetDataItem("PREACK", out var acknowledgement));
+        Assert.True(acknowledgement!.IsNamedByNoMessage);
+        Assert.Equal((byte)0, (byte)ProcessJobAcknowledgement.Accepted);
+        Assert.Equal((byte)1, (byte)ProcessJobAcknowledgement.Rejected);
+    }
+
+    [Fact]
+    public void The_one_E40_table_nothing_here_models_is_recorded_rather_than_forgotten()
+    {
+        // PRCPREEXECHK enables or disables a pre-execution check on a process job. It is defined,
+        // it carries two codes, no message names it, and this package does not model it. That is
+        // a gap rather than a fault - nothing can carry the item - but a sweep that found it and
+        // said nothing would leave the next reader to find it again.
+        Assert.True(SecsCatalog.TryGetDataItem("PRCPREEXECHK", out var check));
+        Assert.True(check!.IsNamedByNoMessage);
+        Assert.Equal(2, check.Codes.Count);
+    }
+
+    [Fact]
     public void The_package_has_one_member_per_state_the_reference_names()
     {
         var reserved = 1;
