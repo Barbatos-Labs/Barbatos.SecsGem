@@ -399,6 +399,32 @@ meet:
 Those test projects reference this package; the libraries themselves do not and must not. The
 dependency belongs to the test, not to the layer.
 
+### All forty-four, filed
+
+The sweep that followed is written down rather than left to be redone, because a sweep nobody
+recorded is one the next reader has to repeat. `SecsCatalogSweepTests` partitions the forty-four
+into three groups and asserts the partition, so a refreshed reference with a forty-fifth makes
+somebody classify it instead of quietly enlarging a count:
+
+| group | how many | what they are |
+| --- | --- | --- |
+| audited against shipped code | 6 | a package here states the same vocabulary from its own standard, and the two now meet in a test |
+| the reference's unused alternative | 4 | a package here serves a *different* item in the same role, and the rows name the one in service |
+| describes nothing implemented here | 34 | checked and passed over - mostly acknowledgements for messages no package serves |
+
+**Five of the six audited agreed; one did not.** `ACCESSMODE` is numbered 0 automatic and 1 manual
+where `Barbatos.SecsGem.Carriers` has `Manual = 0`. The numbers never cross the link - that package
+carries an access mode as text, which its own test establishes - so the disagreement cannot bite,
+and saying so is the point: an undefended numbering is how a later chapter serialises it as the
+`U1` the dictionary describes and inverts every load port in a fab.
+
+The four alternatives are the group worth checking first in any future sweep. `ACKC15` names four
+reasons a recipe download can be refused where the `RMACK` the rows carry has one; `RMGRNT`
+separates space from authority where `RMACK` does not; `ACKC7A` is a second acknowledgement for
+stream 7, whose every row carries `ACKC7`; `WRACK` is a data-write acknowledgement where S18F8
+carries `SSACK`. Each time, the package here had to pick the item the rows name rather than the
+fuller one the dictionary defines - and each time it did.
+
 ## Not a structural template
 
 `DataItems` is a list of names, in the order they appear in the body. It does **not** record
