@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.ControlPrograms.UnitTests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Stream 8 has no timer of its own, but the connection underneath it does - T3 above all -
+         and a test that lets a wall clock drive those is a test that fails on a busy agent. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <!-- The hosting test resolves the whole graph, which is the only way to prove that the host
+         registration really does add no route while the equipment's adds six. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3.mtp-off" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.ControlPrograms\Barbatos.SecsGem.ControlPrograms.csproj" />
+  </ItemGroup>
+
+</Project>

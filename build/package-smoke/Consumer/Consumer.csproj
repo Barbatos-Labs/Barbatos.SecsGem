@@ -30,6 +30,7 @@
     <PackageReference Include="Barbatos.SecsGem.WaferMap" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.DataSets" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.Subsystems" Version="$(BarbatosVersion)" />
+    <PackageReference Include="Barbatos.SecsGem.ControlPrograms" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.Material" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.Objects" Version="$(BarbatosVersion)" />
     <PackageReference Include="Barbatos.SecsGem.Carriers" Version="$(BarbatosVersion)" />

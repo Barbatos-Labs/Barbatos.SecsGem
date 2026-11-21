@@ -21,6 +21,7 @@ using Barbatos.SecsGem.Serialization;
 using Barbatos.SecsGem.Substrates;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.Objects;
+using Barbatos.SecsGem.ControlPrograms;
 using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.Subsystems;
 using Barbatos.SecsGem.WaferMap;
@@ -91,6 +92,7 @@ internal static class Program
         await Run("wafermap: stream 12 resolves at both ends without the gem package", WaferMapResolvesAsync).ConfigureAwait(false);
         await Run("datasets: stream 13 resolves at both ends, and the host declares nothing", DataSetsResolveAsync).ConfigureAwait(false);
         await Run("subsystems: stream 18 resolves at both ends, which declare disjoint sets", SubsystemsResolveAsync).ConfigureAwait(false);
+        await Run("controlprograms: stream 8 resolves at both ends, and a program is bytes rather than an item", ControlProgramsResolveAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
@@ -645,6 +647,110 @@ internal static class Program
         Assert(
             again!.ToByteArray().AsSpan().SequenceEqual(expected),
             "the data set did not survive the round trip through its encoded form");
+    }
+
+    /// <summary>
+    /// The control program package, whose body is bytes where the data set package's is an item.
+    /// </summary>
+    /// <remarks>
+    /// Three claims only a restore from the real <c>.nupkg</c> can check. The dependency: stream 8
+    /// is E5 and no part of E30, so a controller that never references Gem has to work. The
+    /// registration: <c>AddControlProgramHost</c> adds a type and no route, which it shares with
+    /// <c>AddDataSetHost</c> and nothing else. And the distinction between the two packages'
+    /// bodies, which is the thing most easily got wrong by a consumer that uses both.
+    /// </remarks>
+    private static async Task ControlProgramsResolveAsync()
+    {
+        var equipmentServices = new ServiceCollection();
+
+        equipmentServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddControlProgramEquipment();
+
+        await using var equipmentProvider = equipmentServices.BuildServiceProvider();
+
+        _ = equipmentProvider.GetRequiredService<ControlProgramEquipment>();
+
+        var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            ControlProgramEquipment.HandledMessages.Count == 6,
+            $"the equipment declares {ControlProgramEquipment.HandledMessages.Count} message(s), not six");
+
+        foreach (var (stream, function) in ControlProgramEquipment.HandledMessages)
+        {
+            Assert(
+                equipmentRouter.TryGetHandler(stream, function, out _),
+                $"the router has no handler for S{stream}F{function}, so AddControlProgramEquipment did not declare it");
+        }
+
+        Assert(
+            !equipmentRouter.TryGetHandler(8, 7, out _) && !equipmentRouter.TryGetHandler(8, 9, out _),
+            "the equipment declared the blocked transfer, whose block items the reference never defines");
+
+        var hostServices = new ServiceCollection();
+
+        hostServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddControlProgramHost();
+
+        await using var hostProvider = hostServices.BuildServiceProvider();
+
+        _ = hostProvider.GetRequiredService<ControlProgramHost>();
+
+        var hostRouter = hostProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(ControlProgramHost.HandledMessages.Count == 0, "the host declares a message, and stream 8 gives it none");
+
+        for (byte function = 1; function <= 16; function++)
+        {
+            Assert(
+                !hostRouter.TryGetHandler(8, function, out _),
+                $"the router has a handler for S8F{function} at a host, so AddControlProgramHost declared one");
+        }
+
+        // The two code tables, one quoted and one read off its siblings.
+        Assert((byte)ControlProgramGrant.DuplicateOrInvalid == 3, "GRANT 3 moved");
+        Assert(Enum.GetNames<ControlProgramAcknowledgement>().Length == 2, "ACKC8 grew a third member");
+
+        var store = equipmentProvider.GetRequiredService<IControlProgramStore>();
+
+        byte[] firmware = [0x7F, 0x45, 0x4C, 0x46];
+
+        var grant = await store.InquireAsync((uint)firmware.Length, CancellationToken.None).ConfigureAwait(false);
+
+        Assert(grant == ControlProgramGrant.Accepted, $"the store refused an inquire: {grant}");
+
+        var acknowledgement = await store.SaveAsync(firmware, CancellationToken.None).ConfigureAwait(false);
+
+        Assert(
+            acknowledgement == ControlProgramAcknowledgement.Accepted,
+            $"the store refused a program it had just granted room for: {acknowledgement}");
+
+        if (store is ControlProgramInMemoryStore memory)
+        {
+            var held = memory.Find(ControlProgramInMemoryStore.BootProgramId);
+
+            Assert(held is not null, "the store lost the program it had just accepted");
+
+            // The distinction worth a packaging test: these bytes are the program. The same C#
+            // type in Barbatos.SecsGem.DataSets holds an encoded item instead, because that
+            // stream's payload has no format to read off.
+            Assert(
+                held!.Body.Span.SequenceEqual(firmware),
+                "the program came back as something other than the bytes that went in");
+
+            memory.Add("NAMED", firmware, "1.4.2");
+
+            var listed = await memory.ListAsync(CancellationToken.None).ConfigureAwait(false);
+
+            Assert(listed.Count == 1 && listed[0] == "NAMED", "the directory listed the nameless boot program");
+            Assert(
+                await memory.RevisionAsync("NAMED", CancellationToken.None).ConfigureAwait(false) == "1.4.2",
+                "the store lost the revision it was given");
+        }
     }
 
     /// <summary>

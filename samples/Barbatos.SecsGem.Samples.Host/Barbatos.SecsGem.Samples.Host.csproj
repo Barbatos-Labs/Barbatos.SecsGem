@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.WaferMap\Barbatos.SecsGem.WaferMap.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.DataSets\Barbatos.SecsGem.DataSets.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Subsystems\Barbatos.SecsGem.Subsystems.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.ControlPrograms\Barbatos.SecsGem.ControlPrograms.csproj" />
     <!-- Material status, for the same reason: E5 stream 3, its own package, on Hsms. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Material\Barbatos.SecsGem.Material.csproj" />
     <!-- And object services, stream 14. The loopback machine has the objects; this host only asks. -->

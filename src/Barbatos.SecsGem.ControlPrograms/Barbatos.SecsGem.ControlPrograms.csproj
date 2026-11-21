@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.ControlPrograms</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.ControlPrograms</RootNamespace>
+    <PackageTags>secs;e5;stream8;controlprogram;bootprogram;firmware;transfer</PackageTags>
+    <Description>Control program transfer (SECS-II stream 8) for .NET, both ends: the load inquire and grant, the boot program send, a named control program requested back, the directory, the transfer abort and the software revision. Stream 8 is stream 7's transfer design applied to firmware rather than recipes, so the two items the dictionary leaves undefined - CPID and CPBODY - are read off the slots PPID and PPBODY occupy in the same design. The blocked transfer stays out, because every block-transfer item in the reference is undefined. Depends on Barbatos.SecsGem.Hsms, not on GEM: stream 8 is no part of SEMI E30.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referenced directly: the DI extension and the logging both ends take are used here, and a
+         transitive reference through Hsms is not a promise this project should rely on. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+</Project>

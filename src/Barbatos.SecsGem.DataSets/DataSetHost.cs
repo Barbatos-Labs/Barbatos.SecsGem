@@ -59,7 +59,8 @@ public sealed class DataSetHost
     /// Empty, and that is the fact rather than an omission. All seven of stream 13's primaries are
     /// marked host to equipment in the catalogue and all seven replies the other way, so nothing in
     /// this stream ever arrives at a host unasked - not a report, not an error, not a notification
-    /// that a new data set exists. This is the only end in this repository with nothing to declare,
+    /// that a new data set exists. This is one of two ends in this repository with nothing to
+    /// declare - <c>ControlProgramHost</c> is the other, stream 8 being the other one-way stream -
     /// and <c>AddDataSetHost</c> accordingly adds no route to the message table.
     /// </para>
     /// <para>

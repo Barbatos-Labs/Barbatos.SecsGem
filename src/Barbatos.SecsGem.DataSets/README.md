@@ -17,16 +17,18 @@ no part of E30: GEM asks for streams 1, 2, 5, 6, 7, 9 and 10 and never mentions 
 machine that moves files to a host without implementing GEM can use this on its own, and one that
 does both adds it beside `AddGemEquipment` on the same connection.
 
-## Stream 13 runs one way, and it is the only one here that does
+## Stream 13 runs one way
 
-Four streams in this stack, four answers to the question of who begins:
+Six streams in this stack, four answers to the question of who begins:
 
 | | who sends the primaries |
 | --- | --- |
 | Stream 3, material status | both ends |
+| Stream 18, subsystem control | both ends - six at the equipment and two at the host |
 | Stream 4, material handoff | either end - every row travels both ways |
 | Stream 12, wafer mapping | the equipment |
 | **Stream 13, data set transfer** | **the host, and only the host** |
+| Stream 8, control program transfer | the host, and only the host |
 
 All seven primaries are marked host to equipment in the catalogue and all seven replies the other
 way. Nothing in stream 13 ever arrives at a host unasked: there is no report, no error message, and

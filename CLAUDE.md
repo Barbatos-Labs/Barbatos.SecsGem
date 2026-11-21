@@ -7,7 +7,7 @@ signature is a breaking change in somebody's fab.
 ## Repository map
 
 ```
-src/          twenty-four shipping packages, one folder each (+ README.md, API-REFERENCE.md)
+src/          twenty-five shipping packages, one folder each (+ README.md, API-REFERENCE.md)
 src/Shared/   compile-linked source, not a package: the serialization hub registration
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
@@ -30,8 +30,18 @@ Core  <-  Hsms  <-  Gem
                                stream 18 row is representative. SSID and SSSTATE are defined
                                nowhere; SubsystemId carries both readings of the first, and the
                                second is written as text and says so.)
-            ^----  DataSets   (E5 stream 13, and nothing else: the only stream here whose every
-                               primary is the host's, so the host end declares no message at all.
+            ^----  ControlPrograms (E5 stream 8: stream 7's transfer design applied to firmware
+                               rather than recipes, which is where its two undefined items come
+                               from - CPID is read off PPID's slot and CPBODY off PPBODY's, so the
+                               body is plain bytes here where stream 13's is an encoded item. The
+                               blocked half, S8F7-S8F10, stays out on the same block-item
+                               measurement that kept S13F9/F10 out. GRANT agrees with Material's
+                               enum member for member and a test says so; ACKC8 has no table at
+                               all, so zero is accepted - read off eight defined ACKCn siblings -
+                               and everything else is a refusal with no reason.)
+            ^----  DataSets   (E5 stream 13, and nothing else: one of two streams here whose every
+                               primary is the host's, stream 8 being the other, so the host end
+                               declares no message at all.
                                Its payload item DSDATA is defined nowhere, which is why a data set
                                is carried as the encoded item rather than as a chosen format - and
                                why S13F9/F10, the blocked send, stays out: all seven of the

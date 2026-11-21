@@ -5,6 +5,7 @@
 
 using System.Globalization;
 using Barbatos.SecsGem;
+using Barbatos.SecsGem.ControlPrograms;
 using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
@@ -264,6 +265,11 @@ internal static class Program
             // in the stack where both ends send.
             .AddSubsystemEquipment()
 
+            // And stream 8, which is firmware rather than recipes: the same transfer design as
+            // stream 7 above, for a different kind of program. Six primaries arrive here and this
+            // end sends none - stream 8 and stream 13 are the two one-way streams in the stack.
+            .AddControlProgramEquipment()
+
             // And material status, the other stream a machine answers that GEM does not cover:
             // five questions about what it is holding, and four reports of its own. The runner
             // below loads the lot into the inventory while it processes and reports it moving out.
@@ -349,6 +355,7 @@ internal sealed class ChamberRunner(
     IDataSetStore dataSets,
     SubsystemEquipment subsystems,
     ISubsystemStore subsystemStore,
+    IControlProgramStore controlPrograms,
     IObjectProvider objects,
     Chamber chamber,
     ILogger<ChamberRunner> logger) : BackgroundService
@@ -367,6 +374,15 @@ internal sealed class ChamberRunner(
         // Stream 13 has no primary that announces one, so this is the only way it can exist: put
         // it in the store and wait to be asked. The contents are a SecsItem of this machine's own
         // choosing, because DSDATA has no defined format for anybody to agree on.
+        // A control program this machine already runs, for a host to find with S8F11 and fetch
+        // with S8F5. Stream 8 has no message that announces one either, so it goes in from
+        // configuration and waits to be asked - and the bytes are the program, not an encoded
+        // item, which is where stream 8 and stream 13 part company.
+        if (controlPrograms is ControlProgramInMemoryStore firmware)
+        {
+            firmware.Add("BOOT-A", new byte[] { 0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01 }, "1.4.2");
+        }
+
         // The machine's sub-parts, which stream 18 has no message to create - so they come from
         // configuration here, the way ports and modules do everywhere else in this repository.
         // One is named and one is numbered, because SSID has no dictionary entry and a real fab

@@ -11,6 +11,7 @@ using Barbatos.SecsGem.ControlJobs;
 using Barbatos.SecsGem.ProcessJobs;
 using Barbatos.SecsGem.Productivity;
 using Barbatos.SecsGem.Catalog;
+using Barbatos.SecsGem.ControlPrograms;
 using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
@@ -444,6 +445,15 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingSubsystems!.HandleAsync(transaction, token));
         }
 
+        // Stream 8 goes the way stream 13 does, so every route is on the machine's side - and
+        // unlike stream 18 last chapter, there is no second half here to forget.
+        ControlProgramEquipment? pendingControlPrograms = null;
+
+        foreach (var (stream, function) in ControlProgramEquipment.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingControlPrograms!.HandleAsync(transaction, token));
+        }
+
         // The host's half of stream 18: the two primaries a machine sends about one of its
         // sub-parts, an event and an alarm.
         SubsystemHost? pendingSubsystemHost = null;
@@ -541,6 +551,17 @@ internal static class Program
 
         var subsystemEquipment = new SubsystemEquipment(subsystemStore, equipmentLink);
         var subsystemHost = new SubsystemHost(hostLink);
+
+        // A control program the machine already runs, for the host to find and fetch. Stream 8 has
+        // no message that announces one, so it goes in from configuration - and the bytes are the
+        // program itself, which is where stream 8 and stream 13 part company.
+        var controlProgramStore = new ControlProgramInMemoryStore();
+
+        controlProgramStore.Add("BOOT-A", new byte[] { 0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01 }, "1.4.2");
+
+        // Neither end of stream 8 is disposable, and the equipment end takes no connection at all.
+        var controlProgramEquipment = new ControlProgramEquipment(controlProgramStore);
+        var controlProgramHost = new ControlProgramHost(hostLink);
 
         // The machine as objects: a chamber with two attributes and a load port with one. The
         // types and the attribute names are this machine's own - E5 does not define object types,
@@ -743,6 +764,7 @@ internal static class Program
         pendingDataSets = dataSetEquipment;
         pendingSubsystems = subsystemEquipment;
         pendingSubsystemHost = subsystemHost;
+        pendingControlPrograms = controlProgramEquipment;
         pendingReceivingEnd = receivingEnd;
         pendingObjects = equipmentObjects;
         pendingEnhanced = new EnhancedServicesEquipment(chamberData);
@@ -785,6 +807,7 @@ internal static class Program
                 receivingEnd,
                 dataSetHost,
                 new SubsystemDemo(subsystemHost, subsystemEquipment),
+                controlProgramHost,
                 hostObjects,
                 enhancedHost,
                 new MaterialDemo(
@@ -900,6 +923,10 @@ internal static class Program
             // answered by the equipment sample.
             .AddSubsystemHost()
 
+            // And stream 8, which goes the same way as stream 13: every route on the machine's
+            // side and none here, so this adds a type and nothing else.
+            .AddControlProgramHost()
+
             // And the four things a machine says about its material without being asked. The five
             // questions in the other direction are this end sending, which needs nothing declared.
             .AddMaterialHost()
@@ -940,6 +967,10 @@ internal static class Program
                 // Over a socket only the host half lives here; the two primaries the machine sends
                 // arrive from the other sample, which raises them on its own end.
                 subsystems: new SubsystemDemo(provider.GetRequiredService<SubsystemHost>(), null),
+
+                // Over a socket this one needs nothing of the machine's end either: stream 8 is
+                // the host's to drive from start to finish.
+                controlPrograms: provider.GetRequiredService<ControlProgramHost>(),
                 objects: provider.GetRequiredService<ObjectServices>(),
 
                 // Over a socket the equipment is the other sample, which does not serve E39's
@@ -1001,6 +1032,7 @@ internal static class Program
         MaterialHandoff? receivingEnd,
         DataSetHost? dataSets,
         SubsystemDemo? subsystems,
+        ControlProgramHost? controlPrograms,
         ObjectServices? objects,
         EnhancedServicesHost? enhanced,
         MaterialDemo? flow,
@@ -1615,6 +1647,52 @@ internal static class Program
                 ok &= subsystemAlarm?.IsSet == true
                     && subsystemAlarm.Category == SubsystemAlarmCategory.ParameterControlError;
             }
+        }
+
+        if (controlPrograms is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and moves firmware, which is stream 8 --");
+            Console.WriteLine();
+
+            // What the machine has. Stream 8 has no message that announces a control program, so a
+            // host asks - and the revision is the cheap way to find out whether one is there,
+            // because S8F6 has no acknowledgement code and an absent program looks exactly like a
+            // present one with an empty body.
+            var held = await controlPrograms.ListAsync(cancellationToken);
+
+            Console.WriteLine($"   S8F11  -> {held.Count} program(s): {string.Join(", ", held)}");
+            ok &= held.Contains("BOOT-A");
+
+            Console.WriteLine($"   S8F15  -> BOOT-A is at {await controlPrograms.RevisionAsync("BOOT-A", cancellationToken)}");
+            Console.WriteLine($"   S8F15  -> NOPE is at {await controlPrograms.RevisionAsync("NOPE", cancellationToken) ?? "no revision"}");
+
+            var fetched = await controlPrograms.RequestAsync("BOOT-A", cancellationToken);
+
+            // Bytes, and the program itself. The same C# type in Barbatos.SecsGem.DataSets holds
+            // an encoded item instead, because that stream's payload has no format to read off -
+            // CPBODY sits where PPBODY sits in stream 7's design, and PPBODY is a B.
+            Console.WriteLine($"   S8F5   -> {fetched}, first byte 0x{fetched?.Body.Span[0]:X2}");
+            ok &= fetched?.Body.Length == 6 && fetched.Body.Span[0] == 0x7F;
+
+            // And one going the other way, in the two transactions E5 describes: the inquire
+            // carries only a length, because the program being sent has no name - a machine has
+            // one boot program.
+            byte[] update = [0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01, 0x01, 0x00];
+
+            var (grant, acknowledgement) = await controlPrograms.SendProgramAsync(update, cancellationToken);
+
+            Console.WriteLine($"   S8F1   -> GRANT={grant}");
+            Console.WriteLine($"   S8F3   -> ACKC8={acknowledgement}");
+            ok &= grant == ControlProgramGrant.Accepted
+                && acknowledgement == ControlProgramAcknowledgement.Accepted;
+
+            // A send nobody granted, which is the sequence rule the store keeps - and ACKC8 has
+            // one refusal and no way to say which of the two things went wrong, because the item
+            // has no table of values at all.
+            Console.WriteLine($"   S8F3   -> ACKC8={await controlPrograms.SendAsync(update, cancellationToken)} for a send nobody granted");
+
+            Console.WriteLine($"   S8F13  -> ACKC8={await controlPrograms.AbortAsync("BOOT-A", cancellationToken)} with nothing in flight");
         }
 
         if (objects is not null)

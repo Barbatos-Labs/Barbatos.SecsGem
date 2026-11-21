@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.WaferMap\Barbatos.SecsGem.WaferMap.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.DataSets\Barbatos.SecsGem.DataSets.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Subsystems\Barbatos.SecsGem.Subsystems.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.ControlPrograms\Barbatos.SecsGem.ControlPrograms.csproj" />
     <!-- And object services, stream 14: this machine answers it, so it has a provider. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Objects\Barbatos.SecsGem.Objects.csproj" />
     <!-- And material status, stream 3: also E5, also its own package, also on Hsms. -->

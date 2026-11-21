@@ -12,7 +12,7 @@
 
        net11.0 is deliberately NOT in this list yet: the .NET 11 SDK is not installed on the
        development machine, and a TFM without its SDK fails the build with NETSDK1045.
-       When the SDK is installed, append it here - one line, 24 projects follow.
+       When the SDK is installed, append it here - one line, 25 projects follow.
        =========================================================================== -->
   <PropertyGroup>
     <BarbatosTargetFrameworks>net8.0;net9.0;net10.0</BarbatosTargetFrameworks>
@@ -77,7 +77,7 @@
         <IsPackable>true</IsPackable>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <!-- Deliberate deviation from Barbatos.Wpf: packing 24 projects x 3 TFMs on every build
+        <!-- Deliberate deviation from Barbatos.Wpf: packing 25 projects x 3 TFMs on every build
              is a lot of friction during development. Pass -p:PackOnBuild=true (or run
              dotnet pack) when you want the .nupkg files. -->
         <GeneratePackageOnBuild Condition="'$(PackOnBuild)' == 'true'">true</GeneratePackageOnBuild>

@@ -14,12 +14,13 @@ namespace Barbatos.SecsGem.DataSets;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>Stream 13 is the one stream in this stack that runs entirely one way.</strong> All seven
+/// <strong>Stream 13 runs entirely one way.</strong> All seven
 /// primaries are the host's, all seven replies are the equipment's, and there is no message the
 /// equipment may start - not even an error report. Stream 12 is the mirror of that, the equipment
 /// sending every primary; stream 3 has both ends sending; stream 4 has every row travelling either
-/// way. Four streams, four answers to the question of who begins, and this is the one that leaves
-/// the equipment with nothing to say for itself.
+/// way. Six streams, four answers to the question of who begins, and this is one of the two that
+/// leave the equipment with nothing to say for itself - stream 8, in
+/// <c>Barbatos.SecsGem.ControlPrograms</c>, is the other.
 /// </para>
 /// <para>
 /// So this class takes no <see cref="HsmsConnection"/>. It has no primary to send, no timer, no

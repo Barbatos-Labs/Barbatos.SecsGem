@@ -215,7 +215,7 @@ Namespace `Microsoft.Extensions.DependencyInjection`.
 | --- | --- |
 | `ISecsGemBuilder AddDataSetEquipment(this ISecsGemBuilder)` | The equipment side with `DataSetInMemoryStore`. |
 | `ISecsGemBuilder AddDataSetEquipment<TStore>(this ISecsGemBuilder)` | With a store of your own. `TryAdd`, so one already in the container wins. Declares all seven primaries. |
-| `ISecsGemBuilder AddDataSetHost(this ISecsGemBuilder)` | Registers `DataSetHost` and **nothing else** - the only registration in this repository that adds no route. |
+| `ISecsGemBuilder AddDataSetHost(this ISecsGemBuilder)` | Registers `DataSetHost` and **nothing else** - one of two registrations in this repository that add no route, the other being `AddControlProgramHost`. |
 
 No deferred factory on the equipment side, unlike every other end here: it takes no connection, so
 there is no cycle to break.
