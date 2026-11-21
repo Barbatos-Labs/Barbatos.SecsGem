@@ -61,6 +61,22 @@ public sealed class SecsStreamInfo
     /// </remarks>
     public SecsStreamAnchoring Anchoring { get; }
 
+    /// <summary>Gets, for each of this stream's gaps, any definition that plainly means the same thing.</summary>
+    /// <remarks>
+    /// <para>
+    /// The third question to ask about a stream, after <see cref="Provenance"/> says how much is
+    /// documented and <see cref="Anchoring"/> says whose the documented part is. This one is about
+    /// the <em>gaps</em>: a gap with no rival is a hole that can be carried untouched, and a gap
+    /// with a rival is a field the source named twice, where picking a spelling would be
+    /// correcting it.
+    /// </para>
+    /// <para>
+    /// Empty for most streams. The recipe streams carry nearly all of it, which is why
+    /// <c>Barbatos.SecsGem.Recipes</c> implements nine of twenty-seven pairs and leaves the rest.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<SecsDataItemRival> RivalSpellings { get; internal init; } = [];
+
     /// <summary>Returns the stream and its name.</summary>
     /// <returns>For example <c>S6 Data Collection</c>.</returns>
     public override string ToString() => $"S{Number} {Name}";
@@ -189,6 +205,106 @@ public sealed class SecsStreamAnchoring
     public override string ToString()
         => $"S{Stream} {BorrowedAnchors.Count} borrowed anchor(s), {OwnAnchors.Count} own, "
             + $"{SharedGaps.Count} shared gap(s), {OwnGaps.Count} own";
+}
+
+/// <summary>
+/// How a name a message uses resembles a name the dictionary defines.
+/// </summary>
+/// <remarks>
+/// Two textual relations, and the difference between them is how much weight each carries. An
+/// <see cref="Anagram"/> is the same letters in a different order, which is hard to arrive at by
+/// coincidence; a prefix relation is one name inside another, which happens to unrelated items
+/// often enough that it is a candidate rather than a conclusion.
+/// </remarks>
+public enum SecsNameRelation : byte
+{
+    /// <summary>The same letters, reordered - <c>RCPIDNEW</c> against <c>RCPNEWID</c>.</summary>
+    Anagram = 0,
+
+    /// <summary>The definition is the used name plus a little - <c>RCPVER</c> against <c>RCPVERS</c>.</summary>
+    DefinitionExtendsUsed = 1,
+
+    /// <summary>The used name is the definition plus a little - <c>RCPSTATE</c> against <c>RCPSTAT</c>.</summary>
+    UsedExtendsDefinition = 2,
+}
+
+/// <summary>
+/// A name a message uses that the dictionary does not define, beside a definition that plainly
+/// means the same thing.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>The fourth provenance measure, and the question it answers.</strong> The first three
+/// say how much of a stream is documented, whether a definition is used at all, and whose
+/// vocabulary a stream's firm ground is. This one asks the thing a chapter actually needs to know
+/// about a gap: <em>did the source write this field down under another name?</em>
+/// </para>
+/// <para>
+/// A rival is <strong>not</strong> permission to read one as the other. It is the opposite: where
+/// a gap has a rival, reading a format off a sibling would mean choosing between two spellings of
+/// one item while the source's own spelling sits in the dictionary unused - which is correcting the
+/// reference, not filling a hole in it. Three names in this reference are exact anagrams of a
+/// definition and two of the three are recipe names, which is what kept the rename and the copy
+/// out of <c>Barbatos.SecsGem.Recipes</c>.
+/// </para>
+/// <para>
+/// <see cref="IsDefinitionUsedElsewhere"/> separates the two readings. A definition no message
+/// names is a spelling the reference appears to have abandoned. A definition that messages
+/// <em>do</em> use is worse: then the two names are both live, and nothing says they mean the
+/// same thing at all.
+/// </para>
+/// </remarks>
+public sealed class SecsDataItemRival
+{
+    internal SecsDataItemRival(
+        string usedName,
+        string definedName,
+        SecsNameRelation relation,
+        IReadOnlyList<byte> streams,
+        bool isDefinitionUsedElsewhere)
+    {
+        UsedName = usedName;
+        DefinedName = definedName;
+        Relation = relation;
+        Streams = streams;
+        IsDefinitionUsedElsewhere = isDefinitionUsedElsewhere;
+    }
+
+    /// <summary>Gets the name a message uses and no definition covers.</summary>
+    public string UsedName { get; }
+
+    /// <summary>Gets the definition it resembles.</summary>
+    public string DefinedName { get; }
+
+    /// <summary>Gets how the two resemble each other.</summary>
+    public SecsNameRelation Relation { get; }
+
+    /// <summary>Gets the streams whose rows use <see cref="UsedName"/>, ordered.</summary>
+    public IReadOnlyList<byte> Streams { get; }
+
+    /// <summary>Gets whether some message names <see cref="DefinedName"/> as well.</summary>
+    /// <remarks>
+    /// <see langword="false"/> is the ordinary case and the milder one: a spelling the reference
+    /// defined and then did not use. <see langword="true"/> means both names are live in the
+    /// messages, so the resemblance is probably a collision rather than a rewording - the current
+    /// data has one, <c>VALACK</c> against <c>VLAACK</c>.
+    /// </remarks>
+    public bool IsDefinitionUsedElsewhere { get; }
+
+    /// <summary>Returns the pair and the relation.</summary>
+    /// <returns>For example <c>RCPIDNEW (S15) is an anagram of RCPNEWID, which no message names</c>.</returns>
+    public override string ToString()
+    {
+        var how = Relation switch
+        {
+            SecsNameRelation.Anagram => "is an anagram of",
+            SecsNameRelation.DefinitionExtendsUsed => "is the stem of",
+            _ => "extends",
+        };
+
+        return $"{UsedName} ({string.Join(",", Streams.Select(stream => $"S{stream}"))}) {how} {DefinedName}, "
+            + (IsDefinitionUsedElsewhere ? "which messages also use" : "which no message names");
+    }
 }
 
 /// <summary>
@@ -421,6 +537,33 @@ public sealed class SecsCatalogProvenance
     /// </para>
     /// </remarks>
     public IReadOnlyList<string> UnusedDefinitions { get; }
+
+    /// <summary>Gets every gap that has a definition plainly meaning the same thing, ordered.</summary>
+    /// <remarks>
+    /// <para>
+    /// The fourth provenance measure. <see cref="UndefinedDataItems"/> and
+    /// <see cref="UnusedDefinitions"/> are the two unanchored sets; this is the overlap between
+    /// them that the names themselves reveal, and it changes what a gap means. A gap with no rival
+    /// is a field the source never wrote down - carry it untouched. A gap with a rival is a field
+    /// the source wrote down under another name, and choosing between the two spellings is
+    /// correcting the reference rather than reading it.
+    /// </para>
+    /// <para>
+    /// See <see cref="SecsDataItemRival"/> for the two relations and what each is worth, and
+    /// <see cref="SecsStreamInfo.RivalSpellings"/> for the per-stream view a chapter consults.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<SecsDataItemRival> RivalSpellings { get; internal init; } = [];
+
+    /// <summary>Gets the definitions no message names that carry a table of code values, ordered.</summary>
+    /// <remarks>
+    /// A sharper reading of <see cref="UnusedDefinitions"/>, and the one worth quoting. A bare
+    /// unused name might be an editing leftover; a name with its values enumerated is a capability
+    /// the source specified in full and then wired to nothing. <c>ACKC15</c> is in here with four
+    /// codes naming the reasons a recipe can be refused - reasons no message in the reference can
+    /// carry, because no row names the item.
+    /// </remarks>
+    public IReadOnlyList<string> DetailedUnusedDefinitions { get; internal init; } = [];
 
     /// <summary>Returns the counts.</summary>
     /// <returns>For example <c>20 streams, 524 messages (405 representative), 375 items: 213 unused, 74 undefined</c>.</returns>

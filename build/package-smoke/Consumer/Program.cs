@@ -314,6 +314,27 @@ internal static class Program
             SecsCatalog.TryGetDataItem("LOCID", out var locationId) && locationId!.IsNamedByNoMessage,
             "LOCID is either missing from the packed dictionary or reported as named by a message");
 
+        // The fourth measure, which needs both halves of the resource at once: it pairs names the
+        // messages use against names the dictionary defines, so a resource that packed one half
+        // would report no rivals at all rather than failing to load.
+        Assert(
+            SecsCatalog.Provenance.RivalSpellings.Count == 8,
+            $"the catalogue found {SecsCatalog.Provenance.RivalSpellings.Count} rival spelling(s), not eight");
+
+        Assert(
+            SecsCatalog.Provenance.DetailedUnusedDefinitions.Count == 44,
+            $"the catalogue found {SecsCatalog.Provenance.DetailedUnusedDefinitions.Count} unused definitions with code tables, not forty-four");
+
+        // And the per-stream view, which is what a chapter consults: all eight belong to the
+        // recipe streams and stream 21 - the chapter before them - has none.
+        Assert(
+            SecsCatalog.TryGetStream(15, out var fifteen) && fifteen!.RivalSpellings.Count == 7,
+            "stream 15 does not report its seven rival spellings");
+
+        Assert(
+            SecsCatalog.TryGetStream(21, out var twentyOne) && twentyOne!.RivalSpellings.Count == 0,
+            "stream 21 reports a rival spelling, which no stream outside the recipe region has");
+
         Assert(
             sixteen!.Provenance.IsEntirelyRepresentative,
             $"S16 reports {sixteen.Provenance.DefinedCount} defined message(s), not none");

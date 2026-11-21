@@ -26,6 +26,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.ProcessJobs\Barbatos.SecsGem.ProcessJobs.csproj" />
+    <!-- The catalogue, for the one test that checks this package's vocabulary against the
+         reference's own table. The fourth provenance measure found that the reference defines
+         that table and names it from no message, so nothing but a test can make the two agree. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <!-- E40, E94, E90 and E87 are four standards in four packages, and a 300 mm tool implements
          all four. One test here registers every one of them and asserts that stream 14 answers
          for all six object types at once - a claim no single package can make, and the first real

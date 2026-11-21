@@ -6,6 +6,10 @@ Namespace `Barbatos.SecsGem.Catalog`. Concepts, provenance and the caveats that 
 - [`SecsCatalog`](#secscatalog)
 - [`SecsCatalogExtensions`](#secscatalogextensions)
 - [`SecsStreamInfo`](#secsstreaminfo)
+- [`SecsStreamAnchoring`](#secsstreamanchoring)
+- [`SecsDataItemRival`](#secsdataitemrival)
+- [`SecsNameRelation`](#secsnamerelation)
+- [`SecsStreamNameClash`](#secsstreamnameclash)
 - [`SecsStreamProvenance`](#secsstreamprovenance)
 - [`SecsCatalogProvenance`](#secscatalogprovenance)
 - [`SecsMessageInfo`](#secsmessageinfo)
@@ -55,6 +59,7 @@ something.
 | `Messages` | `IReadOnlyList<SecsMessageInfo> { get; }` | This stream's messages, ordered by function. |
 | `Provenance` | `SecsStreamProvenance { get; }` | How much of this stream the source actually documented. The question to ask before implementing against it. |
 | `Anchoring` | `SecsStreamAnchoring { get; }` | **Whose** the documented part is: the stream's own vocabulary or somebody else's. The question to ask second. |
+| `RivalSpellings` | `IReadOnlyList<SecsDataItemRival> { get; }` | For each of this stream's gaps, any definition that plainly means the same thing. The question to ask third, and empty for seventeen of the twenty streams. |
 | `ToString()` | `override string` | `S6 Data Collection`. |
 
 The twenty streams:
@@ -97,6 +102,49 @@ the blocked transfers of streams 8 and 13 stay out - that vocabulary was never w
 anywhere. `DSDATA` is an **own** gap, a hole in one row of a stream whose siblings' payloads are
 defined, so a data set is carried untouched instead. Same word in the older measure; different
 answer in this one.
+
+## `SecsDataItemRival`
+
+`public sealed class SecsDataItemRival`
+
+A name a message uses that the dictionary does not define, beside a definition that plainly means
+the same thing. **The fourth provenance measure**, and the only one that has gone on to find a
+fault in shipping code.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `UsedName` | `string { get; }` | The name a message uses and no definition covers. |
+| `DefinedName` | `string { get; }` | The definition it resembles. |
+| `Relation` | `SecsNameRelation { get; }` | How the two resemble each other. |
+| `Streams` | `IReadOnlyList<byte> { get; }` | The streams whose rows use `UsedName`, ordered. |
+| `IsDefinitionUsedElsewhere` | `bool { get; }` | Whether some message names `DefinedName` too. `false` is the milder case - a spelling the reference abandoned. `true` means both are live, so the resemblance is probably a collision; the current data has one, `VALACK` against `VLAACK`. |
+| `ToString()` | `override string` | `RCPIDNEW (S15) is an anagram of RCPNEWID, which no message names`. |
+
+**A rival is not permission to read one name as the other** - it is the opposite. Where a gap has a
+rival, reading a format off a sibling means choosing between two spellings of one item while the
+source's own spelling sits unused, which is correcting the reference rather than reading it.
+
+All eight in the current data are recipe names. Seven are stream 15's, and they are what kept the
+rename and the copy out of `Barbatos.SecsGem.Recipes`.
+
+**Four bounds keep the measure from being noise and only one of them bites.** A prefix relation
+needs a stem of at least four characters, which is what drops `LOC` against `LOCKID` - a location
+against a lock - and a one-character item name the reference carries. The other three bounds are
+unreachable with this data, which a test asserts rather than claims, so a refresh that makes one
+matter fails it and says which.
+
+## `SecsNameRelation`
+
+`public enum SecsNameRelation : byte`
+
+| Member | Value | Meaning |
+| --- | --- | --- |
+| `Anagram` | 0 | The same letters, reordered - `RCPIDNEW` against `RCPNEWID`. Three in the whole reference, and hard to reach by coincidence. |
+| `DefinitionExtendsUsed` | 1 | The definition is the used name plus a little - `RCPVER` against `RCPVERS`. |
+| `UsedExtendsDefinition` | 2 | The used name is the definition plus a little - `RCPSTATE` against `RCPSTAT`. |
+
+A prefix relation is a candidate, not a conclusion; an anagram is close to one. The relation is
+reported rather than flattened so a reader can tell them apart.
 
 ## `SecsStreamNameClash`
 
@@ -143,6 +191,8 @@ than the anchored one.
 | `MessageCount` | `int { get; }` | 524, and the sum of the streams' own counts - a test asserts that. |
 | `RepresentativeCount` | `int { get; }` | 405. |
 | `StreamNameClashes` | `IReadOnlyList<SecsStreamNameClash> { get; }` | Names more than one stream carries. One entry: `Recipe Management`, streams 15 and 19. |
+| `RivalSpellings` | `IReadOnlyList<SecsDataItemRival> { get; }` | The eight gaps the source also wrote down under another name, ordered. All eight are recipe names. |
+| `DetailedUnusedDefinitions` | `IReadOnlyList<string> { get; }` | The 44 unused definitions that carry a table of code values, ordered - specified in full and wired to nothing. `ACKC15` is one. |
 | `DefinedCount` | `int { get; }` | `MessageCount - RepresentativeCount`. |
 | `DataItemCount` | `int { get; }` | 375 definitions. |
 | `NamedDataItemCount` | `int { get; }` | 236 distinct names the messages use. Empty names are dropped, which is one of **two lines here no test reaches**: no row in this data has a trailing comma in its item list. |

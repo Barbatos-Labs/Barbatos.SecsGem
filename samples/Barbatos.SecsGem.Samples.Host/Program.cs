@@ -3119,6 +3119,33 @@ internal static class Program
         ok &= SecsCatalog.Provenance.StreamNameClashes.Count == 1
             && SecsCatalog.NameOf(19, 11) != SecsCatalog.NameOf(15, 11);
 
+        // And the fourth measure, which did not close that question - it reopened half of it. The
+        // shared figure these streams have is provenance, and provenance is not a verdict: what
+        // decides is whether a gap is a field the source never wrote down or one it wrote down
+        // twice. Eight in twenty streams, every one a recipe name, and they are the reason
+        // Barbatos.SecsGem.Recipes serves nine of stream 15's twenty-seven pairs and not eleven.
+        Console.WriteLine();
+
+        foreach (var rival in SecsCatalog.Provenance.RivalSpellings.Take(3))
+        {
+            Console.WriteLine($"   {rival}");
+        }
+
+        Console.WriteLine(
+            $"   ... {SecsCatalog.Provenance.RivalSpellings.Count} in all, and every one of them a recipe name");
+
+        ok &= SecsCatalog.Provenance.RivalSpellings.Count == 8
+            && SecsCatalog.Provenance.RivalSpellings.All(rival =>
+                rival.Streams.All(stream => stream is 15 or 19 or 20));
+
+        // The companion figure, and the one that is easiest to misread the other way round: a
+        // capability being specified in the reference does not mean a message can carry it.
+        Console.WriteLine(
+            $"   and {SecsCatalog.Provenance.DetailedUnusedDefinitions.Count} definitions carry a full code table"
+            + " that no message names - ACKC15 among them, which names why a recipe was refused");
+
+        ok &= SecsCatalog.Provenance.DetailedUnusedDefinitions.Contains("ACKC15");
+
         return ok;
     }
 

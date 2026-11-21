@@ -210,6 +210,13 @@ public static class SecsCatalog
             isNamedByNoMessage: !used.Contains(item.Name),
             streams: itemStreams.TryGetValue(item.Name, out var naming) ? [.. naming] : []))];
 
+        // And the fourth pass, which is the overlap between the other two directions: a name a
+        // message uses and no definition covers, beside a definition that plainly means the same
+        // thing. Neither list alone can show this - UndefinedDataItems and UnusedDefinitions are
+        // both long, and what matters is which entries of one are the other's under a different
+        // spelling.
+        var rivals = Rivals(used, defined, items, itemStreams);
+
         foreach (var (number, name) in streamNames.OrderBy(pair => pair.Key))
         {
             var ofStream = messages.Where(m => m.Stream == number).OrderBy(m => m.Function).ToArray();
@@ -248,7 +255,12 @@ public static class SecsCatalog
                     ofStream.Length,
                     ofStream.Count(m => m.IsRepresentative),
                     [.. names.Where(item => !defined.Contains(item))]),
-                new SecsStreamAnchoring(number, ownAnchors, borrowedAnchors, sharedGaps, ownGaps)));
+                new SecsStreamAnchoring(number, ownAnchors, borrowedAnchors, sharedGaps, ownGaps))
+            {
+                // The stream's own gaps, with whichever definitions rival them. Filtered from the
+                // whole-table list rather than recomputed, so the two can never disagree.
+                RivalSpellings = [.. rivals.Where(rival => rival.Streams.Contains(number))],
+            });
         }
 
         return new Loaded(
@@ -282,7 +294,119 @@ public static class SecsCatalog
                     .OrderBy(group => group.Key, StringComparer.Ordinal)
                     .Select(group => new SecsStreamNameClash(
                         group.Key,
-                        [.. group.Select(pair => pair.Key).Order()]))]));
+                        [.. group.Select(pair => pair.Key).Order()]))])
+            {
+                RivalSpellings = rivals,
+
+                // A bare unused name might be an editing leftover. One with its values enumerated
+                // is a capability the source specified in full and wired to nothing, which is a
+                // different claim and the one worth quoting.
+                DetailedUnusedDefinitions =
+                [
+                    .. items
+                        .Where(item => item.IsNamedByNoMessage && item.Codes.Count > 0)
+                        .Select(item => item.Name)
+                        .Order(StringComparer.Ordinal),
+                ],
+            });
+    }
+
+    /// <summary>
+    /// Pairs each name a message uses and no definition covers with any definition that plainly
+    /// means the same thing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two relations, and both are deliberately textual: this measure reports resemblances between
+    /// <em>names</em> and takes no view on meaning, because a measure that guessed at meaning would
+    /// be the very inference it exists to warn about.
+    /// </para>
+    /// <para>
+    /// <strong>Four bounds keep it from being noise, and only one of them bites.</strong> That is
+    /// worth stating plainly, because the obvious thing to write about a set of thresholds is that
+    /// each was chosen against the data, and here three of the four were not needed by it:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>
+    /// <strong><c>ShortestStem</c>, the four-character floor on a prefix relation, is the one that
+    /// does the work.</strong> Without it <c>LOC</c> rivals <c>LOCKID</c> - a location against a
+    /// lock - and a one-character item name the reference carries rivals seven definitions at once.
+    /// </description></item>
+    /// <item><description>
+    /// The <c>Shortest</c> floors on each name are <strong>unreachable with the current data</strong>:
+    /// the only short names are one used name of a single character and two definitions of two, and
+    /// a prefix relation already needs a stem of four, so a short name could only ever appear as an
+    /// anagram - and none of them is an anagram of anything. Kept because a refreshed reference
+    /// with a two-character pair would otherwise report it.
+    /// </description></item>
+    /// <item><description>
+    /// <c>LongestSuffix</c> is <strong>unreachable too</strong>: no prefix relation in the current
+    /// data has a stem of four and an extra part longer than three. Kept for the same reason.
+    /// </description></item>
+    /// </list>
+    /// <para>
+    /// A test asserts that unreachability rather than leaving it as a claim, so a refresh that
+    /// makes one of the three matter fails it and says which. Every pair the recipe chapter relied
+    /// on survives all four.
+    /// </para>
+    /// </remarks>
+    private static List<SecsDataItemRival> Rivals(
+        HashSet<string> used,
+        HashSet<string> defined,
+        IReadOnlyList<SecsDataItemInfo> items,
+        Dictionary<string, SortedSet<byte>> itemStreams)
+    {
+        const int Shortest = 3;
+        const int ShortestStem = 4;
+        const int LongestSuffix = 3;
+
+        List<SecsDataItemRival> found = [];
+
+        foreach (var usedName in used.Where(name => !defined.Contains(name) && name.Length >= Shortest))
+        {
+            var sorted = Sorted(usedName);
+
+            foreach (var item in items)
+            {
+                if (item.Name.Length < Shortest)
+                {
+                    continue;
+                }
+
+                SecsNameRelation? relation =
+                    Sorted(item.Name) == sorted ? SecsNameRelation.Anagram
+                    : Extends(usedName, item.Name) ? SecsNameRelation.UsedExtendsDefinition
+                    : Extends(item.Name, usedName) ? SecsNameRelation.DefinitionExtendsUsed
+                    : null;
+
+                if (relation is null)
+                {
+                    continue;
+                }
+
+                found.Add(new SecsDataItemRival(
+                    usedName,
+                    item.Name,
+                    relation.Value,
+                    itemStreams.TryGetValue(usedName, out var carrying) ? [.. carrying] : [],
+                    isDefinitionUsedElsewhere: used.Contains(item.Name)));
+            }
+        }
+
+        return
+        [
+            .. found
+                .OrderBy(rival => rival.UsedName, StringComparer.Ordinal)
+                .ThenBy(rival => rival.DefinedName, StringComparer.Ordinal),
+        ];
+
+        static bool Extends(string longer, string shorter)
+            => shorter.Length >= ShortestStem
+                && longer.Length > shorter.Length
+                && longer.Length - shorter.Length <= LongestSuffix
+                && longer.StartsWith(shorter, StringComparison.Ordinal);
+
+        static string Sorted(string name) => string.Concat(name.Order());
     }
 
     private static SecsMessageInfo ReadMessage(string[] fields)

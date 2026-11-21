@@ -306,9 +306,98 @@ A shared name is not a fault. What sits underneath this one is:
 So a library that implemented stream 19 from this reference would be choosing the undefined
 vocabulary over the defined one, and would answer S19F11 as a delete while a machine built from the
 other half of the same reference means it as a verify. That is a recipe deleted when a host asked
-to check one, which is why no package here implements any of the three. The one piece of good news
-is that all three carry a recipe as `PPBODY`, which stream 7 defines as a `B` - so the payload was
-never the problem; the vocabulary around it was.
+to check one, which is why streams 19 and 20 are left alone.
+
+**Stream 15 is not**, and the difference came out of the measure below rather than out of this
+section. The figure these three streams share - 108 rows, no definitions - is provenance, and
+provenance is not a verdict: counting the pairs whose primary *and* reply are made entirely of
+defined items gives stream 15 nine, stream 20 two and stream 19 none. So
+[`Barbatos.SecsGem.Recipes`](../Barbatos.SecsGem.Recipes/README.md) serves those nine and says in
+its own README which standard it is, at length, because the name collision is a hazard for whoever
+reads a tool's manual rather than for anything on the wire.
+
+The one piece of good news is that all three carry a recipe as `PPBODY`, which stream 7 defines as
+a `B` - so the payload was never the problem; the vocabulary around it was.
+
+## The fourth question: did the source name it twice?
+
+The three measures above are all about what is *missing*. This one is about what is **present
+twice**, and it is the only measure here that has gone on to find a fault in shipping code.
+
+```csharp
+SecsCatalog.Provenance.RivalSpellings;
+// RCPIDNEW (S15) is an anagram of RCPNEWID, which no message names
+// RCPSTATE (S15,S19,S20) extends RCPSTAT, which no message names
+// VALACK (S15) is an anagram of VLAACK, which messages also use
+// ... eight in all
+
+SecsCatalog.Streams.Single(stream => stream.Number == 15).RivalSpellings.Count;   // 7
+SecsCatalog.Streams.Single(stream => stream.Number == 21).RivalSpellings.Count;   // 0
+```
+
+`UndefinedDataItems` and `UnusedDefinitions` are the two unanchored sets - 74 names messages use
+with no definition, 213 definitions no message names. This measure is **the overlap the names
+themselves reveal**: a gap whose field the source did write down, under a different spelling.
+
+**That changes what a gap means.** A gap with no rival is a field the source never recorded, so a
+package can carry it untouched and say so - which is what `Barbatos.SecsGem.DataSets` does with
+`DSDATA` and `Barbatos.SecsGem.ItemTransfer` with `ITEMDATA`. A gap *with* a rival cannot be
+treated that way: reading a format off a sibling would mean choosing between two spellings of one
+item while the source's own spelling sits in the dictionary unused, and that is correcting the
+reference rather than reading it.
+
+**Eight rivals in twenty streams, and every one of them is a recipe name.** That is the finding,
+and it is why nine packages were built before anybody met this hazard. Stream 15 carries seven of
+the eight, which is what kept its rename and its copy out of `Barbatos.SecsGem.Recipes` after the
+chapter had planned to implement both.
+
+Two relations are reported, and the difference matters:
+
+| relation | example | worth |
+| --- | --- | --- |
+| `Anagram` | `RCPIDNEW` / `RCPNEWID` | hard to reach by coincidence - three in the whole reference |
+| prefix, either way | `RCPSTATE` / `RCPSTAT` | a candidate, not a conclusion |
+
+And `IsDefinitionUsedElsewhere` splits them again. Four of the eight name a definition that
+messages *also* use, which is worse: then both spellings are live and nothing suggests they mean
+the same thing. `VALACK` against `VLAACK` is an anagram of an item in active service.
+
+### Specified in full, wired to nothing
+
+The companion figure, and the one that explains several standing refusals at once:
+
+```csharp
+SecsCatalog.Provenance.DetailedUnusedDefinitions.Count;   // 44
+```
+
+A bare unused name might be an editing leftover. **Forty-four of the 213 carry a full table of code
+values** - a capability the source specified in detail and then gave no message. Three worth
+knowing about:
+
+- **`ACKC15`**: accepted, denied busy, denied invalid recipe ID, denied invalid data. The reasons a
+  recipe download can be refused - and no row names the item, so stream 15 carries `RMACK` instead,
+  which has one refusal and no reason at all.
+- **`RMNSCMD`**: create, delete, rename and list a namespace, in one item. Stream 15 spends four
+  separate pairs reaching three of those four and has no clean pair for the rename.
+- **`PRSTATE`** and **`CTLJOBCMD`**: the process job states and the control job commands, which
+  `Barbatos.SecsGem.ProcessJobs` and `Barbatos.SecsGem.ControlJobs` model from E40 and E94 instead.
+
+### The first measure that audits this repository
+
+Those last two are why this chapter reaches outside the Catalog. Both packages state a vocabulary
+the reference also states, from a different source, with nothing connecting the two - which is the
+shape of mistake that let a stale `GRANT` figure survive a chapter. So two test files now make them
+meet:
+
+- `PRSTATE` has ten rows with **5 reserved**, and `ProcessJobState` is numbered `0..4, 6..9` -
+  it agrees exactly, hole and all. An enum written by counting would have put `Pausing` at 5 and
+  every later state one too low.
+- `CTLJOBCMD` names six commands, and `ControlJobCommands` already said of two of its members that
+  they are "not one of `CTLJOBCMD`'s six" - a claim in a doc comment with nothing asserting it.
+  Now the six are driven through `ControlJobManager.Command` and the two extras are named.
+
+Those test projects reference this package; the libraries themselves do not and must not. The
+dependency belongs to the test, not to the layer.
 
 ## Not a structural template
 

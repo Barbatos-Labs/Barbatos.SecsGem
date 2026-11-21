@@ -26,6 +26,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.ControlJobs\Barbatos.SecsGem.ControlJobs.csproj" />
+    <!-- The catalogue, for the one test that checks this package's vocabulary against the
+         reference's own table. The fourth provenance measure found that the reference defines
+         that table and names it from no message, so nothing but a test can make the two agree. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
     <!-- E94, E90 and E87 are three standards in three packages, and a machine doing all three is
          the normal case in a 300 mm fab. One test here registers all of them and asserts that
          stream 14 answers for carriers, load ports, substrates, substrate locations and control

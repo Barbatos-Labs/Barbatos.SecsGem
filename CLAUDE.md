@@ -200,10 +200,27 @@ vocabulary the source never wrote down, so leave those rows alone - that is why 
 is implemented here. An **own** gap is a hole in one row, so carry the field untouched and say so.
 And `i.Streams` on an item answers the other direction: one named by a single stream has nothing to
 check against, and one named by several usually has a package here serving it already, which a test
-must then agree with. `IsEntirelyRepresentative` is true for nine streams
-and two of them are implemented here, so it is not a veto: check the stream against the item
-dictionary and against its standard's subject matter, and record which check it passed. Stream 17
-is the one that failed both.
+must then agree with.
+
+Then ask `s.RivalSpellings`, which is the newest measure and the one that changes what a gap means.
+A gap with no rival is a field the source never wrote down, so carry it untouched. A gap **with** a
+rival is a field the source wrote down under another spelling, and reading a format off a sibling
+would then be correcting the reference rather than reading it - there are eight in twenty streams
+and every one is a recipe name, which is why stream 15 ships nine pairs of twenty-seven and the
+rename and the copy are not among them. `Provenance.DetailedUnusedDefinitions` is the companion:
+44 definitions carry a full table of values and no message names them, so a capability being
+**specified** in the reference does not mean anything can carry it.
+
+`IsEntirelyRepresentative` is true for nine streams and three of them are implemented here, so it
+is not a veto: check the stream against the item dictionary and against its standard's subject
+matter, and record which check it passed. Stream 17 is the one that failed both. And provenance
+alone is not a verdict either - stream 15 was swept into stream 19's refusal on a shared figure and
+the dictionary overturned it, which is the one refusal here that has been reopened.
+
+**Where a package states a vocabulary the reference also states, make them meet.** Two do:
+`ProcessJobState` against `PRSTATE` and `ControlJobCommands` against `CTLJOBCMD`, both of which the
+reference defines and names from no message. Those test projects reference `Barbatos.SecsGem.Catalog`
+while the libraries do not and must not - the dependency is the test's, not the layer's.
 
 After touching a `.csproj`, `Directory.Build.*`, `Directory.Packages.props` or anything else that
 changes what gets packed:
