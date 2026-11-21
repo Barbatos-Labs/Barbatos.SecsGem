@@ -231,6 +231,17 @@ The two tables differ in one more way worth knowing, because it changes what `Ot
 Either way a code outside the table never reads as the zero of its enum, which for `GRANT6` would
 turn somebody else's refusal into permission to send.
 
+**`GRANT6` is now served from two packages.** `Barbatos.SecsGem.Gem` reads it for S6F6, the
+multi-block inquire, and its `GemMultiBlockGrant` has these four members under these four names -
+`Ok`, `Busy`, `NoSpace`, `Other`. The repository's rule for an item two packages read is that each
+side is asserted against the reference's own table rather than against the other enum, which is
+what keeps the agreement standing if a third ever serves it; the member *names* are the one half a
+table cannot settle, so a test on each side pins those directly.
+
+And it is still not `GRANT`, which four packages here read: four named codes and a range from 4,
+against this item's three and a range from 3. One code's difference, and an enum copied from the
+wrong one puts its catch-all a code too high.
+
 ## The sequence is documented and not enforced
 
 E5 names the steps - open, then send or get, then close - and gives stream 13 **no state model**.

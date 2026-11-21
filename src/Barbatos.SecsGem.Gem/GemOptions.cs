@@ -67,6 +67,17 @@ public sealed class GemOptions
     /// <summary>Gets or sets a value indicating whether S5F1 asks for an S5F2.</summary>
     public bool AlarmReportsExpectReply { get; set; } = true;
 
+    /// <summary>Gets or sets a value indicating whether S5F9 asks for an S5F10.</summary>
+    /// <remarks>
+    /// Its own setting rather than a share of <see cref="AlarmReportsExpectReply"/>, even though
+    /// both messages are answered with <c>ACKC5</c>. An alarm is a condition the machine will
+    /// still be in when anybody asks - S5F6 serves the set of them, so a lost S5F1 can be
+    /// recovered from. An exception post is an occurrence: nothing in stream 5's documented half
+    /// serves the list of them, so the message is the only time it is ever said, and a machine may
+    /// reasonably insist on an acknowledgement for the one and not for the other.
+    /// </remarks>
+    public bool ExceptionPostsExpectReply { get; set; } = true;
+
     /// <summary>Gets or sets a value indicating whether S2F31 may set the equipment clock.</summary>
     /// <remarks>
     /// This never touches the operating system clock. The GEM layer keeps an offset of its own and

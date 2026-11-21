@@ -131,6 +131,23 @@ public sealed class GemCollectionEvent
     /// equipment that may be watched before it is configured.
     /// </remarks>
     public bool EnabledByDefault { get; init; } = true;
+
+    /// <summary>Gets the variables this event is about, in order - the <c>VID</c> list of S1F24.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Not the same thing as a report.</strong> A report is what a <em>host</em> asked to be
+    /// sent with an event, through S2F33 and S2F35, and it can be redefined at any time. This is
+    /// what the <em>equipment</em> says the event is about, and it does not change: S1F24 is a
+    /// namelist, in the same family as S1F12 and S2F30, and a namelist describes the machine rather
+    /// than the conversation.
+    /// </para>
+    /// <para>
+    /// Empty by default, which answers S1F24 with the event's name and no variables - the honest
+    /// answer for equipment that has not said which variables an event is about, and not a refusal:
+    /// an event with no associated variables is a legitimate thing for a machine to have.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<uint> VariableIds { get; init; } = [];
 }
 
 /// <summary>One report: an identifier and the variables it carries, in order.</summary>

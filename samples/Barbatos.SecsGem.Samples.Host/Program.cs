@@ -954,8 +954,11 @@ internal static class Program
                 "Availability",
                 () => SecsItem.F8(_productivity?.Report().AvailabilityEfficiency ?? 0d),
                 "ratio")
-            .AddEvent(ProcessEndEvent, "ProcessEnd")
-            .AddEvent(PressureLimitEvent, "PressureLimitCrossed")
+            // What each event is about, which is S1F24's answer and not the same thing as the
+            // reports a host links to it with S2F35. The machine describes its own events; the
+            // host chooses what it wants told. Relink the event and this list does not move.
+            .AddEvent(ProcessEndEvent, "ProcessEnd", [PressureVariable, LotIdVariable])
+            .AddEvent(PressureLimitEvent, "PressureLimitCrossed", [PressureVariable])
             .AddRemoteCommand("START", (context, _) =>
             {
                 var lot = context.GetText("LOTID");
@@ -1187,6 +1190,24 @@ internal static class Program
         Console.WriteLine($"   S1F11 -> {string.Join("; ", namelist.Select(v => v.Exists ? v.ToString() : $"{v.Id} is not one of mine"))}");
         ok &= namelist.Count == 2;
 
+        // S1F21 is S1F11's sibling and answers a different question: data variables, not status
+        // ones. Asking it about PressureVariable - a status variable - gets the same "not one of
+        // mine" a made-up identifier gets, which is the whole point of the two lists being two.
+        var data = await host.ReadDataVariableNamelistAsync([LotIdVariable, PressureVariable], cancellationToken);
+        Console.WriteLine($"   S1F21 -> {string.Join("; ", data.Select(v => v.Exists ? v.ToString() : $"{v.Id} is not a data variable"))}");
+        ok &= data.Count == 2 && data[0].Exists && !data[1].Exists;
+
+        // And S1F23 asks what collection events there are and what each one is about. The variable
+        // list is the machine's description, declared beside the event in the model.
+        var events = await host.ReadCollectionEventNamelistAsync([], cancellationToken);
+        Console.WriteLine($"   S1F23 -> {string.Join("; ", events.Select(e => $"{e.Name} about [{string.Join(", ", e.VariableIds)}]"))}");
+
+        // Asserted against the one event this host knows by name rather than against a count -
+        // the two machines this sample talks to declare different numbers of them, and a count
+        // was the first version of this line and the reason the socket run failed.
+        var processEnd = events.SingleOrDefault(e => e.Id == ProcessEndEvent);
+        ok &= processEnd is { Exists: true } && processEnd.VariableIds.Contains(PressureVariable);
+
         Console.WriteLine();
         Console.WriteLine("-- and configures its own reporting --");
         Console.WriteLine();
@@ -1232,6 +1253,63 @@ internal static class Program
             ok &= sent;
 
             await WaitUntilAsync(() => !Reports.IsEmpty, "the event report to arrive at the host");
+
+            while (Reports.TryDequeue(out var report))
+            {
+                Console.WriteLine($"   {report}");
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("-- checks the link without touching the machine --");
+        Console.WriteLine();
+
+        // The one message in GEM that changes nothing, which makes it the right first thing to
+        // send when a link is behaving oddly: it proves a body crosses in both directions. A
+        // machine is expected to answer it off-line as well as on, so a refusal is itself a
+        // finding.
+        var echoed = await host.LoopbackAsync(new byte[] { 0x00, 0x7F, 0xFF, 0x01 }, cancellationToken);
+        Console.WriteLine($"   S2F25 -> echo matched: {echoed}");
+        ok &= echoed;
+
+        // S2F21 is S2F41 with the detail taken out: same command table, same control-state rule,
+        // and three codes where HCACK has seven. START answers CompletionLater above, and there is
+        // no CMDA for that - so it comes back as CannotPerformNow, which is not what the machine
+        // meant. The loss is the message's, not the library's, and a host that needs the
+        // distinction sends S2F41 with an empty parameter list.
+        var cmda = await host.SendRemoteCommandAsync("START", cancellationToken);
+        Console.WriteLine($"   S2F21 -> CMDA={cmda} (HCACK {GemHostCommandAcknowledgement.CompletionLater} has nowhere to go)");
+        ok &= cmda == GemRemoteCommandAcknowledgement.CannotPerformNow;
+
+        if (equipment is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and the machine says the things nothing asked it for --");
+            Console.WriteLine();
+
+            // An exception is not an alarm. An alarm is a condition with a numeric ALID that S5F6
+            // will report again; an exception is an occurrence named by free text that nothing in
+            // stream 5's documented half will ever mention twice. Hence three strings and its own
+            // event on the host.
+            ok &= await equipment.PostExceptionAsync(
+                "PRESSURE-EXCURSION",
+                "WARNING",
+                "Chamber pressure spiked during pump-down",
+                cancellationToken);
+
+            // S6F3: the event happened, no values attached. What this reference's row names is
+            // DATAID and CEID and nothing else - the items that would carry values, DVNAME and
+            // DVVAL, are named by none of its 524 rows. The host tells it from an S6F11 by
+            // GemEventReportEventArgs.Function, since both can arrive carrying no reports.
+            ok &= await equipment.SendDiscreteVariableDataAsync(ProcessEndEvent, cancellationToken);
+
+            // And the handshake in front of a send too big for one block. A question rather than
+            // news, so it is never spooled: permission nobody is there to give is not permission.
+            var grant = await equipment.InquireMultiBlockAsync(70_000, cancellationToken);
+            Console.WriteLine($"   S6F5  -> GRANT6={grant}");
+            ok &= grant == GemMultiBlockGrant.Ok;
+
+            await WaitUntilAsync(() => !Reports.IsEmpty, "the exception post to arrive at the host");
 
             while (Reports.TryDequeue(out var report))
             {
@@ -3168,10 +3246,24 @@ internal static class Program
                 values += report.Values.Count;
             }
 
-            Reports.Enqueue($"S6F11 arrived: CEID={e.EventId}, {e.Reports.Count} report(s), {values} value(s)");
+            // e.Function, not a hard-coded 11. One event serves S6F11, S6F13 and S6F3, and the
+            // report list cannot tell them apart: an S6F3 carries no reports, and neither does an
+            // S6F11 for an event with nothing linked to it.
+            Reports.Enqueue(
+                $"S6F{e.Function} arrived: CEID={e.EventId}, {e.Reports.Count} report(s), {values} value(s)");
         };
 
         host.AlarmReceived += (_, e) => Reports.Enqueue($"S5F1 arrived: {e.Alarm}");
+
+        // Its own event, not AlarmReceived, although both are stream 5 and both answer with
+        // ACKC5. Merging them would hand an application one notification whose two halves it has
+        // to tell apart itself.
+        host.ExceptionReceived += (_, e) => Reports.Enqueue($"S5F9 arrived: {e.Exception}");
+
+        // S6F5 grants by default, so this handler is here to show where a host would refuse -
+        // a handshake whose only purpose is to let a host say no should not say no by silence.
+        host.MultiBlockInquired += (_, e) =>
+            Reports.Enqueue($"S6F5 asked for {e.Length}; answering {e.Grant}");
 
         host.TerminalRequestReceived += (_, e) => Reports.Enqueue($"S10F1 arrived: {e}");
 

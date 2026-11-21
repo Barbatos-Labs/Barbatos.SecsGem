@@ -102,6 +102,10 @@ public class GemHostTests
         (await host.ReadConstantsAsync([100], token)).Dispose();
         await host.WriteConstantsAsync([(100UL, SecsItem.U4(50u))], token);
         await host.ReadConstantNamelistAsync([100], token);
+        await host.ReadDataVariableNamelistAsync([10], token);
+        await host.ReadCollectionEventNamelistAsync([1_000], token);
+        await host.SendRemoteCommandAsync("START", token);
+        await host.LoopbackAsync(new byte[] { 1, 2, 3 }, token);
         await host.ReadClockAsync(token);
         await host.SetClockAsync(cancellationToken: token);
         await host.DeleteAllReportsAsync(token);

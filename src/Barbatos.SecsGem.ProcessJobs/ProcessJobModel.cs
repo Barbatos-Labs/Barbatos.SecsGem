@@ -167,10 +167,19 @@ public enum ProcessJobAcknowledgement : byte
 
 /// <summary>The answer to a process job command - <c>CMDA</c>.</summary>
 /// <remarks>
+/// <para>
 /// Defined, with its three meanings, which makes E40's command path the only one in the last four
 /// standards that can tell a host <em>why</em>: a command the machine has never heard of is not a
 /// command it cannot do yet. E94's refusals all arrive as one <c>OBJACK</c> code, because stream
 /// 14 has nothing better.
+/// </para>
+/// <para>
+/// <strong>Three meanings and a reserved range</strong>, and <see cref="Other"/> is the range. It
+/// was added when <c>Barbatos.SecsGem.Gem</c> came to read the same item for S2F22 and the two
+/// readings had to be made to agree: this enum had the three named codes and folded everything
+/// above them onto <see cref="CannotPerformNow"/>, which is a refusal the machine had not made.
+/// The comparison that found it was the item's own table, not the other package's enum.
+/// </para>
 /// </remarks>
 public enum ProcessJobCommandAcknowledgement : byte
 {
@@ -182,6 +191,16 @@ public enum ProcessJobCommandAcknowledgement : byte
 
     /// <summary>A command this machine has, refused from the state the job is in.</summary>
     CannotPerformNow = 2,
+
+    /// <summary>A code from 3 up, which E5 reserves and does not name.</summary>
+    /// <remarks>
+    /// Still not success - the rule the whole stack keeps is that a code E5 does not define never
+    /// reads as "done". What it is not is a refusal either, which is the distinction this member
+    /// exists to keep: an equipment-specific code may as easily qualify an acceptance as deny
+    /// one, and all that is known is that the machine answered in a vocabulary this library
+    /// cannot read.
+    /// </remarks>
+    Other = 3,
 }
 
 /// <summary>The answer to a queue reorder - <c>HCACK</c>.</summary>

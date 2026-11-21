@@ -84,12 +84,22 @@ the manager.
 | `ProcessJobRecipeMethod : byte` | `WithoutVariableTuning = 1`, `WithVariableTuning = 2` - `PRRECIPEMETHOD`, which has no zero |
 | `ProcessJobMaterialOrder : byte` | `ArrivalSequence = 1`, `MaximizeThroughput = 2`, `ListedSequence = 3` - `PRMTRLORDER` |
 | `ProcessJobAcknowledgement : byte` | `Accepted = 0`, `Rejected = 1` - `PJACK`, which is undefined; the values are `PREACK`'s |
-| `ProcessJobCommandAcknowledgement : byte` | `Performed = 0`, `DoesNotExist = 1`, `CannotPerformNow = 2` - `CMDA`, defined |
+| `ProcessJobCommandAcknowledgement : byte` | `Performed = 0`, `DoesNotExist = 1`, `CannotPerformNow = 2`, `Other = 3` - `CMDA`, defined, with 3 to 63 reserved. The four names are `Barbatos.SecsGem.Gem`'s four for the same item |
 | `ProcessJobParameterAcknowledgement : byte` | `Accepted = 0`, `NameDoesNotExist = 1`, `IllegalValue = 2`, `IllegalFormat = 3`, `CannotChangeNow = 4` - `CPACK`, defined for 1 to 3 |
 | `ProcessJobQueueAcknowledgement : byte` | `Acknowledged = 0` … `NoSuchObject = 6` - `HCACK`, defined; a reorder uses four of the seven |
 
-An acknowledgement code E5 does not define never reads as success: an unknown `CMDA` reads as
-`CannotPerformNow`, and an unknown `PJACK` as `Rejected`.
+An acknowledgement code E5 does not define never reads as success: a `CMDA` in the range the table
+reserves reads as `Other`, and an unknown `PJACK` as `Rejected`.
+
+**`Other` was not here at first**, and the reasoning for leaving it out was written down: a
+reserved code was folded onto `CannotPerformNow`, since a machine answering something unreadable
+has the command or it would have said 1. What that establishes is that the code is not
+`DoesNotExist` - not that it is a refusal. The table's own first code is "performed / completed",
+and an equipment-specific code can qualify an acceptance as easily as deny one, so folding onto 2
+reported a refusal the machine had not made. The question was forced by coverage rather than
+tidiness: `Barbatos.SecsGem.Gem` came to read `CMDA` for S2F22, so the item is served from two
+packages now and must mean one thing in both. Gem's enum had the same hole and both were closed
+together.
 
 ## `ProcessJobResult`
 

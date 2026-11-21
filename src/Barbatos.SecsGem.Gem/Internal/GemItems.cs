@@ -195,6 +195,32 @@ internal static class GemItems
         return blocks;
     }
 
+    /// <summary>Copies an item's bytes out, whatever format carried them.</summary>
+    /// <param name="item">The item, or null.</param>
+    /// <returns>The bytes. Empty when there is nothing to read.</returns>
+    /// <remarks>
+    /// Copied, because an item borrows pooled memory and is released with its message - so a span
+    /// handed to a caller would be memory that had gone back to the pool. Text is read as its
+    /// characters, which is what the loopback diagnostic needs: <c>ABS</c> is defined as a binary
+    /// and a machine echoing text has still echoed something.
+    /// </remarks>
+    internal static ReadOnlyMemory<byte> ReadBytes(SecsItem? item)
+    {
+        if (item is null || item.IsList || item.Count == 0)
+        {
+            return default;
+        }
+
+        if (item.Format is SecsFormat.Binary && item.TryGetSpan<byte>(out var bytes))
+        {
+            return bytes.ToArray();
+        }
+
+        return item.Format.IsText()
+            ? System.Text.Encoding.ASCII.GetBytes(item.GetString())
+            : default;
+    }
+
     /// <summary>Reads a text item, or an empty string when the item is not text.</summary>
     /// <param name="item">The item.</param>
     /// <returns>The text, trimmed of the padding a fixed-width field carries.</returns>

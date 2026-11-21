@@ -142,13 +142,35 @@ on a machine nobody wrote it for:
 | Message | The host is asking | Answered with |
 | --- | --- | --- |
 | S1F11 | What status variables are there? | S1F12 - SVID, SVNAME, UNITS |
+| S1F21 | What data variables are there? | S1F22 - VID, DVVALNAME, UNITS |
+| S1F23 | What collection events are there, and what is each about? | S1F24 - CEID, CENAME, VID |
 | S2F29 | What constants, and what may I set them to? | S2F30 - ECID, ECNAME, ECMIN, ECMAX, ECDEF, UNITS |
 | S5F5 | What alarms are there, and which are in alarm now? | S5F6 - ALCD, ALID, ALTX |
 | S5F7 | Which alarms are enabled? | S5F8 - the same shape, enabled only |
 | S6F15 | Give me this event's reports now | S6F16 |
 | S6F19 | Give me this one report now | S6F20 |
 
-Three of those carry a decision worth knowing about:
+**S1F11 and S1F21 are not each other.** E30 keeps status variables and data variables apart, and
+the two namelists keep them apart too: a status variable asked for by S1F21 comes back named
+nothing, exactly as an identifier the machine has never heard of does. That is not pedantry - a
+host that read one list as the other would build reports out of variables the machine will not
+report.
+
+**S1F24 answers what an event is about, not what the host asked to be told.** The variables a
+collection event names are the machine's own description of it, declared in the model; the reports
+linked to it with S2F35 are the host's current subscription, and the two move independently.
+Relink the event to a single-variable report and the namelist does not change. So the event's own
+variable list is declared where the event is:
+
+```csharp
+.AddEvent(1_001, "ProcessEnd", [2u, 10u, 11u])   // what this event is about
+.AddEvent(1_002, "Loaded")                       // an event about nothing in particular
+```
+
+An event with no variables is a legitimate answer and not a refusal: S1F24 has no way to say "I
+decline to tell you", and a machine may well have an event that is simply an occurrence.
+
+Three of the namelists carry a decision worth knowing about:
 
 ```csharp
 .AddConstant(new GemEquipmentConstant
@@ -656,6 +678,80 @@ from an operator is a prompt for a person at the host, and handing it over an ho
 of them have gone home is worse than saying it did not go. Reports and alarms are spooled because
 a host reads those as history.
 
+## Exceptions, bare notifications and two diagnostics
+
+The messages that are nobody's capability in particular. Each is a definition in the reference
+rather than an illustration, and each was added by the sweep that closed the last of those.
+
+| Message | What it is for | Answered with |
+| --- | --- | --- |
+| S5F9 | An exception the machine wants on the record | S5F10 (ACKC5) |
+| S6F3 | An event happened; no values attached | S6F4 (ACKC6) |
+| S6F5 | May I send something too big for one block? | S6F6 (GRANT6) |
+| S2F21 | A remote command with no parameters | S2F22 (CMDA) |
+| S2F25 | Send these bytes back to me | S2F26 (ABS) |
+
+```csharp
+await equipment.PostExceptionAsync("PRESSURE-HIGH", "ALARM", "Chamber pressure above limit");
+await equipment.SendDiscreteVariableDataAsync(1_001);
+
+if (await equipment.InquireMultiBlockAsync(70_000) == GemMultiBlockGrant.Ok)
+{
+    await equipment.TriggerEventAsync(1_001);
+}
+```
+
+**An exception is not an alarm.** An alarm is a *condition*: it has a numeric ALID in the model, a
+host enables or disables it with S5F3, and S5F6 serves the set of alarms that are on right now. An
+exception is an *occurrence*, named by free text, and nothing in the documented half of stream 5
+will ever mention it again - the recovery pairs S5F11 through S5F18 are rows the reference
+illustrates rather than defines. So `PostExceptionAsync` takes its three text fields as arguments
+instead of an identifier into a table, there is nothing to enable, and `EXTYPE` stays a string: it
+has no code table, and inventing a set of type names would be the kind of guess that is hardest to
+take back. The post is spooled, like a report, for exactly the reason that nothing else will
+repeat it.
+
+**S6F3 carries DATAID and CEID and nothing else**, which is what this reference's row names. E5 as
+it is usually quoted has the discrete variable data send carrying values, nested under `DSID`,
+`DVNAME` and `DVVAL` - and in the source behind
+[`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) the last two of those are
+defined and then named by **none** of its 524 rows. A gap the whole reference shares is a
+vocabulary it never wrote down, so the row is implemented as given rather than filled in from
+memory, and [a test pins the
+measurement](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream6Tests.cs). What it
+is good for is an event whose values are expensive to gather: the host hears that it happened and
+asks for what it wants with S6F15.
+
+Because the message is thinner, it is easy to confuse with an S6F11 for an event that has no
+reports linked to it - both arrive carrying nothing. `GemEventReportEventArgs.Function` is how a
+host tells them apart, and the reason that property exists.
+
+**S6F5 is a question, so it is never spooled.** Everything else the machine sends is news, and news
+keeps; permission nobody is there to give is not permission, and a grant delivered when the host
+comes back would answer a send that was abandoned an hour ago. With no link it answers `NoSpace`,
+because `GRANT6` has no code for "nobody was listening" and `Busy` would invite an immediate retry
+against the same absent host. Nothing here sends the large message afterwards or measures one to
+decide whether it needs asking about: how many bytes fit in a block is a property of the link, and
+whether a report is worth the extra round trip is the application's call.
+
+**S2F21 is S2F41 with the detail taken out.** Both run the same command table and both obey the
+same control-state rule - the shorter message is not the safer one - but a handler answers in
+`HCACK`'s seven codes and S2F22 carries `CMDA`'s three. So `Accepted` becomes `Performed`,
+`InvalidCommand` becomes `DoesNotExist`, and everything else, "will complete later" included,
+becomes `CannotPerformNow`. That loss is the message's and not this library's: a host that wants
+the fuller answer sends S2F41 with an empty parameter list.
+
+**S2F25 is the one message here that changes nothing**, which makes it the right first thing to
+send when a link is behaving oddly - it proves a body crosses in both directions without touching
+the machine. It is answered **off-line as well as on**, deliberately: refusing it would make the
+link untestable in exactly the state where a host most wants to test it. And it goes both ways, so
+`GemHost` answers it too.
+
+```csharp
+await host.LoopbackAsync([0x00, 0x7F, 0xFF]);     // true when the echo matched exactly
+await host.LoopbackDataAsync([0x00, 0x7F, 0xFF]); // the bytes, for a caller that wants to look
+```
+
 ## The other end of the conversation
 
 E30 models the *equipment*, so everything above is the machine's side. `GemHost` is the host's:
@@ -704,10 +800,18 @@ the recorded set has to cover `HandledMessages`, `ProcessProgramMessages`,
 | A shape E5 pins down | Decoded: `GemEquipmentIdentity`, `GemVariableDescription`, `GemConstantDescription`, `GemAlarmReport`, `GemFormattedProcessProgram`, a `DateTimeOffset`, a list of PPIDs |
 | Equipment data - S1F4, S2F14, S6F16, S6F20 | The `SecsMessage`, which **the caller disposes**. A typed wrapper over "whatever this machine calls a value" would be a guess with an API attached |
 
-What the machine says unprompted arrives as an event: `EventReportReceived` (S6F11 and S6F13),
-`AlarmReceived` (S5F1) and `ErrorReported` (stream 9). Each carries a settable acknowledgement,
-because whether a host could store what it was sent is the one decision about an inbound report
-that cannot be made for it.
+What the machine says unprompted arrives as an event: `EventReportReceived` (S6F11, S6F13 and
+S6F3), `AlarmReceived` (S5F1), `ExceptionReceived` (S5F9), `TraceDataReceived` (S6F1),
+`MultiBlockInquired` (S6F5) and `ErrorReported` (stream 9). Each carries a settable
+acknowledgement, because whether a host could store what it was sent is the one decision about an
+inbound report that cannot be made for it.
+
+Two of those have a default worth knowing. `MultiBlockInquired` **grants** unless a handler says
+otherwise, because a handshake whose only purpose is to let a host refuse should not refuse by
+silence - a host with nothing wired up would otherwise stop a machine reporting at all. And
+`ExceptionReceived` arrives already set to `Error` when the body did not read, which is stricter
+than the alarm handler on purpose: S5F6 will serve an alarm condition again, and nothing will ever
+repeat an exception post.
 
 **Stream 9 is declared, and that matters.** An entity that has not declared stream 9 answers an
 incoming S9F5 with another S9F5, and the two ends then explain the problem to each other until
@@ -728,6 +832,7 @@ not a wall in front of it.
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
 | The rest of stream 7 | Both halves E30 asks for are here: S7F1-S7F6 and S7F17-S7F20 unformatted, S7F23-S7F26 formatted. What is left - the directory pair S7F7/F8, verification S7F9/F10, the matrix messages S7F11 through S7F16, references S7F21/F22, and everything from S7F27 up - is outside the GEM capability, and every one of them is an entry [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) flags as representative: a starting point for reading E5 rather than a definition to implement against. Implementing one means reading the standard first, not copying a table |
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
+| The rest of streams 1, 2, 5 and 6 | Nothing, now, of what the reference *documents*: every primary in those four streams that it defines rather than illustrates is implemented here, the last seven of them in one sweep - S1F21, S1F23, S2F21, S2F25, S5F9, S6F3 and S6F5. What is left in them is representative rows, and `s.Provenance` on [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) says which: a starting point for reading E5, not a table to copy. S5F11-S5F18, the exception recovery flow, is the largest single group |
 | A trace that outlives a reconnect | Deliberate, and the only part of tracing with no test of its own. Every trace is cancelled where the host's report definitions are reset, on a re-establish - and an in-memory transport pair cannot re-select after a deselect, because the select is driven by the connection's own state machine and nothing public asks it to. The test covers the other side: that a second S1F13 on a live conversation resets nothing |
 | Streams this library does not implement at either end | Stream 3 material status, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |
 

@@ -26,6 +26,18 @@ namespace Barbatos.SecsGem.Gem.UnitTests;
 /// in the reader would pass this file and fail a machine.
 /// </para>
 /// <para>
+/// <strong>And the fourteenth was missed.</strong> The coverage chapter that implemented S2F21
+/// wrote <c>GemRemoteCommandAcknowledgement</c> with <c>CMDA</c>'s three named codes and no member
+/// at 3, which is the hole this file was built to stop - the author of the file and the author of
+/// the enum being the same, two chapters apart. It was caught by the shared-item rule rather than
+/// by this test, because the item had to be compared with
+/// <c>Barbatos.SecsGem.ProcessJobs</c>' reading of it, and that package turned out to have the
+/// same hole. Both have a member at 3 now, and <c>CMDA</c> is in the table below so a third
+/// chapter cannot repeat it. What the episode says about the method is that an enum written in the
+/// same chapter as its reader gets no second pair of eyes, and the table is the only second pair
+/// there is.
+/// </para>
+/// <para>
 /// The two exceptions are the interesting part. <c>COMMACK</c> names both its codes and reserves
 /// nothing, so there is no range to fold and no member to add. <c>TRACK</c> has <strong>no table
 /// of values at all</strong>, so this package's six trace codes come from E30's prose rather than
@@ -50,11 +62,14 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         { "LRACK", 6, 7 },
         { "ERACK", 2, 3 },
         { "ACKC5", 1, 2 },
+        { "ACKC6", 1, 2 },
         { "RSPACK", 1, 2 },
         { "ACKC10", 3, 4 },
         { "PPGNT", 6, 7 },
         { "ACKC7", 7, 8 },
         { "HCACK", 7, 8 },
+        { "CMDA", 3, 4 },
+        { "GRANT6", 3, 4 },
     };
 
     [Theory]
@@ -111,9 +126,53 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.Equal((byte)6, (byte)GemProcessProgramGrant.Other);
         Assert.Equal((byte)7, (byte)GemProcessProgramAcknowledgement.Other);
         Assert.Equal((byte)7, (byte)GemHostCommandAcknowledgement.Other);
+        Assert.Equal((byte)3, (byte)GemRemoteCommandAcknowledgement.Other);
+        Assert.Equal((byte)3, (byte)GemMultiBlockGrant.Other);
 
         Assert.Equal((byte)1, (byte)GemAlarmAcknowledgement.Error);
+        Assert.Equal((byte)1, (byte)GemReportAcknowledgement.Error);
         Assert.Equal((byte)1, (byte)GemSpooledDataAcknowledgement.Denied);
+    }
+
+    [Fact]
+    public void The_two_items_served_from_a_second_package_agree_with_the_table_and_so_name_for_name()
+    {
+        // CMDA is read here for S2F22 and in Barbatos.SecsGem.ProcessJobs for S16F4 and S16F24;
+        // GRANT6 here for S6F6 and in Barbatos.SecsGem.DataSets for S13F2. The repository's rule
+        // is that each package asserts against the reference's own table rather than against the
+        // other enum, which is what keeps the agreement transitive - so this half checks the
+        // table, and a matching test in each of those packages checks the same table from its
+        // side.
+        Assert.True(SecsCatalog.TryGetDataItem("CMDA", out var cmda));
+        Assert.Equal("Command performed / completed", cmda!.Codes[0].Meaning);
+        Assert.Equal("Command does not exist", cmda.Codes[1].Meaning);
+        Assert.Equal("Cannot perform now", cmda.Codes[2].Meaning);
+        Assert.Equal("3-63", cmda.Codes[^1].Value);
+
+        Assert.True(SecsCatalog.TryGetDataItem("GRANT6", out var grant));
+        Assert.Equal("OK, permission granted", grant!.Codes[0].Meaning);
+        Assert.Equal("Busy, try again", grant.Codes[1].Meaning);
+        Assert.Equal("Not interested / no space", grant.Codes[2].Meaning);
+        Assert.Equal("3-63", grant.Codes[^1].Value);
+
+        // The member names are deliberately the other package's, which is the one thing a table
+        // cannot say. Ok rather than Granted, to match DataSetGrant exactly: two enums for one
+        // item that disagree on a name are a trap for anybody reading both.
+        Assert.Equal<string[]>(
+            ["Ok", "Busy", "NoSpace", "Other"],
+            Enum.GetNames<GemMultiBlockGrant>());
+
+        Assert.Equal<string[]>(
+            ["Performed", "DoesNotExist", "CannotPerformNow", "Other"],
+            Enum.GetNames<GemRemoteCommandAcknowledgement>());
+
+        // And GRANT6 is not GRANT, which four packages here read: it names one code fewer and
+        // reserves from one code lower, so a catch-all copied across would read a machine's
+        // reserved 3 as a refusal it never made.
+        Assert.True(SecsCatalog.TryGetDataItem("GRANT", out var elder));
+        Assert.Equal(5, elder!.Codes.Count);
+        Assert.Equal("4-63", elder.Codes[^1].Value);
+        Assert.Equal(4, grant.Codes.Count);
     }
 
     [Fact]
@@ -135,6 +194,9 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         AssertHighest<GemProcessProgramGrant>(6);
         AssertHighest<GemProcessProgramAcknowledgement>(7);
         AssertHighest<GemHostCommandAcknowledgement>(7);
+        AssertHighest<GemRemoteCommandAcknowledgement>(3);
+        AssertHighest<GemMultiBlockGrant>(3);
+        AssertHighest<GemReportAcknowledgement>(1);
     }
 
     private static void AssertHighest<T>(byte boundary)

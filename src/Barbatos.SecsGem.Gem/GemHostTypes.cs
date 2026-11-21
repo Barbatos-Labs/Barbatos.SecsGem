@@ -108,6 +108,67 @@ public sealed class GemEquipmentIdentity
 }
 
 /// <summary>One entry of a status variable namelist - S1F12.</summary>
+/// <summary>
+/// What a machine calls one collection event, and which variables it says the event is about -
+/// S1F24.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>This is the machine's own account of an event, not the host's.</strong> The variables
+/// here are what the equipment says the event concerns; the variables a host will actually
+/// <em>receive</em> with it are the reports linked through S2F33 and S2F35, which can be
+/// reconfigured at any time. The two are easy to confuse and a host that treated this as its
+/// report definition would be surprised the first time somebody relinked.
+/// </para>
+/// <para>
+/// An event the machine does not have comes back with a zero-length name, the same way an unknown
+/// variable does in <see cref="GemVariableDescription"/> - so <see cref="Exists"/> is how you tell
+/// rather than a missing entry.
+/// </para>
+/// </remarks>
+public sealed class GemEventDescription
+{
+    /// <summary>Initialises a description.</summary>
+    /// <param name="id">CEID.</param>
+    /// <param name="name">CENAME.</param>
+    /// <param name="variableIds">The VIDs the machine says the event is about, in the order it gave them.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="name"/> or <paramref name="variableIds"/> is <see langword="null"/>.</exception>
+    public GemEventDescription(ulong id, string name, IReadOnlyList<ulong> variableIds)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(variableIds);
+
+        Id = id;
+        Name = name;
+        VariableIds = variableIds;
+    }
+
+    /// <summary>Gets the CEID.</summary>
+    public ulong Id { get; }
+
+    /// <summary>Gets the name, or an empty string when the machine has no such event.</summary>
+    public string Name { get; }
+
+    /// <summary>Gets the variables the machine says the event is about, in the order it gave them.</summary>
+    public IReadOnlyList<ulong> VariableIds { get; }
+
+    /// <summary>Gets a value indicating whether the machine has this event.</summary>
+    /// <remarks>
+    /// E5 answers an unknown identifier with a zero-length name rather than by leaving it out,
+    /// which keeps the reply aligned with the request. So an empty name is the equipment saying
+    /// "not mine", and it is worth a property rather than a comparison at every call site.
+    /// </remarks>
+    public bool Exists => Name.Length > 0;
+
+    /// <summary>Returns the name, the identifier and how many variables it carries.</summary>
+    /// <returns>For example <c>PPChanged (CEID 3), 2 variable(s)</c>.</returns>
+    public override string ToString()
+        => Name.Length == 0
+            ? $"CEID {Id} is not one this machine has"
+            : $"{Name} (CEID {Id}), {VariableIds.Count} variable(s)";
+}
+
+/// <summary>One entry of a status variable namelist - S1F12.</summary>
 public sealed class GemVariableDescription
 {
     /// <summary>Initialises a description.</summary>
@@ -274,11 +335,16 @@ public sealed class GemReceivedReport
 /// <summary>An event report the equipment sent - S6F11 or S6F13.</summary>
 public sealed class GemEventReportEventArgs : EventArgs
 {
-    internal GemEventReportEventArgs(uint dataId, ulong eventId, IReadOnlyList<GemReceivedReport> reports)
+    internal GemEventReportEventArgs(
+        uint dataId,
+        ulong eventId,
+        IReadOnlyList<GemReceivedReport> reports,
+        byte function)
     {
         DataId = dataId;
         EventId = eventId;
         Reports = reports;
+        Function = function;
     }
 
     /// <summary>Gets DATAID.</summary>
@@ -286,6 +352,22 @@ public sealed class GemEventReportEventArgs : EventArgs
 
     /// <summary>Gets CEID.</summary>
     public ulong EventId { get; }
+
+    /// <summary>Gets which stream 6 primary carried this - 11, 13 or 3.</summary>
+    /// <remarks>
+    /// <para>
+    /// One event for three messages, and this is how a handler tells them apart. It was added when
+    /// S6F3 arrived, because <see cref="Reports"/> cannot do it: an S6F3 carries no reports, and
+    /// neither does an S6F11 for an event with nothing linked to it. Before that the annotated
+    /// report was indistinguishable from the plain one too, which was a smaller version of the
+    /// same hole.
+    /// </para>
+    /// <para>
+    /// 11 is the plain event report, 13 the annotated one, and 3 the discrete variable data send -
+    /// the row whose body the reference gives as <c>DATAID</c> and <c>CEID</c> and nothing else.
+    /// </para>
+    /// </remarks>
+    public byte Function { get; }
 
     /// <summary>Gets the reports the event carries. Valid only inside the handler.</summary>
     public IReadOnlyList<GemReceivedReport> Reports { get; }
@@ -309,6 +391,124 @@ public sealed class GemHostAlarmEventArgs : EventArgs
 
     /// <summary>Gets or sets the ACKC5 to answer with, when the equipment asked for a reply.</summary>
     public GemAlarmAcknowledgement Acknowledgement { get; set; } = GemAlarmAcknowledgement.Accepted;
+}
+
+/// <summary>One exception, as S5F9 posts it.</summary>
+/// <remarks>
+/// <para>
+/// Four fields, all four of them items the reference defines: <c>TIMESTAMP</c>, <c>EXID</c>,
+/// <c>EXTYPE</c> and <c>EXMESSAGE</c>. Three of the four are free text with no length the
+/// reference pins down, which is the difference between an exception and an alarm - an alarm has a
+/// numeric <c>ALID</c> the host can look up, and an exception is named by whatever the machine
+/// calls it.
+/// </para>
+/// <para>
+/// <strong>Nothing here is a code.</strong> <c>EXTYPE</c> has no table in the reference, so this
+/// layer does not turn it into an enumeration: a machine's exception types are its own, and a
+/// guessed set of names would be the kind of invention that is hardest to take back once an
+/// application has switched on it.
+/// </para>
+/// </remarks>
+public sealed class GemExceptionPost
+{
+    /// <summary>Initialises a post.</summary>
+    /// <param name="postedAt">TIMESTAMP, or <see langword="null"/> when it would not parse.</param>
+    /// <param name="id">EXID.</param>
+    /// <param name="type">EXTYPE.</param>
+    /// <param name="message">EXMESSAGE.</param>
+    public GemExceptionPost(DateTime? postedAt, string id, string type, string message)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(message);
+
+        PostedAt = postedAt;
+        Id = id;
+        Type = type;
+        Message = message;
+    }
+
+    /// <summary>Gets TIMESTAMP in UTC, or <see langword="null"/> when the machine sent something unreadable.</summary>
+    /// <remarks>
+    /// Nullable rather than defaulted, because the two are different facts and a host deciding
+    /// whether an exception is stale needs to know which it has. <c>default</c> would read as the
+    /// first of January in year one, which no machine means.
+    /// </remarks>
+    public DateTime? PostedAt { get; }
+
+    /// <summary>Gets EXID, the name this machine gives the exception.</summary>
+    public string Id { get; }
+
+    /// <summary>Gets EXTYPE, how the machine classifies it.</summary>
+    public string Type { get; }
+
+    /// <summary>Gets EXMESSAGE, the text for a person to read.</summary>
+    public string Message { get; }
+
+    /// <summary>Returns the type, the identifier and the message.</summary>
+    /// <returns>For example <c>ALARM PRESSURE-HIGH Chamber pressure above limit</c>.</returns>
+    public override string ToString() => Type.Length == 0
+        ? $"{Id} {Message}"
+        : $"{Type} {Id} {Message}";
+}
+
+/// <summary>An exception the equipment posted - S5F9.</summary>
+public sealed class GemHostExceptionEventArgs : EventArgs
+{
+    internal GemHostExceptionEventArgs(GemExceptionPost exception) => Exception = exception;
+
+    /// <summary>Gets the exception.</summary>
+    public GemExceptionPost Exception { get; }
+
+    /// <summary>Gets or sets the ACKC5 to answer with, when the equipment asked for a reply.</summary>
+    /// <remarks>
+    /// Unlike an alarm's, this arrives already set to
+    /// <see cref="GemAlarmAcknowledgement.Error"/> when the body did not read - a handler that
+    /// wants to accept such a post anyway has to say so, rather than the other way round.
+    /// </remarks>
+    public GemAlarmAcknowledgement Acknowledgement { get; set; } = GemAlarmAcknowledgement.Accepted;
+}
+
+/// <summary>The equipment asking permission to send something too large for one block - S6F5.</summary>
+/// <remarks>
+/// <para>
+/// <strong>The only multi-block inquire in the reference's documented half.</strong> Stream 2 and
+/// stream 4 each have one too, S2F39 and S4F25, and both are rows the reference illustrates rather
+/// than defines - and both answer with <c>GRANT</c> where this one answers with <c>GRANT6</c>. So
+/// this pair is where <c>DATALENGTH</c> gets read for the first time in this repository, with the
+/// other two rows unimplemented and nothing to check the reading against.
+/// </para>
+/// <para>
+/// <strong><see cref="Length"/> has no units.</strong> The reference types <c>DATALENGTH</c> as a
+/// <c>U4</c> and records nothing about what it counts, so this layer passes the number through and
+/// does not name it bytes - the same choice stream 21's <c>LENGTH</c> got, and for the same
+/// reason. A host using it to decide whether it has room is relying on an agreement with that
+/// machine, not on the standard.
+/// </para>
+/// </remarks>
+public sealed class GemMultiBlockInquiryEventArgs : EventArgs
+{
+    internal GemMultiBlockInquiryEventArgs(uint dataId, uint length)
+    {
+        DataId = dataId;
+        Length = length;
+    }
+
+    /// <summary>Gets DATAID.</summary>
+    public uint DataId { get; }
+
+    /// <summary>Gets DATALENGTH, in whatever the host and the machine have agreed it counts.</summary>
+    public uint Length { get; }
+
+    /// <summary>Gets or sets the GRANT6 to answer with.</summary>
+    /// <remarks>
+    /// Granted unless a handler says otherwise, because a handshake that exists so a host can
+    /// refuse should not refuse by default. Setting <see cref="GemMultiBlockGrant.Other"/> puts a
+    /// code on the wire that E5 reserves - legal, as equipment-specific, and not stopped here,
+    /// since a host and a machine that have agreed what it means know more about their pair than
+    /// this layer does.
+    /// </remarks>
+    public GemMultiBlockGrant Grant { get; set; } = GemMultiBlockGrant.Ok;
 }
 
 /// <summary>A group of trace samples the equipment sent - S6F1.</summary>

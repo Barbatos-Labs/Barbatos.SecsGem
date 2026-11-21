@@ -12,10 +12,17 @@ namespace Barbatos.SecsGem.DataSets.UnitTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>GRANT6</c> is named by streams 6 and 13, and of those two this repository serves stream 13
-/// here and stream 6 in <c>Barbatos.SecsGem.Gem</c> - which does not model this item, so in
-/// practice one package reads it. The assertion is worth having anyway: the table is the only
-/// thing that can say whether these three codes are the right three.
+/// <c>GRANT6</c> is named by streams 6 and 13, and this repository now reads it on both: stream 13
+/// here, and stream 6 in <c>Barbatos.SecsGem.Gem</c>, whose <c>GemMultiBlockGrant</c> arrived with
+/// S6F5 in the coverage chapter. So this is no longer a single-reader assertion made for safety's
+/// sake - it is one half of a shared item, and the rule for those is that each side is asserted
+/// against the reference's own table rather than against the other enum. That is what makes the
+/// agreement transitive if a third package ever serves it.
+/// </para>
+/// <para>
+/// The member names are the one thing the table cannot settle, so they are asserted directly and
+/// in one direction only: <c>GemMultiBlockGrant</c> was written to match the four names here,
+/// because this enum came first.
 /// </para>
 /// <para>
 /// <strong>And <c>GRANT6</c> is not <c>GRANT</c>.</strong> The two differ by one code and by the
@@ -46,6 +53,11 @@ public class DataSetGrantAgreesWithTheReferenceTests
         Assert.Equal((byte)3, (byte)DataSetGrant.Other);
         Assert.Equal("3-63", table.Codes[^1].Value);
         Assert.Equal(table.Codes.Count, Enum.GetValues<DataSetGrant>().Length);
+
+        // The four names, which the table cannot give and the other package had to be written to.
+        // A test on this side as well as that one, because a rename here would otherwise break an
+        // agreement whose only record was a doc comment in a package this one cannot see.
+        Assert.Equal<string[]>(["Ok", "Busy", "NoSpace", "Other"], Enum.GetNames<DataSetGrant>());
     }
 
     [Fact]

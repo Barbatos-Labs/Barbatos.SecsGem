@@ -141,14 +141,34 @@ public class ProcessJobStateAgreesWithTheReferenceTests
         Assert.Equal((byte)0, (byte)ProcessJobCommandAcknowledgement.Performed);
         Assert.Equal((byte)1, (byte)ProcessJobCommandAcknowledgement.DoesNotExist);
         Assert.Equal((byte)2, (byte)ProcessJobCommandAcknowledgement.CannotPerformNow);
+        Assert.Equal((byte)3, (byte)ProcessJobCommandAcknowledgement.Other);
 
-        // Three members for three named codes, and no fourth: the reader folds the reserved range
-        // onto CannotPerformNow rather than onto a catch-all, which is a deliberate difference
-        // from the Other members Barbatos.SecsGem.Gem uses - a machine answering a code this
-        // library cannot read has the command, or it would have said 1 itself. Asserted so that a
-        // later tidy-up towards the house pattern has to argue with the reasoning rather than
-        // silently change the answer.
-        Assert.Equal(3, Enum.GetValues<ProcessJobCommandAcknowledgement>().Length);
+        // Four members for three named codes and a reserved row, and this assertion used to say
+        // three. The earlier version was deliberate and said so: the reader folded the reserved
+        // range onto CannotPerformNow, on the ground that a machine answering a code this library
+        // cannot read has the command, or it would have said 1 itself - and it asked that a later
+        // tidy-up argue with the reasoning rather than quietly change the answer. So, the
+        // argument.
+        //
+        // What that reasoning establishes is that a reserved code is not DoesNotExist. It does not
+        // establish that it is CannotPerformNow, because those are not the only two readings left:
+        // the table's own first code is "performed / completed", and an equipment-specific code
+        // can as easily qualify an acceptance as deny one. Folding onto 2 therefore reported a
+        // refusal the machine had not made, and the distinction thrown away is one a caller can
+        // act on - "not now" is a state to wait out, where "I cannot read your answer" is a
+        // disagreement between the host and the machine about the vocabulary.
+        //
+        // The thing that forced the question was coverage rather than tidiness. Barbatos.SecsGem.Gem
+        // came to read CMDA for S2F22, so the item is served from two packages now, and the rule
+        // for those is that one item does not mean two things here. Gem's enum had the same hole,
+        // and both were closed together. The rule that a code E5 does not define never reads as
+        // success is untouched - Other is not success either.
+        Assert.Equal(4, Enum.GetValues<ProcessJobCommandAcknowledgement>().Length);
+
+        // The four names are Gem's four, which is the half of the agreement the table cannot say.
+        Assert.Equal<string[]>(
+            ["Performed", "DoesNotExist", "CannotPerformNow", "Other"],
+            Enum.GetNames<ProcessJobCommandAcknowledgement>());
     }
 
     [Fact]

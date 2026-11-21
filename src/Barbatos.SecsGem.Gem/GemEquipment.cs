@@ -163,6 +163,10 @@ public sealed class GemEquipment : IAsyncDisposable
         (1, 1),    // Are You There
         (1, 3),    // Selected Equipment Status Request
         (1, 11),   // Status Variable Namelist Request
+        (1, 21),   // Data Variable Namelist Request
+        (1, 23),   // Collection Event Namelist Request
+        (2, 21),   // Remote Command - the one with no parameters
+        (2, 25),   // Loopback Diagnostic Request
         (1, 13),   // Establish Communications Request
         (1, 15),   // Request Off-Line
         (1, 17),   // Request On-Line
@@ -519,6 +523,214 @@ public sealed class GemEquipment : IAsyncDisposable
     public ValueTask<bool> ClearAlarmAsync(ulong alarmId, CancellationToken cancellationToken = default)
         => AlarmAsync(alarmId, set: false, cancellationToken);
 
+    /// <summary>Posts an exception - S5F9, answered by S5F10.</summary>
+    /// <param name="exceptionId">EXID, the name this machine gives the exception.</param>
+    /// <param name="type">EXTYPE, how the machine classifies it.</param>
+    /// <param name="message">EXMESSAGE, the text for a person to read.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns><see langword="true"/> when the post went out over a live link.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Not an alarm, and not modelled like one.</strong> An alarm is a condition: it has a
+    /// numeric <c>ALID</c> declared in the model, a host can enable or disable it with S5F3, and
+    /// S5F6 serves the set of alarms that are currently on. None of that applies here. The
+    /// documented half of stream 5 has no exception namelist, no enable message and no way to ask
+    /// what exceptions are outstanding - the three message pairs that would have done it, S5F11
+    /// through S5F16, are rows the reference illustrates rather than defines. So this takes its
+    /// three text fields as arguments instead of an identifier into a table, because there is no
+    /// table for an identifier to point into.
+    /// </para>
+    /// <para>
+    /// <strong>Spooled like a report</strong>, which is the one way it does behave like S5F1: an
+    /// exception a machine could not deliver is exactly the kind of thing a host wants when it
+    /// comes back, and nothing else will tell it. <see langword="false"/> therefore covers both
+    /// kept and dropped, and <see cref="SpoolCountActual"/> is what separates them - the same
+    /// contract <see cref="TriggerEventAsync"/> has.
+    /// </para>
+    /// <para>
+    /// <c>TIMESTAMP</c> is this object's own clock, so a host that moved it with S2F31 moves this
+    /// too. That is deliberate: the timestamps a machine reports should agree with each other and
+    /// with the time it answers S2F18 with, whatever the operating system underneath thinks.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<bool> PostExceptionAsync(
+        string exceptionId,
+        string type,
+        string message,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(exceptionId);
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(message);
+
+        if (!IsCommunicating && !IsSpooling)
+        {
+            return false;
+        }
+
+        var delivered = IsCommunicating;
+
+        using var post = new SecsMessage(5, 9, replyExpected: _options.ExceptionPostsExpectReply)
+        {
+            Name = "ExceptionPostNotify",
+            Item = SecsItem.L(
+                SecsItem.A(Now.ToString("yyyyMMddHHmmssff", CultureInfo.InvariantCulture)).Named("TIMESTAMP"),
+                SecsItem.A(exceptionId).Named("EXID"),
+                SecsItem.A(type).Named("EXTYPE"),
+                SecsItem.A(message).Named("EXMESSAGE")),
+        };
+
+        if (delivered)
+        {
+            await SendReportAsync(post, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await SpoolAsync(post, cancellationToken).ConfigureAwait(false);
+        }
+
+        return delivered;
+    }
+
+    /// <summary>Reports that an event happened, with no values attached - S6F3, answered by S6F4.</summary>
+    /// <param name="eventId">The CEID.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns><see langword="true"/> when a report went out.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>What the reference says this row carries is <c>DATAID</c> and <c>CEID</c>.</strong>
+    /// Nothing else - no report list, no values. That is worth stating plainly, because E5 as it
+    /// is usually quoted has S6F3 carrying data values under <c>DVNAME</c> and <c>DVVAL</c>, and
+    /// building that body here would be writing a message this reference does not describe. The
+    /// check is not an opinion: the source behind the catalogue defines both of those items and
+    /// then names neither of them in any of its 524 rows, so there is no row anywhere in it to
+    /// read their nesting off. A gap the whole reference shares is a vocabulary it never wrote
+    /// down, and those rows are left alone. <c>SecsCatalogStream6Tests</c> pins the measurement.
+    /// </para>
+    /// <para>
+    /// So this is the bare notification: the host learns that event <paramref name="eventId"/>
+    /// occurred and asks for what it wants with S6F15 or S6F19. Useful for an event whose values
+    /// are expensive to gather, or one a host has linked no report to - which is also the thing it
+    /// is most easily confused with, since <see cref="TriggerEventAsync"/> on an event with no
+    /// linked reports sends an S6F11 whose report list is empty. The difference is the message,
+    /// and a host reads it from <c>GemEventReportEventArgs.Function</c>.
+    /// </para>
+    /// <para>
+    /// Gated on the same two conditions as <see cref="TriggerEventAsync"/> - the event has to be
+    /// one this machine declares, and the host must not have disabled it. S2F37 disables a
+    /// <em>CEID</em>, and this message names one, so routing around it with the shorter message
+    /// would make the host's own instruction depend on which primary the machine happened to pick.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<bool> SendDiscreteVariableDataAsync(
+        uint eventId,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!Model.Events.ContainsKey(eventId) || !Model.IsEventEnabled(eventId))
+        {
+            return false;
+        }
+
+        if (!IsCommunicating && !IsSpooling)
+        {
+            return false;
+        }
+
+        var delivered = IsCommunicating;
+
+        using var message = new SecsMessage(6, 3, replyExpected: _options.EventReportsExpectReply)
+        {
+            Name = "DiscreteVariableDataSend",
+            Item = SecsItem.L(
+                SecsItem.U4((uint)Interlocked.Increment(ref _dataId)).Named("DATAID"),
+                SecsItem.U4(eventId).Named("CEID")),
+        };
+
+        if (delivered)
+        {
+            await SendReportAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await SpoolAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+
+        return delivered;
+    }
+
+    /// <summary>Asks the host to accept something too large for one block - S6F5, answered by S6F6.</summary>
+    /// <param name="length">DATALENGTH, in whatever this machine and its host have agreed it counts.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The GRANT6 the host answered with.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>A question, so it is never spooled.</strong> Every other outbound message here can
+    /// be held for an absent host, because it is news that keeps. This one is a request for
+    /// permission, and permission nobody is there to give is not permission - a grant delivered an
+    /// hour later would answer a send that has already been abandoned. With no link, this answers
+    /// <see cref="GemMultiBlockGrant.NoSpace"/>: the table has no code for "nobody was listening",
+    /// and of the two refusals it does have, <see cref="GemMultiBlockGrant.Busy"/> would invite an
+    /// immediate retry against the same absent host.
+    /// </para>
+    /// <para>
+    /// <strong>The decision is the caller's, not this layer's.</strong> Nothing here sends the
+    /// large message afterwards, and nothing here measures one to decide whether it needs asking
+    /// about. E5 leaves both to the machine: how many bytes fit in a block is a property of the
+    /// link, and whether a given report is worth the extra round trip is a property of the
+    /// application. An application that wires this into its own reporting checks the grant and
+    /// then calls <see cref="TriggerEventAsync"/>.
+    /// </para>
+    /// <para>
+    /// <c>DATALENGTH</c> is passed through as the number the caller gave. The reference types it
+    /// as a <c>U4</c> and says nothing about its units, so this does not name them either - the
+    /// same reading stream 21's <c>LENGTH</c> got.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemMultiBlockGrant> InquireMultiBlockAsync(
+        uint length,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!IsCommunicating)
+        {
+            _logger.LogInformation(
+                "S6F5 was not sent: the link is not communicating, so there is nobody to grant it.");
+
+            return GemMultiBlockGrant.NoSpace;
+        }
+
+        using var inquire = new SecsMessage(6, 5, replyExpected: true)
+        {
+            Name = "MultiBlockDataSendInquire",
+            Item = SecsItem.L(
+                SecsItem.U4((uint)Interlocked.Increment(ref _dataId)).Named("DATAID"),
+                SecsItem.U4(length).Named("DATALENGTH")),
+        };
+
+        using var reply = await _connection.SendAsync(inquire, cancellationToken).ConfigureAwait(false);
+
+        if (!GemItems.TryReadCode(reply.Item, out var code))
+        {
+            _logger.LogWarning("S6F6 carried no GRANT6; the send does not go ahead.");
+            return GemMultiBlockGrant.NoSpace;
+        }
+
+        if (code < (byte)GemMultiBlockGrant.Other)
+        {
+            return (GemMultiBlockGrant)code;
+        }
+
+        _logger.LogInformation(
+            "S6F6 answered GRANT6 {Code}, which the table reserves and does not name.",
+            code);
+
+        return GemMultiBlockGrant.Other;
+    }
+
     /// <summary>Checks a variable against the limits the host asked for, and reports a crossing.</summary>
     /// <param name="variableId">The SVID.</param>
     /// <param name="cancellationToken">Cancels the send.</param>
@@ -708,6 +920,9 @@ public sealed class GemEquipment : IAsyncDisposable
             (1, 1) => OnAreYouThere(),
             (1, 3) => OnStatusRequest(transaction.Message),
             (1, 11) => OnStatusNamelist(transaction.Message),
+            (1, 21) => OnDataVariableNamelist(transaction.Message),
+            (1, 23) => OnCollectionEventNamelist(transaction.Message),
+            (2, 25) => OnLoopback(transaction.Message),
             (1, 13) => OnEstablishCommunications(),
             (1, 15) => OnRequestOffline(),
             (1, 17) => OnRequestOnline(),
@@ -734,6 +949,7 @@ public sealed class GemEquipment : IAsyncDisposable
         // anything that touches the process program store.
         reply ??= (transaction.S, transaction.F) switch
         {
+            (2, 21) => await OnRemoteCommandAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (2, 41) => await OnHostCommandAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 1) => await OnProgramInquireAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 3) => await OnProgramSendAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
@@ -2160,6 +2376,180 @@ public sealed class GemEquipment : IAsyncDisposable
         };
     }
 
+    /// <summary>Answers S1F21 with the data variables' names and units.</summary>
+    /// <remarks>
+    /// S1F12's sibling, and deliberately built the same way: an empty request asks for every data
+    /// variable and a named one is answered id for id, with an unknown identifier coming back with
+    /// its name and units both zero-length rather than being left out. The reply stays aligned
+    /// with the request, which is what lets a host read the two side by side.
+    /// </remarks>
+    private SecsMessage OnDataVariableNamelist(SecsMessage request)
+    {
+        var requested = ReadIdList(request.Item);
+        var entries = new List<SecsItem>();
+
+        if (requested.Count == 0)
+        {
+            foreach (var variable in Model.Variables.Values
+                .Where(variable => variable.Kind == GemVariableKind.Data)
+                .OrderBy(variable => variable.Id))
+            {
+                entries.Add(DataVariableNamelistEntry(variable.Id, variable));
+            }
+        }
+        else
+        {
+            foreach (var id in requested)
+            {
+                var known = id <= uint.MaxValue
+                    && Model.Variables.TryGetValue((uint)id, out var variable)
+                    && variable.Kind == GemVariableKind.Data;
+
+                entries.Add(DataVariableNamelistEntry(
+                    (uint)Math.Min(id, uint.MaxValue),
+                    known ? Model.Variables[(uint)id] : null));
+            }
+        }
+
+        return new SecsMessage(1, 22, replyExpected: false)
+        {
+            Name = "DataVariableNamelist",
+            Item = SecsItem.L(entries),
+        };
+    }
+
+    /// <summary>Answers S1F23 with the events' names and the variables each is about.</summary>
+    /// <remarks>
+    /// <para>
+    /// The third namelist, and the only one that nests: each entry is the identifier, the name and
+    /// a list of <c>VID</c>. That shape is read off S1F12's and S2F30's - identifier, name, then
+    /// whatever else the row names - rather than invented, and the nesting is the one part a flat
+    /// item list cannot pin down, so it is said here.
+    /// </para>
+    /// <para>
+    /// The variables come from <see cref="GemCollectionEvent.VariableIds"/>, which is what the
+    /// equipment says the event is about - not from the reports a host linked with S2F35. A
+    /// namelist describes the machine; a report describes the conversation.
+    /// </para>
+    /// </remarks>
+    private SecsMessage OnCollectionEventNamelist(SecsMessage request)
+    {
+        var requested = ReadIdList(request.Item);
+        var entries = new List<SecsItem>();
+
+        if (requested.Count == 0)
+        {
+            foreach (var collectionEvent in Model.Events.Values.OrderBy(known => known.Id))
+            {
+                entries.Add(CollectionEventNamelistEntry(collectionEvent.Id, collectionEvent));
+            }
+        }
+        else
+        {
+            foreach (var id in requested)
+            {
+                var known = id <= uint.MaxValue && Model.Events.TryGetValue((uint)id, out _);
+
+                entries.Add(CollectionEventNamelistEntry(
+                    (uint)Math.Min(id, uint.MaxValue),
+                    known ? Model.Events[(uint)id] : null));
+            }
+        }
+
+        return new SecsMessage(1, 24, replyExpected: false)
+        {
+            Name = "CollectionEventNamelist",
+            Item = SecsItem.L(entries),
+        };
+    }
+
+    /// <summary>Answers S2F25 by sending the same bytes back.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The one message in this package that means nothing at all</strong>, and that is its
+    /// use: <c>ABS</c> goes out and the same <c>ABS</c> comes back, so a host learns that the link
+    /// carries a body in both directions without changing anything on the machine. No control
+    /// state is consulted for the same reason - a diagnostic that an off-line machine refused
+    /// would be a diagnostic you could not run when you most need it.
+    /// </para>
+    /// <para>
+    /// Echoed as it arrived, whatever format that was. E5 defines <c>ABS</c> as a binary, and a
+    /// machine sending text is being loose rather than meaning something else - but an echo that
+    /// corrected the format would be answering a different question from the one asked.
+    /// </para>
+    /// </remarks>
+    private static SecsMessage OnLoopback(SecsMessage request)
+        => new(2, 26, replyExpected: false)
+        {
+            Name = "LoopbackDiagnosticData",
+            Item = EchoBody(request.Item),
+        };
+
+    /// <summary>Answers S2F21, the remote command with no parameters.</summary>
+    /// <remarks>
+    /// <para>
+    /// The same command table S2F41 uses and the same control-state rule, because a command that
+    /// changes what the machine does is refused unless the host is in charge - the message being
+    /// shorter does not make it safer.
+    /// </para>
+    /// <para>
+    /// <strong>Seven codes narrowed onto three.</strong> A handler answers in
+    /// <c>GemHostCommandAcknowledgement</c>, which is <c>HCACK</c>; S2F22 carries <c>CMDA</c>,
+    /// which names only performed, does-not-exist and cannot-perform-now. So
+    /// <c>InvalidCommand</c> becomes <c>DoesNotExist</c>, <c>Accepted</c> becomes
+    /// <c>Performed</c>, and everything else - including "completion later" and "already in the
+    /// desired condition" - becomes <c>CannotPerformNow</c>. That loses detail, and losing it is
+    /// the message's doing rather than this library's: a host that wants the fuller answer sends
+    /// S2F41 with an empty parameter list.
+    /// </para>
+    /// </remarks>
+    private async ValueTask<SecsMessage> OnRemoteCommandAsync(
+        SecsMessage request,
+        CancellationToken cancellationToken)
+    {
+        var cmda = GemRemoteCommandAcknowledgement.DoesNotExist;
+        var name = ReadCommandName(request.Item);
+
+        if (name.Length > 0 && Model.RemoteCommands.TryGetValue(name, out var command))
+        {
+            if (command.RequiresRemoteControl && _control != GemControlState.OnlineRemote)
+            {
+                cmda = GemRemoteCommandAcknowledgement.CannotPerformNow;
+            }
+            else
+            {
+                try
+                {
+                    var hcack = await command
+                        .Handler(new GemRemoteCommandContext(name, new Dictionary<string, SecsItem>(StringComparer.Ordinal)), cancellationToken)
+                        .ConfigureAwait(false);
+
+                    cmda = hcack switch
+                    {
+                        GemHostCommandAcknowledgement.Accepted => GemRemoteCommandAcknowledgement.Performed,
+                        GemHostCommandAcknowledgement.InvalidCommand => GemRemoteCommandAcknowledgement.DoesNotExist,
+                        _ => GemRemoteCommandAcknowledgement.CannotPerformNow,
+                    };
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "The handler for remote command '{Command}' threw.", name);
+                    cmda = GemRemoteCommandAcknowledgement.CannotPerformNow;
+                }
+            }
+        }
+
+        return new SecsMessage(2, 22, replyExpected: false)
+        {
+            Name = "RemoteCommandAcknowledge",
+            Item = SecsItem.B((byte)cmda).Named("CMDA"),
+        };
+    }
+
     private SecsMessage OnConstantNamelist(SecsMessage request)
     {
         var requested = ReadIdList(request.Item);
@@ -2268,6 +2658,59 @@ public sealed class GemEquipment : IAsyncDisposable
         SecsItem.U4(id).Named("SVID"),
         SecsItem.A(variable?.Name ?? string.Empty).Named("SVNAME"),
         SecsItem.A(variable?.Units ?? string.Empty).Named("UNITS"));
+
+    private static SecsItem DataVariableNamelistEntry(uint id, GemVariable? variable) => SecsItem.L(
+        SecsItem.U4(id).Named("VID"),
+        SecsItem.A(variable?.Name ?? string.Empty).Named("DVVALNAME"),
+        SecsItem.A(variable?.Units ?? string.Empty).Named("UNITS"));
+
+    private static SecsItem CollectionEventNamelistEntry(uint id, GemCollectionEvent? known) => SecsItem.L(
+        SecsItem.U4(id).Named("CEID"),
+        SecsItem.A(known?.Name ?? string.Empty).Named("CENAME"),
+        SecsItem.L([.. (known?.VariableIds ?? []).Select(vid => SecsItem.U4(vid).Named("VID"))]));
+
+    /// <summary>Reads a command name from S2F21's body, which is the name and nothing else.</summary>
+    /// <remarks>
+    /// A list of one is tolerated, because S2F41 wraps its name in a list of two and a machine
+    /// built from that habit may wrap this one as well.
+    /// </remarks>
+    private static string ReadCommandName(SecsItem? item)
+    {
+        if (item is null)
+        {
+            return string.Empty;
+        }
+
+        if (item.IsList)
+        {
+            return item.Count == 1 ? ReadCommandName(item.Items[0]) : string.Empty;
+        }
+
+        return item.Format.IsText() && item.Count > 0 ? item.GetString().TrimEnd() : string.Empty;
+    }
+
+    /// <summary>Copies a loopback body so the reply owns its own bytes.</summary>
+    /// <remarks>
+    /// The arriving item borrows pooled memory and is released with its message, so echoing the
+    /// item itself would answer with memory that had gone back to the pool. A zero-length body is
+    /// echoed as a zero-length binary, which is what <c>ABS</c> is.
+    /// </remarks>
+    private static SecsItem EchoBody(SecsItem? item)
+    {
+        if (item is null || item.IsList || item.Count == 0)
+        {
+            return SecsItem.B().Named("ABS");
+        }
+
+        if (item.Format is SecsFormat.Binary && item.TryGetSpan<byte>(out var bytes))
+        {
+            return SecsItem.B(bytes.ToArray()).Named("ABS");
+        }
+
+        return item.Format.IsText()
+            ? SecsItem.A(item.GetString()).Named("ABS")
+            : SecsItem.B().Named("ABS");
+    }
 
     private static SecsItem ConstantNamelistEntry(uint id, GemEquipmentConstant? constant) => SecsItem.L(
         SecsItem.U4(id).Named("ECID"),

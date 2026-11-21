@@ -221,10 +221,18 @@ the dictionary overturned it, which is the one refusal here that has been reopen
 reference's own table, never against another package's enum, because that is what makes the
 agreement transitive when three packages serve one item. All six of the tabled items served from
 more than one package here are asserted that way: GRANT in Material, ControlPrograms and
-ItemTransfer; HCACK in Gem, Subsystems and ProcessJobs; CPACK in Subsystems and ProcessJobs; and
-ALCD, CMDA and GRANT6 in the one package each that reads them. So are `PRSTATE` against `PRSTATE`,
-`ControlJobCommands` against `CTLJOBCMD`, and every one of GEM's acknowledgement enums against its
-item's code table.
+ItemTransfer; HCACK in Gem, Subsystems and ProcessJobs; CPACK in Subsystems and ProcessJobs; CMDA
+in Gem and ProcessJobs; GRANT6 in Gem and DataSets; and ALCD in the one package that reads it. So
+are `PRSTATE` against `PRSTATE`, `ControlJobCommands` against `CTLJOBCMD`, and every one of GEM's
+acknowledgement enums against its item's code table.
+
+The last two of those became shared when the coverage sweep served S2F22 and S6F6, **and the
+comparison found a defect in both halves of CMDA** - neither `Barbatos.SecsGem.Gem`'s new enum nor
+`Barbatos.SecsGem.ProcessJobs`' older one had a member at 3, where the table reserves 3 to 63, and
+ProcessJobs folded the range onto its refusal with the reasoning written down. The rule that found
+it is the one above. So: when a chapter brings a second reader to a tabled item, compare the two
+*names* as well as the two tables, because member names are the half a table cannot settle - and
+re-read whatever each side says about the other, since one of those remarks will now be stale.
 
 **Two packages may read one item differently if each says so and each is asserted.** There is one:
 CPACK has no code zero, because the list in S18F2 and S2F42 carries the parameters that were wrong -
@@ -236,11 +244,18 @@ wrong is one package reading it both ways, or either side not mentioning the oth
 not the layer's.
 
 **An acknowledgement item with a reserved range needs a member at the first reserved code**, and the
-reader has to fold the range onto it rather than casting. Thirteen of GEM's thirteen such items do;
+reader has to fold the range onto it rather than casting. Sixteen of GEM's sixteen such items do;
 twelve of them did not until a sweep found them all at once, and `(SomeAcknowledgement)ReadCode(...)`
 is the shape to look for. Comparing the enum with the table is not enough on its own - drive a
 machine that answers a reserved code, because a boundary that is right in the enum and unused in the
 reader passes every comparison.
+
+**And a new enum escapes both checks**, which the chapter after that sweep proved by writing CMDA
+without the member. The comparison file is a list somebody has to add a row to, and the author of a
+fresh enum is the author of its reader in the same sitting, so nothing disagrees with them. Adding
+the row is therefore part of adding the enum, not a follow-up - and folding a reserved code onto an
+existing refusal is not a substitute for the member, because it reports a refusal the machine never
+made.
 
 Older files here are **CRLF** where the newer ones are LF, `GemHost.cs` among them. A multi-line
 mini-patch against one of those matches zero times until the patch text is converted, which has now

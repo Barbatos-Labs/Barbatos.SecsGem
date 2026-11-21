@@ -180,7 +180,7 @@ if (acknowledgement is ProcessJobCommandAcknowledgement.DoesNotExist)
 | Message | Code | What it can say |
 | --- | --- | --- |
 | S16F2, F10, F16, F26, F12, F30 | `PJACK` | accepted, rejected. That is all. |
-| S16F4, S16F24 | `CMDA` | performed, **no such command**, cannot perform now |
+| S16F4, S16F24 | `CMDA` | performed, **no such command**, cannot perform now, and `Other` for the range 3 to 63 that E5 reserves |
 | S16F18 | `CPACK` | accepted, no such parameter, illegal value, illegal format, cannot change now |
 | S16F22 | `HCACK` | done, bad parameter, **no such object**, and four more E5 defines |
 

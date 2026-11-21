@@ -95,6 +95,14 @@ public class GemReservedAcknowledgementTests
         await DriveAsync(10, 3, 4, "ACKC10",
             host => host.DisplayTerminalMessageAsync("hello", 0, GemPair.Token),
             (byte)GemTerminalAcknowledgement.Other);
+
+        // The fourteenth, added by the chapter that implemented S2F21 - and added without a member
+        // at the boundary, which is the hole this whole file exists to catch. It was found by the
+        // shared-item comparison instead, because CMDA is also read in
+        // Barbatos.SecsGem.ProcessJobs, and that package had it too.
+        await DriveAsync(2, 21, 22, "CMDA",
+            host => host.SendRemoteCommandAsync("START", GemPair.Token),
+            (byte)GemRemoteCommandAcknowledgement.Other);
     }
 
     /// <summary>Drives one reader against a machine that answers <see cref="Reserved"/>.</summary>

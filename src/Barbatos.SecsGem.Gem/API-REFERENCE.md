@@ -93,7 +93,7 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | Member | Signature | Notes |
 | --- | --- | --- |
 | ctor | `GemEquipment(GemOptions options, GemEquipmentModel model, HsmsConnection connection, TimeProvider? timeProvider = null, ILogger<GemEquipment>? logger = null, IGemProcessProgramStore? processPrograms = null, IGemSpool? spool = null, IGemFormattedProcessProgramStore? formattedProcessPrograms = null)` | `null` provider means `TimeProvider.System`; `null` logger discards diagnostics. The last three are the opt-in capabilities, and `null` in each leaves its messages undeclared rather than declared and refused. |
-| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The twenty core pairs. Registering them is how the equipment declares its capability - see below. |
+| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The twenty-four core pairs. Registering them is how the equipment declares its capability - see below. |
 | `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The five unformatted stream 7 pairs - S7F1, S7F3, S7F5, and the S7F17/S7F19 both halves share - registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn. |
 | `FormattedProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F23 and S7F25, registered only when a formatted store is configured. Independent of `ProcessProgramMessages`, and disjoint from it: a stream and function may be declared only once. |
 | `SpoolMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S6F23, registered only when a spool is configured. Equipment that does not spool answers S9F5 rather than RSDA 1 - "I do not do that" and "no, not now" are different answers to a host deciding whether to wait. |
@@ -112,6 +112,9 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `TriggerEventAsync` | `ValueTask<bool> TriggerEventAsync(uint eventId, CancellationToken cancellationToken = default)` | Reports a collection event. `false` when the event is unknown, disabled, or there is nobody to tell. |
 | `SetAlarmAsync` | `ValueTask<bool> SetAlarmAsync(ulong alarmId, CancellationToken cancellationToken = default)` | S5F1 with ALCD bit 7 set, then the linked set event. |
 | `ClearAlarmAsync` | `ValueTask<bool> ClearAlarmAsync(ulong alarmId, CancellationToken cancellationToken = default)` | The same with the bit clear, then the linked clear event. |
+| `PostExceptionAsync` | `ValueTask<bool> PostExceptionAsync(string exceptionId, string type, string message, CancellationToken cancellationToken = default)` | S5F9: EXID, EXTYPE and EXMESSAGE, timestamped from `Now`. Three strings rather than an identifier into a table, because the documented half of stream 5 has no exception namelist, no enable message and no way to ask what is outstanding. Spooled like a report - nothing will repeat it. `false` means nothing reached the host, kept or not; `SpoolCountActual` separates the two. |
+| `SendDiscreteVariableDataAsync` | `ValueTask<bool> SendDiscreteVariableDataAsync(uint eventId, CancellationToken cancellationToken = default)` | S6F3: DATAID and CEID, which is all this reference's row names - **no values**, since the items that would carry them, `DVNAME` and `DVVAL`, are named by none of its 524 rows. Gated on the same two conditions as `TriggerEventAsync`, because S2F37 disables a CEID and this message names one. |
+| `InquireMultiBlockAsync` | `ValueTask<GemMultiBlockGrant> InquireMultiBlockAsync(uint length, CancellationToken cancellationToken = default)` | S6F5, answered by S6F6's `GRANT6`. **Never spooled**: a question, not news. With no link it answers `NoSpace`, the table having no code for "nobody was listening" and `Busy` inviting a pointless retry. Sends nothing afterwards and measures nothing - how much fits in a block is the link's business and whether a report is worth the round trip is the application's. `DATALENGTH` is passed through as given; the reference records no units for it. |
 | `GoOnline` | `bool GoOnline(bool remote = true)` | The equipment's own decision. Refused - returns `false` - unless communication is established. |
 | `GoOffline` | `bool GoOffline()` | The equipment's own decision. |
 | `CommunicationStateChanged` | `event EventHandler<GemCommunicationStateChangedEventArgs>?` | Raised on the thread that made the transition. Keep handlers short. |
@@ -128,6 +131,8 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | S1F13 | Establish Communications Request | S1F14 (COMMACK) |
 | S1F15 | Request Off-Line | S1F16 (OFLACK) |
 | S1F17 | Request On-Line | S1F18 (ONLACK) |
+| S1F21 | Data Variable Namelist Request | S1F22 - VID, DVVALNAME, UNITS. Data variables only: a status variable asked for here comes back named nothing, like any identifier the machine has not got |
+| S1F23 | Collection Event Namelist Request | S1F24 - CEID, CENAME and the variables the event is about. The machine's own description, not the host's current report links |
 | S2F13 | Equipment Constant Request | S2F14 |
 | S2F15 | New Equipment Constant Send | S2F16 (EAC) |
 | S2F17 | Date and Time Request | S2F18 |
@@ -136,6 +141,8 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | S2F33 | Define Report | S2F34 (DRACK) |
 | S2F35 | Link Event Report | S2F36 (LRACK) |
 | S2F37 | Enable/Disable Event Report | S2F38 (ERACK) |
+| S2F21 | Remote Command - the one with no parameters | S2F22 (CMDA). Same command table and same control-state rule as S2F41; seven codes narrowed onto three |
+| S2F25 | Loopback Diagnostic Request | S2F26 - the body echoed. Answered **off-line as well as on**, since it changes nothing and refusing it would make the link untestable where a host most wants to test it |
 | S2F41 | Host Command Send | S2F42 (HCACK) |
 | S5F3 | Enable/Disable Alarm Send | S5F4 (ACKC5) |
 | S5F5 | List Alarms Request | S5F6 - ALCD, ALID, ALTX |
@@ -169,7 +176,10 @@ known stream and S9F3 for a stream that is not there at all.
 | --- | --- | --- |
 | S1F13 | The link reaches Selected, and on each retry | S1F14, under T3 |
 | S6F11 | `TriggerEventAsync`, when the event is enabled | S6F12, when `EventReportsExpectReply` |
+| S6F3 | `SendDiscreteVariableDataAsync`, under the same two gates | S6F4, when `EventReportsExpectReply` |
+| S6F5 | `InquireMultiBlockAsync` | S6F6, always - the answer is the point |
 | S5F1 | `SetAlarmAsync` / `ClearAlarmAsync`, when the alarm is enabled | S5F2, when `AlarmReportsExpectReply` |
+| S5F9 | `PostExceptionAsync` | S5F10, when `ExceptionPostsExpectReply` |
 
 ---
 
@@ -269,6 +279,7 @@ because a host told DRACK 4 is entitled to assume its definition was rejected in
 | `AddVariable` | `GemEquipmentModelBuilder AddVariable(GemVariable variable)` | |
 | `AddConstant` | `GemEquipmentModelBuilder AddConstant(GemEquipmentConstant constant)` | |
 | `AddEvent` | `GemEquipmentModelBuilder AddEvent(uint id, string name, bool enabledByDefault = true)` | |
+| `AddEvent` | `GemEquipmentModelBuilder AddEvent(uint id, string name, IReadOnlyList<uint> variableIds, bool enabledByDefault = true)` | The same, declaring what the event is *about* - answered by S1F24. Not the same thing as the reports a host links to it with S2F35: this is the machine's description and does not change when the host changes its subscription. The two-argument form is this one with an empty list, which S1F24 reports as an event about nothing in particular rather than as a refusal. |
 | `AddReport` | `GemEquipmentModelBuilder AddReport(uint id, params uint[] variableIds)` | A default a host may replace with S2F33. |
 | `AddAlarm` | `GemEquipmentModelBuilder AddAlarm(GemAlarm alarm)` | Refuses identifier zero, which S5F3 reserves for "every alarm". |
 | `AddRemoteCommand` | `GemEquipmentModelBuilder AddRemoteCommand(string name, GemRemoteCommandHandler handler, bool requiresRemoteControl = true)` | |
@@ -328,7 +339,13 @@ whether a value is accepted.
 | --- | --- |
 | `Id` | `required uint { get; init; }` |
 | `Name` | `required string { get; init; }` |
+| `VariableIds` | `IReadOnlyList<uint> { get; init; }` - defaults to empty |
 | `EnabledByDefault` | `bool { get; init; }` - defaults to `true` |
+
+`VariableIds` is what the event is *about*, reported by S1F24, and is not the set of reports a host
+has linked to it with S2F35. One is the machine's description of its own event and the other is the
+host's current subscription; they move independently, and an empty list is an event about nothing
+in particular rather than a refusal to say.
 
 ### `GemReport`
 
@@ -965,7 +982,7 @@ is answered `LengthError` rather than stored as an empty program.
 
 ## Every acknowledgement's reserved range
 
-**Thirteen of the acknowledgement items this package reads give E5 a reserved range**, and each of
+**Sixteen of the acknowledgement items this package reads give E5 a reserved range**, and each of
 those enums now has a member at the first reserved code - named `Other` except where a single
 non-zero member already covered the whole range:
 
@@ -979,17 +996,33 @@ non-zero member already covered the whole range:
 | `LRACK` | 0-5 | 6-63 | `GemLinkReportAcknowledgement.Other` |
 | `ERACK` | 0-1 | 2-63 | `GemEnableEventAcknowledgement.Other` |
 | `ACKC5` | 0 | 1-63 | `GemAlarmAcknowledgement.Error` |
+| `ACKC6` | 0 | 1-63 | `GemReportAcknowledgement.Error` |
 | `RSPACK` | 0 | 1-63 | `GemSpooledDataAcknowledgement.Denied` |
 | `ACKC10` | 0-2 | 3-63 | `GemTerminalAcknowledgement.Other` |
 | `PPGNT` | 0-5 | 6-63 | `GemProcessProgramGrant.Other` |
 | `ACKC7` | 0-6 | 7-63 | `GemProcessProgramAcknowledgement.Other` |
 | `HCACK` | 0-6 | 7-63 | `GemHostCommandAcknowledgement.Other` |
+| `CMDA` | 0-2 | 3-63 | `GemRemoteCommandAcknowledgement.Other` |
+| `GRANT6` | 0-2 | 3-63 | `GemMultiBlockGrant.Other` |
 
 `GemHost` folds the whole reserved range onto that member and logs the arriving code, which is the
-only place it survives. **Twelve of the thirteen used to cast the code straight to its enum**, so
-an equipment answering S1F18 with 40 produced an `ONLACK` value with no name and a caller switching
-on it fell through every case. `HCACK` was fixed on its own two chapters earlier; the rest were
-found at once by the catalogue's fourth provenance measure and are guarded now.
+only place it survives. **Twelve of the first thirteen used to cast the code straight to its
+enum**, so an equipment answering S1F18 with 40 produced an `ONLACK` value with no name and a
+caller switching on it fell through every case. `HCACK` was fixed on its own two chapters earlier;
+the rest were found at once by the catalogue's fourth provenance measure and are guarded now.
+
+**The fourteenth was missed anyway**, which is the part worth recording. `CMDA` arrived with S2F21
+in the coverage sweep, written with the item's three named codes and no member at 3 - the same hole,
+in the chapter after the one that closed the twelve. Comparing the enum with the table did not
+catch it, because the table was never consulted for a brand-new enum; what caught it was the
+repository's rule that an item served from two packages must mean one thing, since
+`Barbatos.SecsGem.ProcessJobs` reads `CMDA` too. That package had the hole as well, and both are
+closed. The lesson is that an enum and its reader written in the same sitting get no second pair of
+eyes, and the item's table is the only second pair there is.
+
+`GRANT6` is the other shared one - `Barbatos.SecsGem.DataSets` reads it for S13F2 - and it is not
+`GRANT`, which names four codes and reserves from 4. One code's difference, so a catch-all copied
+across would read a machine's reserved 3 as a refusal it never made.
 
 **Two acknowledgements are read without that fold, and deliberately.** `COMMACK` names both its
 codes and reserves nothing. `TRACK` has no table of values at all - so
@@ -1016,11 +1049,15 @@ established.
 | Member | Signature | Notes |
 | --- | --- | --- |
 | ctor | `GemHost(GemHostOptions options, HsmsConnection connection, TimeProvider? timeProvider = null, ILogger<GemHost>? logger = null)` | |
-| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S1F1, S1F13, S5F1, S6F11, S6F13 and stream 9 functions 1 through 13 - everything a machine may send a host unprompted. |
+| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S1F1, S1F13, S2F25, S5F1, S5F9, S6F1, S6F3, S6F5, S6F11, S6F13, S10F1 and stream 9 functions 1 through 13 - everything a machine may send a host unprompted, plus the loopback, which travels either way. |
 | `IsCommunicating` | `bool { get; }` | Set by an accepted S1F13 in either direction, cleared when the link leaves Selected. **Not** the same question as `HsmsConnection.IsSelected`: that is a socket, this is an agreement. |
 | `HandleAsync` | `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken cancellationToken = default)` | Handles one inbound primary. Wired to every pair in `HandledMessages`. |
-| `EventReportReceived` | `event EventHandler<GemEventReportEventArgs>?` | S6F11 and S6F13, before the acknowledgement. |
+| `EventReportReceived` | `event EventHandler<GemEventReportEventArgs>?` | S6F11, S6F13 **and S6F3**, before the acknowledgement. `GemEventReportEventArgs.Function` says which, since an S6F3 and an S6F11 for an event with no linked reports both arrive carrying nothing. |
 | `AlarmReceived` | `event EventHandler<GemHostAlarmEventArgs>?` | S5F1, before the acknowledgement. |
+| `ExceptionReceived` | `event EventHandler<GemHostExceptionEventArgs>?` | S5F9, before the acknowledgement. Separate from `AlarmReceived` although both are stream 5 and both answer with `ACKC5`: an alarm is a condition with an identifier and a state a host can read back, and an exception post is an occurrence named by free text that nothing will mention again. Arrives already set to `Error` when the body did not read. |
+| `MultiBlockInquired` | `event EventHandler<GemMultiBlockInquiryEventArgs>?` | S6F5, before the grant. **Grants by default**, so a host with no handler says yes - a handshake whose only purpose is to let a host refuse should not refuse by silence. |
+| `TraceDataReceived` | `event EventHandler<GemTraceDataEventArgs>?` | S6F1. The samples are a view into the arriving message and die with the handler. |
+| `TerminalRequestReceived` | `event EventHandler<GemTerminalRequestEventArgs>?` | S10F1 - something an operator typed. There is a person waiting, so a handler that cannot deal with it now should say so in the acknowledgement rather than accept and drop it. |
 | `ErrorReported` | `event EventHandler<GemHostErrorEventArgs>?` | Stream 9. No reply exists to send. |
 | `CommunicationStateChanged` | `event EventHandler<GemHostCommunicationStateChangedEventArgs>?` | |
 
@@ -1033,6 +1070,8 @@ table claiming it.
 | `EstablishCommunicationsAsync` | S1F13 | `GemCommunicationAcknowledgement`; sets `IsCommunicating` when accepted |
 | `ReadStatusAsync(svids)` | S1F3 | `SecsMessage` - **the caller disposes it**. Empty list asks for every status variable |
 | `ReadStatusNamelistAsync(svids)` | S1F11 | `IReadOnlyList<GemVariableDescription>` |
+| `ReadDataVariableNamelistAsync(vids)` | S1F21 | `IReadOnlyList<GemVariableDescription>` - data variables only. A status variable asked for here comes back with `Exists` false, like an identifier the machine has not got, which is what lets a host read the two lists side by side |
+| `ReadCollectionEventNamelistAsync(ceids)` | S1F23 | `IReadOnlyList<GemEventDescription>` - the name and the variables each event is about. The machine's own account, not the reports the host has linked |
 | `RequestOfflineAsync` | S1F15 | `GemOfflineAcknowledgement` |
 | `RequestOnlineAsync` | S1F17 | `GemOnlineAcknowledgement` |
 | `ReadConstantsAsync(ecids)` | S2F13 | `SecsMessage` - **the caller disposes it** |
@@ -1045,6 +1084,9 @@ table claiming it.
 | `LinkEventsAsync(links)` | S2F35 | `GemLinkReportAcknowledgement` |
 | `EnableEventsAsync(enable, ceids)` | S2F37 | `GemEnableEventAcknowledgement`. Empty list means every event |
 | `SendCommandAsync(command, parameters)` | S2F41 | `GemHostCommandAcknowledgement`. **`CompletionLater` (4) is a success** |
+| `SendRemoteCommandAsync(command)` | S2F21 | `GemRemoteCommandAcknowledgement`. The same command table, the same control-state rule, and three codes instead of seven - so "will complete later" arrives as `CannotPerformNow`. A host that needs the distinction sends S2F41 with an empty parameter list |
+| `LoopbackAsync(body)` | S2F25 | `bool` - whether the machine echoed exactly what it was sent. A loopback whose answer you have to compare yourself is a loopback half done |
+| `LoopbackDataAsync(body)` | S2F25 | `ReadOnlyMemory<byte>` - the echoed bytes, for a caller that wants to look at them |
 | `EnableAlarmAsync(enable, alarmId)` | S5F3 | `GemAlarmAcknowledgement`. Zero as the identifier means all of them. ALED is sent as E5 defines it: a `B[1]` whose top bit is the choice |
 | `ListAlarmsAsync(alarmIds)` | S5F5 | `IReadOnlyList<GemAlarmReport>` - which alarms are *in alarm* |
 | `ListEnabledAlarmsAsync` | S5F7 | `IReadOnlyList<GemAlarmReport>` - which the host has asked to hear about. A different question |
@@ -1091,6 +1133,18 @@ missing body read as zero would turn a broken machine into a silent success.
 `public sealed class GemEquipmentIdentity` - `ModelName`, `SoftwareRevision`, and a `ToString` of
 both.
 
+### `GemEventDescription`
+
+`public sealed class GemEventDescription`
+
+One collection event, as S1F24 describes it: `Id` (CEID), `Name` (CENAME), `VariableIds` (the VIDs
+the event is about) and `Exists`, which is false for an identifier the machine does not have.
+
+An event that exists with an empty `VariableIds` is **not** a refusal - S1F24 has no way to say
+"I decline to tell you", and a machine may have an event that is simply an occurrence.
+
+---
+
 ### `GemVariableDescription`
 
 `public sealed class GemVariableDescription` - one S1F12 entry: `Id`, `Name`, `Units`, and
@@ -1125,15 +1179,19 @@ that message is disposed as soon as the event returns. Read what you need, or co
 
 | Type | Carries | Settable |
 | --- | --- | --- |
-| `GemEventReportEventArgs` | `DataId`, `EventId`, `Reports` | `Acknowledgement` (ACKC6) |
+| `GemEventReportEventArgs` | `DataId`, `EventId`, `Reports`, `Function` - 11, 13 or 3, since an S6F3 and an S6F11 with nothing linked both arrive carrying no reports | `Acknowledgement` (ACKC6) |
 | `GemHostAlarmEventArgs` | `Alarm` | `Acknowledgement` (ACKC5) |
+| `GemHostExceptionEventArgs` | `Exception` - a `GemExceptionPost` of `PostedAt` (null when TIMESTAMP would not parse), `Id`, `Type` and `Message` | `Acknowledgement` (ACKC5), arriving as `Error` when the body did not read |
+| `GemMultiBlockInquiryEventArgs` | `DataId`, `Length` - DATALENGTH as the machine sent it, in whatever it and the host have agreed it counts; the reference records no units | `Grant` (GRANT6), **defaulting to `Ok`** |
 | `GemTraceDataEventArgs` | `TraceId`, `SampleNumber` and `SampledAt` (both describing the **last** sample in the group), `Samples` - each a live view, valid only inside the handler | `Acknowledgement` (ACKC6) |
 | `GemTerminalRequestEventArgs` | `TerminalId`, `Text` (not trimmed - TEXT is variable-length, so its spaces are somebody's) | `Acknowledgement` (ACKC10) |
 | `GemHostErrorEventArgs` | `Function`, `OffendingHeader` (ten bytes, copied; empty for S9F13), `Description` (S9F13's MEXP and EDID, else empty) | - |
 | `GemHostCommunicationStateChangedEventArgs` | `IsCommunicating`, `Reason` | - |
 
 The acknowledgement is settable because whether a host could store what it was sent is the one
-decision about an inbound report that cannot be made for it. The default is accepted.
+decision about an inbound report that cannot be made for it. The default is accepted - and for
+`GemMultiBlockInquiryEventArgs.Grant` that default lives on the property rather than being written
+by the handler, so the documented default is the one that runs.
 
 ---
 
@@ -1153,6 +1211,8 @@ truthiness rather than for zero has it exactly backwards.
 | `GemLinkReportAcknowledgement` | S2F36 LRACK | `Accepted` 0, `InsufficientSpace` 1, `InvalidFormat` 2, `LinkAlreadyDefined` 3, `UnknownEvent` 4, `UnknownReport` 5 |
 | `GemEnableEventAcknowledgement` | S2F38 ERACK | `Accepted` 0, `UnknownEvent` 1 |
 | `GemHostCommandAcknowledgement` | S2F42 HCACK | `Accepted` 0, `InvalidCommand` 1, `CannotPerformNow` 2, `InvalidParameter` 3, `CompletionLater` 4, `AlreadyInDesiredCondition` 5, `NoSuchObject` 6, `Other` 7 - E5's reserved range 7 to 63, added once `Barbatos.SecsGem.Subsystems` served the same item for S18F2 |
+| `GemRemoteCommandAcknowledgement` | S2F22 CMDA | `Performed` 0, `DoesNotExist` 1, `CannotPerformNow` 2, `Other` 3 - and the three are what a handler's seven `HCACK` codes narrow onto. Also `Barbatos.SecsGem.ProcessJobs`' item for S16F4 and S16F24, member for member |
+| `GemMultiBlockGrant` | S6F6 GRANT6 | `Ok` 0, `Busy` 1, `NoSpace` 2, `Other` 3 - the same four names `Barbatos.SecsGem.DataSets` gives the same item. Not `GRANT`, which has five |
 | `GemAlarmAcknowledgement` | ACKC5 | `Accepted` 0, `Error` 1 |
 | `GemReportAcknowledgement` | ACKC6 | `Accepted` 0, `Error` 1 |
 
@@ -1176,6 +1236,7 @@ truthiness rather than for zero has it exactly backwards.
 | `DefaultControlState` | `GemControlState { get; set; }` | `OnlineRemote` | Must be a state the equipment can choose. |
 | `EventReportsExpectReply` | `bool { get; set; }` | `true` | Clearing it makes reporting fire-and-forget. |
 | `AlarmReportsExpectReply` | `bool { get; set; }` | `true` | |
+| `ExceptionPostsExpectReply` | `bool { get; set; }` | `true` | S5F9's W bit, separate from the alarm one although both messages answer with `ACKC5`. An alarm is a condition S5F6 will serve again, so a lost S5F1 can be recovered from; nothing in the documented half of stream 5 will repeat an exception post, so a machine may reasonably insist on an acknowledgement for the one and not the other. |
 | `AcceptHostClockSet` | `bool { get; set; }` | `true` | Moves an internal offset, never the operating system clock. |
 | `ResetLinkStateOnDisconnect` | `bool { get; set; }` | `true` | Report definitions do not survive a reconnection. |
 | `SpoolingEnabled` | `bool { get; set; }` | `true` | The configuration override, not the switch - registering an `IGemSpool` is what turns spooling on. |

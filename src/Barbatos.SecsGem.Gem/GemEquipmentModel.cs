@@ -540,8 +540,47 @@ public sealed class GemEquipmentModelBuilder
     /// <returns>This builder, for chaining.</returns>
     /// <exception cref="ArgumentException">The identifier is already used.</exception>
     public GemEquipmentModelBuilder AddEvent(uint id, string name, bool enabledByDefault = true)
+        => AddEvent(id, name, [], enabledByDefault);
+
+    /// <summary>Adds a collection event and says which variables it is about.</summary>
+    /// <param name="id">The CEID.</param>
+    /// <param name="name">The name.</param>
+    /// <param name="variableIds">The VIDs the event concerns, in the order S1F24 should give them.</param>
+    /// <param name="enabledByDefault">Whether it reports before the host says otherwise.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="variableIds"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The identifier is already used.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>This is not a report.</strong> A report is what a host asked to be sent with the
+    /// event, through S2F33 and S2F35, and it can be replaced at any time. This is what the
+    /// machine says the event is <em>about</em>, which is what S1F24 answers - a namelist describes
+    /// the equipment, not the conversation. Leaving it out is honest for a machine that has not
+    /// made the association.
+    /// </para>
+    /// <para>
+    /// The identifiers are not checked against the variables added to this builder, deliberately:
+    /// the order of the calls would otherwise matter, and a model that had to be built
+    /// variables-first would be a worse model for one check a host cannot act on anyway.
+    /// </para>
+    /// </remarks>
+    public GemEquipmentModelBuilder AddEvent(
+        uint id,
+        string name,
+        IReadOnlyList<uint> variableIds,
+        bool enabledByDefault = true)
     {
-        if (!_events.TryAdd(id, new GemCollectionEvent { Id = id, Name = name, EnabledByDefault = enabledByDefault }))
+        ArgumentNullException.ThrowIfNull(variableIds);
+
+        var added = new GemCollectionEvent
+        {
+            Id = id,
+            Name = name,
+            EnabledByDefault = enabledByDefault,
+            VariableIds = variableIds,
+        };
+
+        if (!_events.TryAdd(id, added))
         {
             throw new ArgumentException($"Collection event {id} is already defined.", nameof(id));
         }

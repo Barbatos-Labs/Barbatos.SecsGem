@@ -143,15 +143,21 @@ internal static class Program
                             },
                         })
 
-                        .AddEvent(ProcessStartEvent, "ProcessStart")
-                        .AddEvent(ProcessEndEvent, "ProcessEnd")
-                        .AddEvent(AlarmSetEvent, "PressureAlarmSet")
-                        .AddEvent(AlarmClearedEvent, "PressureAlarmCleared")
+                        // The variable list beside each event is what the event is *about*, which
+                        // is what S1F23 asks and S1F24 answers. Not the same thing as the reports
+                        // a host links to it with S2F35: this is the machine describing itself,
+                        // and it does not change when the host changes its subscription. An event
+                        // declared without one is an occurrence about nothing in particular, which
+                        // S1F24 reports as an empty list rather than as a refusal to say.
+                        .AddEvent(ProcessStartEvent, "ProcessStart", [LotIdVariable])
+                        .AddEvent(ProcessEndEvent, "ProcessEnd", [LotIdVariable, PressureVariable])
+                        .AddEvent(AlarmSetEvent, "PressureAlarmSet", [PressureVariable])
+                        .AddEvent(AlarmClearedEvent, "PressureAlarmCleared", [PressureVariable])
 
                         // What a crossing of a host-set pressure band is called. E30 leaves the
                         // event to the equipment because S2F45 carries no CEID: the band is the
                         // host's and the name is the machine's.
-                        .AddEvent(PressureLimitEvent, "PressureLimitCrossed")
+                        .AddEvent(PressureLimitEvent, "PressureLimitCrossed", [PressureVariable])
 
                         // A default report, which a host is free to replace entirely with S2F33.
                         .AddReport(DefaultReport, ControlStateVariable, PressureVariable, LotIdVariable)

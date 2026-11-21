@@ -230,7 +230,12 @@ internal sealed class GemPair : IAsyncDisposable
     /// <returns>A task that completes when the condition holds.</returns>
     public static async Task WaitUntilAsync(Func<bool> condition, string what)
     {
-        for (var attempt = 0; attempt < 5_000; attempt++)
+        // 400 and not 5,000. Task.Delay(1) waits about 15.6 ms on Windows, so the old bound was 78
+        // seconds per wait that never comes - free when a test passes and ruinous when one does
+        // not. A negative control that breaks an event makes four of these wait at once, and the
+        // run was being killed by its own timeout instead of reporting which tests noticed. Both
+        // ends of a test here are in-process pipes, so six seconds is already generous.
+        for (var attempt = 0; attempt < 400; attempt++)
         {
             if (condition())
             {

@@ -4,6 +4,7 @@
 // All Rights Reserved.
 
 using Barbatos.SecsGem.Hsms;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Barbatos.SecsGem.Gem.UnitTests;
@@ -98,7 +99,8 @@ internal sealed class GemLink : IAsyncDisposable
         IGemTerminal? terminal = null,
         bool traces = false,
         bool limits = false,
-        OutputGate? outputGate = null)
+        OutputGate? outputGate = null,
+        ILogger<GemEquipment>? logger = null)
     {
         var linkOptions = new SecsGemOptions
         {
@@ -184,7 +186,7 @@ internal sealed class GemLink : IAsyncDisposable
             builder.Build(),
             connection,
             clock,
-            logger: null,
+            logger,
             programs,
             spool,
             formatted,
@@ -346,7 +348,9 @@ internal sealed class GemLink : IAsyncDisposable
     /// <returns>A task that completes when the condition holds.</returns>
     public static async Task WaitUntilAsync(Func<bool> condition, string what)
     {
-        for (var attempt = 0; attempt < 5_000; attempt++)
+        // 400, for the reason GemPair.WaitUntilAsync gives: a wait that never comes used to cost
+        // 78 seconds, which turns a readable control into a timed-out run.
+        for (var attempt = 0; attempt < 400; attempt++)
         {
             if (condition())
             {

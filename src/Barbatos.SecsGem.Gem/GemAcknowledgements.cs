@@ -82,6 +82,57 @@ public enum GemEquipmentConstantAcknowledgement : byte
     Other = 4,
 }
 
+/// <summary>S2F22 CMDA - the answer to the remote command that carries no parameters.</summary>
+/// <remarks>
+/// <para>
+/// <strong>Three codes, not <c>HCACK</c>'s seven.</strong> S2F21 is the simple remote command and
+/// S2F41 is the one with parameters; they carry different acknowledgement items, and this is the
+/// smaller of the two. A handler answers in <see cref="GemHostCommandAcknowledgement"/> because
+/// that is what E30's command model uses, so answering S2F21 means narrowing seven codes onto
+/// three - see <c>GemEquipment</c> for the mapping, which is stated there rather than left to be
+/// inferred.
+/// </para>
+/// <para>
+/// <c>CMDA</c> is also <c>Barbatos.SecsGem.ProcessJobs</c>' acknowledgement for S16F4 and S16F24,
+/// and one item cannot mean two things in one repository: these four members are that package's
+/// four, name for name, and a test in each asserts both against the reference's table.
+/// </para>
+/// </remarks>
+public enum GemRemoteCommandAcknowledgement : byte
+{
+    /// <summary>The command was performed.</summary>
+    Performed = 0,
+
+    /// <summary>There is no such command.</summary>
+    DoesNotExist = 1,
+
+    /// <summary>The command exists and cannot be performed now.</summary>
+    /// <remarks>
+    /// Where the narrowing from <c>HCACK</c> lands: everything that is neither acceptance nor "no
+    /// such command" is refused as this, because S2F22 has no word for the rest.
+    /// </remarks>
+    CannotPerformNow = 2,
+
+    /// <summary>A code from 3 up, which E5 reserves and does not name.</summary>
+    /// <remarks>
+    /// <para>
+    /// Separate from <see cref="CannotPerformNow"/> because the two are different findings, and
+    /// this is the member the first version of this enum did not have. Folding a reserved code
+    /// onto 2 would put words in the machine's mouth: it would report a refusal the machine never
+    /// made, and an equipment-specific code is as likely to qualify an acceptance as to deny one.
+    /// What this says instead is the only thing that is known - the machine answered, and in a
+    /// vocabulary this library cannot read.
+    /// </para>
+    /// <para>
+    /// It is still not success, which is the rule the whole stack keeps: a code E5 does not define
+    /// never reads as "done". <c>Barbatos.SecsGem.ProcessJobs</c> gained the same member in the
+    /// same chapter, for the same item, and each package's test drives a machine that answers a
+    /// reserved code rather than only comparing the enum with the table.
+    /// </para>
+    /// </remarks>
+    Other = 3,
+}
+
 /// <summary>S2F32 TIACK - the answer to a date and time set.</summary>
 public enum GemTimeAcknowledgement : byte
 {
@@ -244,6 +295,49 @@ public enum GemReportAcknowledgement : byte
 
     /// <summary>Error: not accepted.</summary>
     Error = 1,
+}
+
+/// <summary>S6F6 GRANT6 - whether the host will take a multi-block send.</summary>
+/// <remarks>
+/// <para>
+/// The inquire-and-grant handshake E5 puts in front of a send too large for one block: the
+/// equipment says how much is coming with S6F5 and waits to be told to go ahead. Three named
+/// codes and a reserved range from 3.
+/// </para>
+/// <para>
+/// <strong>The same item <c>Barbatos.SecsGem.DataSets</c> reads for S13F2.</strong> Its
+/// <c>DataSetGrant</c> has these four members under these four names, and a test in each package
+/// asserts both against the reference's own table rather than against the other enum - which is
+/// what makes the agreement hold when a third package serves <c>GRANT6</c> one day. The three
+/// rows that name it are S6F6, S13F2 and S13F6, and the two implemented here are the two the
+/// reference documents rather than illustrates.
+/// </para>
+/// <para>
+/// <strong>And <c>GRANT6</c> is not <c>GRANT</c>.</strong> The elder item names four codes and
+/// reserves from 4 where this one names three and reserves from 3, so an enum copied from the
+/// wrong one puts its catch-all a code too high and reads a machine's reserved 3 as a refusal it
+/// did not make. Three packages here serve <c>GRANT</c>, and the two names are one digit apart.
+/// </para>
+/// </remarks>
+public enum GemMultiBlockGrant : byte
+{
+    /// <summary>Permission granted; go ahead.</summary>
+    Ok = 0,
+
+    /// <summary>Busy; ask again later.</summary>
+    Busy = 1,
+
+    /// <summary>Not interested, or no space for it.</summary>
+    /// <remarks>
+    /// The table's one final refusal, and it carries both readings - a host that does not want the
+    /// data and a host that cannot hold it answer the same code. <c>GRANT6</c> has no third
+    /// refusal, which is the same shortage <c>Barbatos.SecsGem.DataSets</c> documents for S13F2.
+    /// </remarks>
+    NoSpace = 2,
+
+    /// <summary>A code from 3 up, which E5 reserves and does not name.</summary>
+    /// <remarks>Not a grant, so the send does not go ahead - a handshake nobody can read is not permission.</remarks>
+    Other = 3,
 }
 
 /// <summary>Whether a variable is a status value or an event-associated data value.</summary>

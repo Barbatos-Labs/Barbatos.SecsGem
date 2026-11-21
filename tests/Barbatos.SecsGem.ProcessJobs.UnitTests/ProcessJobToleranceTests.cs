@@ -150,10 +150,16 @@ public class ProcessJobToleranceTests
             ProcessJobCommands.Stop,
             ProcessJobPair.Token);
 
-        // The rule the whole stack follows: an undefined acknowledgement reads as the
-        // unfavourable answer. Here it is "cannot perform now" rather than "does not exist" - a
-        // machine answering with something unreadable has the command, or it would have said 1.
-        Assert.Equal(ProcessJobCommandAcknowledgement.CannotPerformNow, acknowledgement);
+        // The rule the whole stack follows, and the whole of what it says: an undefined
+        // acknowledgement never reads as success.
+        Assert.NotEqual(ProcessJobCommandAcknowledgement.Performed, acknowledgement);
+
+        // It is read as Other rather than as CannotPerformNow, which is where this test changed.
+        // The old answer asserted a refusal the machine had not made - the argument is written out
+        // in ProcessJobStateAgreesWithTheReferenceTests. What stays true is that it is not
+        // DoesNotExist: a machine answering 9 has the command, or it would have said 1.
+        Assert.Equal(ProcessJobCommandAcknowledgement.Other, acknowledgement);
+        Assert.NotEqual(ProcessJobCommandAcknowledgement.DoesNotExist, acknowledgement);
     }
 
     [Fact]

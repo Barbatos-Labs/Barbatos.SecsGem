@@ -757,18 +757,19 @@ internal static class ProcessJobCodec
     private static ProcessJobAcknowledgement Acknowledgement(byte code)
         => code == 0 ? ProcessJobAcknowledgement.Accepted : ProcessJobAcknowledgement.Rejected;
 
-    /// <summary>Reads a <c>CMDA</c>, with an undefined code reading as the unfavourable one.</summary>
+    /// <summary>Reads a <c>CMDA</c>, with a reserved code reading as <c>Other</c> rather than as a refusal.</summary>
     /// <remarks>
-    /// The rule the whole stack follows for acknowledgements: a code E5 does not define never
-    /// reads as success. Here the code is 2, "cannot perform now", rather than 1 - a machine
-    /// answering with something this library cannot read has the command, or it would have said 1
-    /// itself.
+    /// The rule the whole stack follows for acknowledgements still holds - a code E5 does not
+    /// define never reads as success - but the range from 3 has a member of its own now, because
+    /// folding it onto 2 reported a refusal the machine had not made. 2 means the machine said
+    /// "not now"; <c>Other</c> means it said something this library cannot read.
     /// </remarks>
     private static ProcessJobCommandAcknowledgement CommandAcknowledgement(byte code) => code switch
     {
         0 => ProcessJobCommandAcknowledgement.Performed,
         1 => ProcessJobCommandAcknowledgement.DoesNotExist,
-        _ => ProcessJobCommandAcknowledgement.CannotPerformNow,
+        2 => ProcessJobCommandAcknowledgement.CannotPerformNow,
+        _ => ProcessJobCommandAcknowledgement.Other,
     };
 
     private static ProcessJobParameterAcknowledgement ParameterAcknowledgement(byte code) => code switch

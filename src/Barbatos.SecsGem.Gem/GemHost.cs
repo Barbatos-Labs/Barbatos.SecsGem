@@ -35,7 +35,8 @@ namespace Barbatos.SecsGem.Gem;
 /// <see cref="GemEquipment.FormattedProcessProgramMessages"/> and the one in
 /// <see cref="GemEquipment.SpoolMessages"/> - has a method here, and a test asserts that rather
 /// than trusting it. The equipment's own primaries are answered by
-/// <see cref="HandleAsync"/>: S1F13, S1F1, S5F1, S6F11, S6F13 and stream 9.
+/// <see cref="HandleAsync"/>: S1F1, S1F13, S2F25, S5F1, S5F9, S6F1, S6F3, S6F5, S6F11, S6F13,
+/// S10F1 and stream 9.
 /// </para>
 /// <para>
 /// <strong>Who owns the reply.</strong> Methods whose answer is an acknowledgement code, a list of
@@ -101,8 +102,15 @@ public sealed class GemHost : IAsyncDisposable
     [
         (1, 1),    // Are You There
         (1, 13),   // Establish Communications Request
+
+        // The loopback goes either way: a machine testing the link asks the host, and a host
+        // that refused it would be the thing under suspicion refusing to be measured.
+        (2, 25),   // Loopback Diagnostic Request
         (5, 1),    // Alarm Report Send
+        (5, 9),    // Exception Post Notify
         (6, 1),    // Trace Data Send
+        (6, 3),    // Discrete Variable Data Send
+        (6, 5),    // Multi-block Data Send Inquire
         (6, 11),   // Event Report Send
         (6, 13),   // Annotated Event Report Send
         (10, 1),   // Terminal Request
@@ -124,6 +132,25 @@ public sealed class GemHost : IAsyncDisposable
 
     /// <summary>Raised after an alarm arrives, before it is acknowledged.</summary>
     public event EventHandler<GemHostAlarmEventArgs>? AlarmReceived;
+
+    /// <summary>Raised after an exception post arrives, before it is acknowledged - S5F9.</summary>
+    /// <remarks>
+    /// Separate from <see cref="AlarmReceived"/> although both are stream 5 and both answer with
+    /// <c>ACKC5</c>. An alarm is a condition with an identifier the host can look up in a namelist
+    /// and a state it can read back with S5F6; an exception post is an occurrence, named by free
+    /// text, that nothing in the documented half of stream 5 will tell the host about a second
+    /// time. Merging them would hand a host one event whose two halves it has to tell apart.
+    /// </remarks>
+    public event EventHandler<GemHostExceptionEventArgs>? ExceptionReceived;
+
+    /// <summary>Raised when the equipment asks permission to send something large - S6F5.</summary>
+    /// <remarks>
+    /// The handler sets <see cref="GemMultiBlockInquiryEventArgs.Grant"/>, and the default is to
+    /// grant. A host with nothing attached to this event therefore says yes, which is the right
+    /// default for a handshake whose only purpose is to let a host say no: silence that refused
+    /// would stop a machine from reporting at all.
+    /// </remarks>
+    public event EventHandler<GemMultiBlockInquiryEventArgs>? MultiBlockInquired;
 
     /// <summary>Raised when the equipment reports an error in stream 9.</summary>
     public event EventHandler<GemHostErrorEventArgs>? ErrorReported;
@@ -179,8 +206,12 @@ public sealed class GemHost : IAsyncDisposable
         {
             (1, 1) => OnAreYouThere(),
             (1, 13) => OnEstablishCommunications(),
+            (2, 25) => OnLoopback(transaction.Message),
             (5, 1) => OnAlarmReport(transaction.Message),
+            (5, 9) => OnExceptionPost(transaction.Message),
             (6, 1) => OnTraceData(transaction.Message),
+            (6, 3) => OnDiscreteVariableData(transaction.Message),
+            (6, 5) => OnMultiBlockInquire(transaction.Message),
             (6, 11) => OnEventReport(transaction.Message, 12),
             (6, 13) => OnEventReport(transaction.Message, 14),
             (10, 1) => OnTerminalRequest(transaction.Message),
@@ -311,6 +342,187 @@ public sealed class GemHost : IAsyncDisposable
         }
 
         return descriptions;
+    }
+
+    /// <summary>Asks for the data variables' names and units - S1F21, answered by S1F22.</summary>
+    /// <param name="vids">Which variables, or empty for every one the machine has.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>One description per entry, in the order the machine answered.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="vids"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <see cref="ReadStatusNamelistAsync"/>'s sibling for the other kind of variable. A machine
+    /// answers an identifier it does not have with its name and units both zero-length rather than
+    /// by leaving it out, so the reply stays aligned with the request and
+    /// <see cref="GemVariableDescription.Exists"/> is how you tell.
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<GemVariableDescription>> ReadDataVariableNamelistAsync(
+        IReadOnlyList<ulong> vids,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(vids);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(1, 21, replyExpected: true)
+            {
+                Name = "DataVariableNamelistRequest",
+                Item = GemItems.IdList(vids),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        List<GemVariableDescription> descriptions = [];
+
+        foreach (var entry in Entries(reply))
+        {
+            if (entry is { IsList: true, Count: 3 } && GemItems.TryReadId(entry[0], out var id))
+            {
+                descriptions.Add(new GemVariableDescription(
+                    id,
+                    GemItems.ReadText(entry[1]),
+                    GemItems.ReadText(entry[2])));
+            }
+        }
+
+        return descriptions;
+    }
+
+    /// <summary>Asks what the machine's events are called and are about - S1F23, answered by S1F24.</summary>
+    /// <param name="ceids">Which events, or empty for every one the machine has.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>One description per entry, in the order the machine answered.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="ceids"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// The third namelist, and the only one whose entries nest: each carries the identifier, the
+    /// name and the variables the <em>equipment</em> says the event is about.
+    /// </para>
+    /// <para>
+    /// <strong>That is not the report a host linked with S2F35.</strong> This answer describes the
+    /// machine and does not change when the reporting is reconfigured, which is what makes it
+    /// worth asking once at start-up rather than after every change.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<GemEventDescription>> ReadCollectionEventNamelistAsync(
+        IReadOnlyList<ulong> ceids,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ceids);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(1, 23, replyExpected: true)
+            {
+                Name = "CollectionEventNamelistRequest",
+                Item = GemItems.IdList(ceids),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        List<GemEventDescription> descriptions = [];
+
+        foreach (var entry in Entries(reply))
+        {
+            if (entry is not { IsList: true, Count: >= 2 } || !GemItems.TryReadId(entry[0], out var id))
+            {
+                continue;
+            }
+
+            List<ulong> variables = [];
+
+            if (entry.Count > 2 && entry[2] is { IsList: true } list)
+            {
+                foreach (var vid in list.Items)
+                {
+                    if (GemItems.TryReadId(vid, out var read))
+                    {
+                        variables.Add(read);
+                    }
+                }
+            }
+
+            descriptions.Add(new GemEventDescription(id, GemItems.ReadText(entry[1]), variables));
+        }
+
+        return descriptions;
+    }
+
+    /// <summary>Sends a command with no parameters - S2F21, answered by S2F22.</summary>
+    /// <param name="command">What to do - <c>RCMD</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>What happened - <c>CMDA</c>, which names three outcomes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="command"/> is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no <c>CMDA</c>.</exception>
+    /// <remarks>
+    /// <strong>Use <see cref="SendCommandAsync"/> unless you need this one.</strong> S2F41 carries
+    /// parameters and answers with <c>HCACK</c>'s seven codes; this carries none and answers with
+    /// three, so "completion later" and "already in the desired condition" come back as
+    /// <see cref="GemRemoteCommandAcknowledgement.CannotPerformNow"/>. The narrowing is the
+    /// message's, not this library's - an empty parameter list on S2F41 asks the same thing and
+    /// gets the fuller answer.
+    /// </remarks>
+    public async ValueTask<GemRemoteCommandAcknowledgement> SendRemoteCommandAsync(
+        string command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 21, replyExpected: true)
+            {
+                Name = "RemoteCommand",
+                Item = SecsItem.A(command).Named("RCMD"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemRemoteCommandAcknowledgement)ReadNamedCode(reply, 3, "CMDA");
+    }
+
+    /// <summary>Sends bytes and checks the same ones come back - S2F25, answered by S2F26.</summary>
+    /// <param name="body">What to send - <c>ABS</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether the machine echoed exactly what it was sent.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The one message here that changes nothing</strong>, which is what makes it the right
+    /// first thing to send when a link is behaving oddly: it proves a body crosses in both
+    /// directions without touching the machine's state. A machine is expected to answer it
+    /// off-line as well as on, so a refusal is itself a finding.
+    /// </para>
+    /// <para>
+    /// Returns whether the echo matched rather than the bytes, because a loopback whose answer you
+    /// have to compare yourself is a loopback half done. <see cref="LoopbackDataAsync"/> hands back
+    /// the bytes for a caller that wants to see them.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<bool> LoopbackAsync(
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken = default)
+    {
+        var echoed = await LoopbackDataAsync(body, cancellationToken).ConfigureAwait(false);
+
+        return echoed.Span.SequenceEqual(body.Span);
+    }
+
+    /// <summary>Sends bytes and hands back what came of them - S2F25, answered by S2F26.</summary>
+    /// <param name="body">What to send - <c>ABS</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The echoed bytes, copied out of the reply.</returns>
+    /// <remarks>
+    /// Copied, because the reply's item borrows pooled memory and is released with it. Empty when
+    /// the machine answered with no body at all, which is not the same as answering with zero
+    /// bytes - and neither is an error this method raises, because what to make of a bad echo is
+    /// the caller's question.
+    /// </remarks>
+    public async ValueTask<ReadOnlyMemory<byte>> LoopbackDataAsync(
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 25, replyExpected: true)
+            {
+                Name = "LoopbackDiagnosticRequest",
+                Item = SecsItem.B(body.ToArray()).Named("ABS"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return GemItems.ReadBytes(reply.Item);
     }
 
     /// <summary>Asks the equipment to go off-line - S1F15.</summary>
@@ -1345,6 +1557,19 @@ public sealed class GemHost : IAsyncDisposable
         };
     }
 
+    /// <summary>Answers S2F25 by sending the same bytes back.</summary>
+    /// <remarks>
+    /// The host half of the one diagnostic that changes nothing. A machine is entitled to test the
+    /// link in its own direction, and a host that answered only its own loopback would leave the
+    /// machine unable to tell a dead link from a deaf host.
+    /// </remarks>
+    private static SecsMessage OnLoopback(SecsMessage request)
+        => new(2, 26, replyExpected: false)
+        {
+            Name = "LoopbackDiagnosticData",
+            Item = SecsItem.B(GemItems.ReadBytes(request.Item).ToArray()).Named("ABS"),
+        };
+
     private SecsMessage OnAlarmReport(SecsMessage request)
     {
         var code = (byte)0;
@@ -1367,6 +1592,131 @@ public sealed class GemHost : IAsyncDisposable
         {
             Name = "AlarmReportAcknowledge",
             Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC5"),
+        };
+    }
+
+    private SecsMessage OnExceptionPost(SecsMessage request)
+    {
+        // Error until the body reads, which is the stricter of the two patterns in this file and
+        // the right one here. An alarm that arrives malformed still names a condition the host can
+        // ask about again; an exception post that arrives malformed is the only time the machine
+        // was ever going to mention it, so acknowledging one this end could not read would lose it
+        // quietly. S5F6 is why the alarm handler can afford to be generous and this one cannot.
+        var acknowledgement = GemAlarmAcknowledgement.Error;
+        var postedAt = default(DateTime?);
+        var id = string.Empty;
+        var type = string.Empty;
+        var text = string.Empty;
+
+        if (request.Item is { IsList: true, Count: 4 } body)
+        {
+            acknowledgement = GemAlarmAcknowledgement.Accepted;
+
+            // A timestamp that will not parse leaves the instant unknown rather than failing the
+            // post: TIMESTAMP is when the machine says it happened, and the exception is the news.
+            if (GemItems.TryParseTimestamp(GemItems.ReadText(body[0]), out var instant))
+            {
+                postedAt = instant;
+            }
+
+            id = GemItems.ReadText(body[1]);
+            type = GemItems.ReadText(body[2]);
+            text = GemItems.ReadText(body[3]);
+        }
+
+        var args = new GemHostExceptionEventArgs(new GemExceptionPost(postedAt, id, type, text))
+        {
+            Acknowledgement = acknowledgement,
+        };
+
+        _logger.LogInformation("Exception {Exception} posted by the equipment.", args.Exception);
+        ExceptionReceived?.Invoke(this, args);
+
+        return new SecsMessage(5, 10, replyExpected: false)
+        {
+            Name = "ExceptionPostAcknowledge",
+            Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC5"),
+        };
+    }
+
+    private SecsMessage OnDiscreteVariableData(SecsMessage request)
+    {
+        var acknowledgement = GemReportAcknowledgement.Error;
+        var dataId = 0u;
+        var eventId = 0UL;
+
+        if (request.Item is { IsList: true, Count: 2 } body)
+        {
+            acknowledgement = GemReportAcknowledgement.Accepted;
+
+            if (GemItems.TryReadId(body[0], out var data))
+            {
+                dataId = (uint)Math.Min(data, uint.MaxValue);
+            }
+
+            GemItems.TryReadId(body[1], out eventId);
+        }
+
+        // Raised on the same event S6F11 raises, with no reports, because a host watching for
+        // "event N happened" wants to hear it however the machine said so. What tells the two
+        // apart is GemEventReportEventArgs.Function, which is why that property exists: an empty
+        // report list cannot, since S6F11 with nothing linked to it is also empty.
+        var args = new GemEventReportEventArgs(dataId, eventId, [], 3)
+        {
+            Acknowledgement = acknowledgement,
+        };
+
+        EventReportReceived?.Invoke(this, args);
+
+        return new SecsMessage(6, 4, replyExpected: false)
+        {
+            Name = "DiscreteVariableDataAcknowledge",
+            Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC6"),
+        };
+    }
+
+    private SecsMessage OnMultiBlockInquire(SecsMessage request)
+    {
+        var dataId = 0u;
+        var length = 0u;
+        var readable = false;
+
+        if (request.Item is { IsList: true, Count: 2 } body)
+        {
+            readable = true;
+
+            if (GemItems.TryReadId(body[0], out var data))
+            {
+                dataId = (uint)Math.Min(data, uint.MaxValue);
+            }
+
+            if (GemItems.TryReadId(body[1], out var declared))
+            {
+                length = (uint)Math.Min(declared, uint.MaxValue);
+            }
+        }
+
+        var args = new GemMultiBlockInquiryEventArgs(dataId, length);
+
+        if (!readable)
+        {
+            // An inquire this end could not read is refused, and NoSpace is the refusal to use:
+            // Busy invites the machine to ask again, and the second attempt would be just as
+            // unreadable as the first.
+            args.Grant = GemMultiBlockGrant.NoSpace;
+        }
+
+        // Only the refusal is written here. The grant itself is the property's own initialiser, so
+        // the default a host sees documented on GemMultiBlockInquiryEventArgs.Grant is the default
+        // that runs - this used to set both, which made the initialiser unreachable and let a
+        // control change it to NoSpace with the whole suite still green.
+
+        MultiBlockInquired?.Invoke(this, args);
+
+        return new SecsMessage(6, 6, replyExpected: false)
+        {
+            Name = "MultiBlockGrant",
+            Item = SecsItem.B((byte)args.Grant).Named("GRANT6"),
         };
     }
 
@@ -1402,7 +1752,7 @@ public sealed class GemHost : IAsyncDisposable
             }
         }
 
-        var args = new GemEventReportEventArgs(dataId, eventId, reports)
+        var args = new GemEventReportEventArgs(dataId, eventId, reports, (byte)(replyFunction - 1))
         {
             Acknowledgement = acknowledgement,
         };
