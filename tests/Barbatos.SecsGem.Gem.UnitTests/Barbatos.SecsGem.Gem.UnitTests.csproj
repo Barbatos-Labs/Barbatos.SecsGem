@@ -26,6 +26,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Gem\Barbatos.SecsGem.Gem.csproj" />
+    <!-- The catalogue, for the test that checks every acknowledgement enum here against the
+         code table its item defines. Twelve of them were short of a member for the reserved
+         range; nothing but this comparison would have found the thirteenth. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Catalog\Barbatos.SecsGem.Catalog.csproj" />
   </ItemGroup>
 
 </Project>

@@ -31,6 +31,14 @@ public enum GemProcessProgramGrant : byte
 
     /// <summary>Refused, and not because of space or the identifier.</summary>
     WillNotAccept = 5,
+
+    /// <summary>6 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>PPGNT</c> names 6 to 63 as reserved, so a code in that range is something the reference anticipated and did
+    /// not define. It reads as this member with the arriving code logged, rather than being cast to
+    /// an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 6,
 }
 
 /// <summary>ACKC7 - the answer to a process program operation.</summary>
@@ -56,6 +64,14 @@ public enum GemProcessProgramAcknowledgement : byte
 
     /// <summary>Accepted, and it will be done later.</summary>
     PerformedLater = 6,
+
+    /// <summary>7 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>ACKC7</c> names 7 to 63 as reserved, so a code in that range is something the reference anticipated and did
+    /// not define. It reads as this member with the arriving code logged, rather than being cast to
+    /// an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 7,
 }
 
 /// <summary>

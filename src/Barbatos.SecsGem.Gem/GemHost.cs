@@ -322,7 +322,7 @@ public sealed class GemHost : IAsyncDisposable
             new SecsMessage(1, 15, replyExpected: true) { Name = "RequestOffLine" },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemOfflineAcknowledgement)ReadCode(reply);
+        return (GemOfflineAcknowledgement)ReadNamedCode(reply, 1, "OFLACK");
     }
 
     /// <summary>Asks the equipment to go on-line - S1F17.</summary>
@@ -338,7 +338,7 @@ public sealed class GemHost : IAsyncDisposable
             new SecsMessage(1, 17, replyExpected: true) { Name = "RequestOnLine" },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemOnlineAcknowledgement)ReadCode(reply);
+        return (GemOnlineAcknowledgement)ReadNamedCode(reply, 3, "ONLACK");
     }
 
     // ----------------------------------------------------------------- stream 2
@@ -399,7 +399,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemEquipmentConstantAcknowledgement)ReadCode(reply);
+        return (GemEquipmentConstantAcknowledgement)ReadNamedCode(reply, 4, "EAC");
     }
 
     /// <summary>Sets the limit bands on some variables - S2F45.</summary>
@@ -565,7 +565,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemTimeAcknowledgement)ReadCode(reply);
+        return (GemTimeAcknowledgement)ReadNamedCode(reply, 2, "TIACK");
     }
 
     /// <summary>Reads the equipment constant namelist - S2F29.</summary>
@@ -669,7 +669,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemLinkReportAcknowledgement)ReadCode(reply);
+        return (GemLinkReportAcknowledgement)ReadNamedCode(reply, 6, "LRACK");
     }
 
     /// <summary>Enables or disables collection events - S2F37.</summary>
@@ -692,7 +692,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemEnableEventAcknowledgement)ReadCode(reply);
+        return (GemEnableEventAcknowledgement)ReadNamedCode(reply, 2, "ERACK");
     }
 
     /// <summary>Sends a remote command - S2F41.</summary>
@@ -781,7 +781,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemAlarmAcknowledgement)ReadCode(reply);
+        return (GemAlarmAcknowledgement)ReadNamedCode(reply, 1, "ACKC5");
     }
 
     /// <summary>Lists alarms and whether each is in alarm - S5F5.</summary>
@@ -879,7 +879,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemSpooledDataAcknowledgement)ReadCode(reply);
+        return (GemSpooledDataAcknowledgement)ReadNamedCode(reply, 1, "RSPACK");
     }
 
     // ----------------------------------------------------------------- stream 10
@@ -912,7 +912,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemTerminalAcknowledgement)ReadCode(reply);
+        return (GemTerminalAcknowledgement)ReadNamedCode(reply, 3, "ACKC10");
     }
 
     /// <summary>Shows several blocks of text on an operator's terminal - S10F5.</summary>
@@ -947,7 +947,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemTerminalAcknowledgement)ReadCode(reply);
+        return (GemTerminalAcknowledgement)ReadNamedCode(reply, 3, "ACKC10");
     }
 
     /// <summary>Shows text on every terminal the equipment has - S10F9.</summary>
@@ -973,7 +973,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemTerminalAcknowledgement)ReadCode(reply);
+        return (GemTerminalAcknowledgement)ReadNamedCode(reply, 3, "ACKC10");
     }
 
     // ----------------------------------------------------------------- stream 7
@@ -1003,7 +1003,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemProcessProgramGrant)ReadCode(reply);
+        return (GemProcessProgramGrant)ReadNamedCode(reply, 6, "PPGNT");
     }
 
     /// <summary>Sends a process program - S7F3.</summary>
@@ -1028,7 +1028,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemProcessProgramAcknowledgement)ReadCode(reply);
+        return (GemProcessProgramAcknowledgement)ReadNamedCode(reply, 7, "ACKC7");
     }
 
     /// <summary>Asks for a process program back - S7F5.</summary>
@@ -1087,7 +1087,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemProcessProgramAcknowledgement)ReadCode(reply);
+        return (GemProcessProgramAcknowledgement)ReadNamedCode(reply, 7, "ACKC7");
     }
 
     /// <summary>Asks what process programs the equipment holds - S7F19.</summary>
@@ -1135,7 +1135,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemProcessProgramAcknowledgement)ReadCode(reply);
+        return (GemProcessProgramAcknowledgement)ReadNamedCode(reply, 7, "ACKC7");
     }
 
     /// <summary>Asks for a formatted process program back - S7F25.</summary>
@@ -1211,6 +1211,53 @@ public sealed class GemHost : IAsyncDisposable
     private static ReadOnlySpan<SecsItem> Entries(SecsMessage reply)
         => reply.Item is { IsList: true } list ? list.Items : [];
 
+    /// <summary>
+    /// Reads an acknowledgement code and folds the reserved range onto one member.
+    /// </summary>
+    /// <param name="reply">The reply.</param>
+    /// <param name="reserved">The first code E5 reserves - which is where the enum's catch-all member sits.</param>
+    /// <param name="item">The item's name, for the log.</param>
+    /// <param name="index">Which item of a list body, or -1 for the whole body.</param>
+    /// <returns>The code, or <paramref name="reserved"/> when the arriving one is in the reserved range.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Twelve of this class's acknowledgements used to cast a code straight to its enum</strong>,
+    /// and every one of their items reserves a range the enum cannot express - so an equipment
+    /// answering S1F18 with 40 produced an <c>ONLACK</c> value with no name, and a caller
+    /// switching on it fell through every case.
+    /// </para>
+    /// <para>
+    /// The thirteenth, <c>HCACK</c>, was fixed on its own two chapters earlier. This helper is that
+    /// fix applied to the rest, after the catalogue's fourth provenance measure turned the whole
+    /// set up at once. A test drives every one of them with a reserved code, and another asserts
+    /// against the catalogue that each enum's boundary is the one its item names - so the
+    /// fourteenth cannot be forgotten the way the twelve were.
+    /// </para>
+    /// <para>
+    /// <c>COMMACK</c> is the one acknowledgement here with no reserved range, so it is read without
+    /// this. <c>TRACK</c> has no table of values at all, which is a different problem and is
+    /// documented where that enum is.
+    /// </para>
+    /// </remarks>
+    private byte ReadNamedCode(SecsMessage reply, byte reserved, string item, int index = -1)
+    {
+        var code = ReadCode(reply, index);
+
+        if (code < reserved)
+        {
+            return code;
+        }
+
+        _logger.LogInformation(
+            "S{S}F{F} carried {Item} {Code}, which E5 reserves for the equipment and does not name.",
+            reply.S,
+            reply.F,
+            item,
+            code);
+
+        return reserved;
+    }
+
     /// <summary>Reads an acknowledgement code, or says why the reply was not one.</summary>
     /// <param name="reply">The secondary.</param>
     /// <param name="index">Where in a list body the code is, or -1 when the body <em>is</em> the code.</param>
@@ -1249,7 +1296,7 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemDefineReportAcknowledgement)ReadCode(reply);
+        return (GemDefineReportAcknowledgement)ReadNamedCode(reply, 5, "DRACK");
     }
 
     private async ValueTask<IReadOnlyList<GemAlarmReport>> ReadAlarmListAsync(

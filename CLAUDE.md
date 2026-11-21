@@ -217,10 +217,22 @@ matter, and record which check it passed. Stream 17 is the one that failed both.
 alone is not a verdict either - stream 15 was swept into stream 19's refusal on a shared figure and
 the dictionary overturned it, which is the one refusal here that has been reopened.
 
-**Where a package states a vocabulary the reference also states, make them meet.** Two do:
-`ProcessJobState` against `PRSTATE` and `ControlJobCommands` against `CTLJOBCMD`, both of which the
-reference defines and names from no message. Those test projects reference `Barbatos.SecsGem.Catalog`
-while the libraries do not and must not - the dependency is the test's, not the layer's.
+**Where a package states a vocabulary the reference also states, make them meet.** Three do:
+`ProcessJobState` against `PRSTATE`, `ControlJobCommands` against `CTLJOBCMD`, and every one of
+GEM's acknowledgement enums against its item's code table. Those test projects reference
+`Barbatos.SecsGem.Catalog` while the libraries do not and must not - the dependency is the test's,
+not the layer's.
+
+**An acknowledgement item with a reserved range needs a member at the first reserved code**, and the
+reader has to fold the range onto it rather than casting. Thirteen of GEM's thirteen such items do;
+twelve of them did not until a sweep found them all at once, and `(SomeAcknowledgement)ReadCode(...)`
+is the shape to look for. Comparing the enum with the table is not enough on its own - drive a
+machine that answers a reserved code, because a boundary that is right in the enum and unused in the
+reader passes every comparison.
+
+Older files here are **CRLF** where the newer ones are LF, `GemHost.cs` among them. A multi-line
+mini-patch against one of those matches zero times until the patch text is converted, which has now
+cost two chapters a confusing round of "the control found nothing".
 
 After touching a `.csproj`, `Directory.Build.*`, `Directory.Packages.props` or anything else that
 changes what gets packed:

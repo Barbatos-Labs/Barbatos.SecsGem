@@ -23,6 +23,14 @@ public enum GemTerminalAcknowledgement : byte
 
     /// <summary>There is no such terminal, or it cannot be reached.</summary>
     TerminalNotAvailable = 2,
+
+    /// <summary>3 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>ACKC10</c> names 3 to 63 as reserved, so a code in that range is something the reference
+    /// anticipated and did not define. It reads as this member with the arriving code logged,
+    /// rather than being cast to an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 3,
 }
 
 /// <summary>

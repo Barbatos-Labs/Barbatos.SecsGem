@@ -783,6 +783,7 @@ are somebody's rather than padding, and a blank line between two paragraphs is t
 | `Accepted` | 0 | Taken for display. Not "somebody read it". |
 | `WillNotDisplay` | 1 | It arrived and will not be shown. A decision. |
 | `TerminalNotAvailable` | 2 | There is no such terminal, or it cannot be reached. A fault, and the only one of the three worth retrying. |
+| `Other` | 3 | Anything in 3-63, which `ACKC10` reserves and does not name. The arriving code goes to the log. |
 
 ### `GemInMemoryTerminal`
 
@@ -933,6 +934,7 @@ something storable - the equipment does formatted process programs, just not tha
 | `InvalidId` | 3 |
 | `Busy` | 4 |
 | `WillNotAccept` | 5 |
+| `Other` | 6 |
 
 ### `GemProcessProgramAcknowledgement`
 
@@ -947,9 +949,49 @@ something storable - the equipment does formatted process programs, just not tha
 | `NotFound` | 4 |
 | `ModeUnsupported` | 5 |
 | `PerformedLater` | 6 |
+| `Other` | 7 |
 
 ACKC7 has no code for "that body made no sense", so a PPBODY that did not arrive as a binary item
 is answered `LengthError` rather than stored as an empty program.
+
+---
+
+## Every acknowledgement's reserved range
+
+**Thirteen of the acknowledgement items this package reads give E5 a reserved range**, and each of
+those enums now has a member at the first reserved code - named `Other` except where a single
+non-zero member already covered the whole range:
+
+| item | named codes | reserved | member at the boundary |
+| --- | --- | --- | --- |
+| `OFLACK` | 0 | 1-63 | `GemOfflineAcknowledgement.Other` |
+| `ONLACK` | 0-2 | 3-63 | `GemOnlineAcknowledgement.Other` |
+| `EAC` | 0-3 | 4-63 | `GemEquipmentConstantAcknowledgement.Other` |
+| `TIACK` | 0-1 | 2-63 | `GemTimeAcknowledgement.Other` |
+| `DRACK` | 0-4 | 5-63 | `GemDefineReportAcknowledgement.Other` |
+| `LRACK` | 0-5 | 6-63 | `GemLinkReportAcknowledgement.Other` |
+| `ERACK` | 0-1 | 2-63 | `GemEnableEventAcknowledgement.Other` |
+| `ACKC5` | 0 | 1-63 | `GemAlarmAcknowledgement.Error` |
+| `RSPACK` | 0 | 1-63 | `GemSpooledDataAcknowledgement.Denied` |
+| `ACKC10` | 0-2 | 3-63 | `GemTerminalAcknowledgement.Other` |
+| `PPGNT` | 0-5 | 6-63 | `GemProcessProgramGrant.Other` |
+| `ACKC7` | 0-6 | 7-63 | `GemProcessProgramAcknowledgement.Other` |
+| `HCACK` | 0-6 | 7-63 | `GemHostCommandAcknowledgement.Other` |
+
+`GemHost` folds the whole reserved range onto that member and logs the arriving code, which is the
+only place it survives. **Twelve of the thirteen used to cast the code straight to its enum**, so
+an equipment answering S1F18 with 40 produced an `ONLACK` value with no name and a caller switching
+on it fell through every case. `HCACK` was fixed on its own two chapters earlier; the rest were
+found at once by the catalogue's fourth provenance measure and are guarded now.
+
+**Two acknowledgements are read without that fold, and deliberately.** `COMMACK` names both its
+codes and reserves nothing. `TRACK` has no table of values at all - so
+`GemTraceAcknowledgement`'s six members come from E30's prose rather than from the dictionary, and
+there is no reserved range to fold.
+
+Both halves are tested: one file compares each enum's boundary with its item's table, and another
+makes a machine answer 40 and drives every reader that can meet one. The comparison alone would
+pass a boundary that is right in the enum and unused in the reader.
 
 ---
 

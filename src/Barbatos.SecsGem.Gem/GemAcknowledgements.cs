@@ -27,6 +27,14 @@ public enum GemOfflineAcknowledgement : byte
 {
     /// <summary>Acknowledged. E30 defines no way to refuse this one.</summary>
     Acknowledged = 0,
+
+    /// <summary>1 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>OFLACK</c> names 1 to 63 as reserved, so a code in that range is something the reference anticipated and did
+    /// not define. It reads as this member with the arriving code logged, rather than being cast to
+    /// an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 1,
 }
 
 /// <summary>S1F18 ONLACK - the answer to a host request to go on-line.</summary>
@@ -40,6 +48,14 @@ public enum GemOnlineAcknowledgement : byte
 
     /// <summary>Already on-line, so there was nothing to do.</summary>
     AlreadyOnline = 2,
+
+    /// <summary>3 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>ONLACK</c> names 3 to 63 as reserved, so a code in that range is something the reference anticipated and did
+    /// not define. It reads as this member with the arriving code logged, rather than being cast to
+    /// an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 3,
 }
 
 /// <summary>S2F16 EAC - the answer to new equipment constant values.</summary>
@@ -56,6 +72,14 @@ public enum GemEquipmentConstantAcknowledgement : byte
 
     /// <summary>Denied: at least one value is out of range.</summary>
     OutOfRange = 3,
+
+    /// <summary>4 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>EAC</c> names 4 to 63 as reserved, so a code in that range is something the reference anticipated and did
+    /// not define. It reads as this member with the arriving code logged, rather than being cast to
+    /// an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 4,
 }
 
 /// <summary>S2F32 TIACK - the answer to a date and time set.</summary>
@@ -66,6 +90,14 @@ public enum GemTimeAcknowledgement : byte
 
     /// <summary>Error: the clock was not set.</summary>
     Error = 1,
+
+    /// <summary>2 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>TIACK</c> names 2 to 63 as reserved, so a code in that range is something the reference
+    /// anticipated and did not define. It reads as this member with the arriving code logged,
+    /// rather than being cast to an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 2,
 }
 
 /// <summary>S2F34 DRACK - the answer to a report definition.</summary>
@@ -85,6 +117,14 @@ public enum GemDefineReportAcknowledgement : byte
 
     /// <summary>Denied: at least one variable identifier does not exist.</summary>
     UnknownVariable = 4,
+
+    /// <summary>5 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>DRACK</c> names 5 to 63 as reserved, so a code in that range is something the reference anticipated and did
+    /// not define. It reads as this member with the arriving code logged, rather than being cast to
+    /// an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 5,
 }
 
 /// <summary>S2F36 LRACK - the answer to linking reports to an event.</summary>
@@ -107,6 +147,14 @@ public enum GemLinkReportAcknowledgement : byte
 
     /// <summary>Denied: at least one report identifier does not exist.</summary>
     UnknownReport = 5,
+
+    /// <summary>6 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>LRACK</c> names 6 to 63 as reserved, so a code in that range is something the reference anticipated and did
+    /// not define. It reads as this member with the arriving code logged, rather than being cast to
+    /// an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 6,
 }
 
 /// <summary>S2F38 ERACK - the answer to enabling or disabling events.</summary>
@@ -117,6 +165,14 @@ public enum GemEnableEventAcknowledgement : byte
 
     /// <summary>Denied: at least one event identifier does not exist.</summary>
     UnknownEvent = 1,
+
+    /// <summary>2 - anything in the range E5 reserves for the equipment and does not name.</summary>
+    /// <remarks>
+    /// <c>ERACK</c> names 2 to 63 as reserved, so a code in that range is something the reference anticipated and did
+    /// not define. It reads as this member with the arriving code logged, rather than being cast to
+    /// an enum value with no name - which is what this used to do.
+    /// </remarks>
+    Other = 2,
 }
 
 /// <summary>
