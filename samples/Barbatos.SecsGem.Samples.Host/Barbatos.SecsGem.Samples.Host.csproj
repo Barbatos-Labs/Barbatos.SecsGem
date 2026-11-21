@@ -23,6 +23,9 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.DataSets\Barbatos.SecsGem.DataSets.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Subsystems\Barbatos.SecsGem.Subsystems.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.ControlPrograms\Barbatos.SecsGem.ControlPrograms.csproj" />
+    <!-- Item transfer, stream 21: one package, one end type, and both ends of this pair call its
+         single registration - because every row of the stream travels either way. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.ItemTransfer\Barbatos.SecsGem.ItemTransfer.csproj" />
     <!-- Material status, for the same reason: E5 stream 3, its own package, on Hsms. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Material\Barbatos.SecsGem.Material.csproj" />
     <!-- And object services, stream 14. The loopback machine has the objects; this host only asks. -->

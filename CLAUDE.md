@@ -7,7 +7,7 @@ signature is a breaking change in somebody's fab.
 ## Repository map
 
 ```
-src/          twenty-five shipping packages, one folder each (+ README.md, API-REFERENCE.md)
+src/          twenty-six shipping packages, one folder each (+ README.md, API-REFERENCE.md)
 src/Shared/   compile-linked source, not a package: the serialization hub registration
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
@@ -39,6 +39,25 @@ Core  <-  Hsms  <-  Gem
                                enum member for member and a test says so; ACKC8 has no table at
                                all, so zero is accepted - read off eight defined ACKCn siblings -
                                and everything else is a refusal with no reason.)
+            ^----  ItemTransfer (E5 stream 21, and nothing else. ONE end type, because every row
+                               travels either way - the second such type here after stream 4's
+                               MaterialHandoff - so one registration, the same six primaries in
+                               both routing tables, and a store at both ends: a process that only
+                               sends still answers a directory request. Three inferences, each by
+                               a route already in use. ITEMDATA is the encoded item that arrived,
+                               stream 13's answer rather than stream 8's, because stream 21 is
+                               nobody's copy and there is no slot to read a format off. The S21F4
+                               body follows S14F2's nesting, since ATTRID and ATTRDATA are E39's
+                               and Objects already writes them that way. ACKC21/ABTACK/DELACK have
+                               no tables, so zero is accepted off 41 of the reference's 42 tabled
+                               *ACK items - the exception, CPACK, names a bad parameter rather
+                               than a refused message. LENGTH has no units anywhere, so the store
+                               reports a value count and says so, and ToString does not print
+                               "bytes". S21F9-F14 stay out on the block-item measurement - the
+                               status pair with them, because what it reports is a block number -
+                               and S21F19/F20 on CHKSUM, the one undefined value that cannot be
+                               carried opaquely. Every figure is pinned in
+                               SecsCatalogStream21Tests.)
             ^----  DataSets   (E5 stream 13, and nothing else: one of two streams here whose every
                                primary is the host's, stream 8 being the other, so the host end
                                declares no message at all.

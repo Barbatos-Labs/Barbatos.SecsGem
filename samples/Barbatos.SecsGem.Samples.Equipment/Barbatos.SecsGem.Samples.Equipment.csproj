@@ -23,6 +23,9 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.DataSets\Barbatos.SecsGem.DataSets.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Subsystems\Barbatos.SecsGem.Subsystems.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.ControlPrograms\Barbatos.SecsGem.ControlPrograms.csproj" />
+    <!-- Item transfer, stream 21: one package, one end type, and both ends of this pair call its
+         single registration - because every row of the stream travels either way. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.ItemTransfer\Barbatos.SecsGem.ItemTransfer.csproj" />
     <!-- And object services, stream 14: this machine answers it, so it has a provider. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Objects\Barbatos.SecsGem.Objects.csproj" />
     <!-- And material status, stream 3: also E5, also its own package, also on Hsms. -->

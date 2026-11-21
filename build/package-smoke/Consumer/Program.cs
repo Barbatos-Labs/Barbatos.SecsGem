@@ -23,6 +23,7 @@ using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.ControlPrograms;
 using Barbatos.SecsGem.DataSets;
+using Barbatos.SecsGem.ItemTransfer;
 using Barbatos.SecsGem.Subsystems;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
@@ -93,6 +94,7 @@ internal static class Program
         await Run("datasets: stream 13 resolves at both ends, and the host declares nothing", DataSetsResolveAsync).ConfigureAwait(false);
         await Run("subsystems: stream 18 resolves at both ends, which declare disjoint sets", SubsystemsResolveAsync).ConfigureAwait(false);
         await Run("controlprograms: stream 8 resolves at both ends, and a program is bytes rather than an item", ControlProgramsResolveAsync).ConfigureAwait(false);
+        await Run("itemtransfer: stream 21 resolves from one registration both ends call", ItemTransferResolvesAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
@@ -771,6 +773,96 @@ internal static class Program
                 await memory.RevisionAsync("NAMED", CancellationToken.None).ConfigureAwait(false) == "1.4.2",
                 "the store lost the revision it was given");
         }
+    }
+
+    /// <summary>
+    /// The item transfer package, which has one end type and one registration.
+    /// </summary>
+    /// <remarks>
+    /// Three claims only a restore from the real <c>.nupkg</c> can check. The dependency, since
+    /// stream 21 is E5 and no part of E30. The <strong>single registration</strong>, because this
+    /// is one of two packages here that both ends of a link call the same method on - a consumer
+    /// looking for <c>AddItemTransferHost</c> will not find one, and the package has to make that
+    /// obvious rather than puzzling. And the cycle: the end needs the connection, the connection
+    /// needs the router, and the router is where the end is declared, so a resolve that works
+    /// against <c>bin/</c> but not against the package would show up here and nowhere else.
+    /// </remarks>
+    private static async Task ItemTransferResolvesAsync()
+    {
+        var services = new ServiceCollection();
+
+        services
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddItemTransfer();
+
+        await using var provider = services.BuildServiceProvider();
+
+        _ = provider.GetRequiredService<ItemTransferPeer>();
+
+        var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            ItemTransferPeer.HandledMessages.Count == 6,
+            $"the end declares {ItemTransferPeer.HandledMessages.Count} message(s), not six");
+
+        foreach (var (stream, function) in ItemTransferPeer.HandledMessages)
+        {
+            Assert(
+                router.TryGetHandler(stream, function, out _),
+                $"the router has no handler for S{stream}F{function}, so AddItemTransfer did not declare it");
+        }
+
+        // The blocked transfer and the checksum pair, neither of which this package implements.
+        foreach (byte function in (byte[])[9, 11, 13, 19])
+        {
+            Assert(
+                !router.TryGetHandler(21, function, out _),
+                $"the end declared S21F{function}, which the reference leaves undefined where it counts");
+        }
+
+        // The grant table this package shares with two others. One item cannot mean two things in
+        // one repository, and a restore is where a version skew between packages would show.
+        Assert(
+            (byte)ItemTransferGrant.DuplicateOrInvalid == (byte)ControlProgramGrant.DuplicateOrInvalid,
+            "GRANT 3 means different things in two packages of the same version");
+
+        Assert(Enum.GetNames<ItemAcknowledgement>().Length == 2, "ACKC21 grew a third member");
+
+        var store = provider.GetRequiredService<IItemStore>();
+
+        Assert(
+            store is ItemInMemoryStore,
+            $"the default store is {store.GetType().Name}, not the in-memory one");
+
+        var granted = await store
+            .RequestAsync(new ItemTransferRequest { ItemId = "ITEM", DataId = 1, Length = 1 }, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        Assert(granted == ItemTransferGrant.Accepted, $"the store refused a transfer: {granted}");
+
+        using var contents = SecsItem.A("the item itself");
+
+        var acknowledgement = await store
+            .SaveAsync("ITEM", 1, ItemPayload.From(contents), CancellationToken.None)
+            .ConfigureAwait(false);
+
+        Assert(
+            acknowledgement == ItemAcknowledgement.Accepted,
+            $"the store refused an item it had just granted room for: {acknowledgement}");
+
+        var held = ((ItemInMemoryStore)store).Contents("ITEM");
+
+        Assert(held is not null, "the store lost the item it had just accepted");
+
+        // The distinction worth a packaging test, and the counterpart of the one stream 8 makes:
+        // these bytes are an encoded item, header and all, because ITEMDATA has no format to read
+        // off. Decoding has to give back what went in.
+        using var decoded = held!.Decode();
+
+        Assert(
+            decoded is not null && decoded.GetString() == "the item itself",
+            "the item came back as something other than what went in");
     }
 
     /// <summary>

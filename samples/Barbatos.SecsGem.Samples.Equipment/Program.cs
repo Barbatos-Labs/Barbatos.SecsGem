@@ -9,6 +9,7 @@ using Barbatos.SecsGem.ControlPrograms;
 using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
+using Barbatos.SecsGem.ItemTransfer;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.Subsystems;
@@ -270,6 +271,13 @@ internal static class Program
             // end sends none - stream 8 and stream 13 are the two one-way streams in the stack.
             .AddControlProgramEquipment()
 
+            // And stream 21, which is the opposite arrangement to the two above it: every row
+            // travels either way, so there is one registration and this machine calls the same one
+            // the host does. It is a peer, not an equipment - which means it needs a store even
+            // though this sample never initiates a transfer, because the host may ask it for a
+            // directory. The runner below puts two items in for that question to find.
+            .AddItemTransfer()
+
             // And material status, the other stream a machine answers that GEM does not cover:
             // five questions about what it is holding, and four reports of its own. The runner
             // below loads the lot into the inventory while it processes and reports it moving out.
@@ -356,6 +364,7 @@ internal sealed class ChamberRunner(
     SubsystemEquipment subsystems,
     ISubsystemStore subsystemStore,
     IControlProgramStore controlPrograms,
+    IItemStore items,
     IObjectProvider objects,
     Chamber chamber,
     ILogger<ChamberRunner> logger) : BackgroundService
@@ -370,17 +379,34 @@ internal sealed class ChamberRunner(
     {
         var alarmRaised = false;
 
-        // A data set this machine has, for the host to find with S13F11 and fetch with S13F7.
-        // Stream 13 has no primary that announces one, so this is the only way it can exist: put
-        // it in the store and wait to be asked. The contents are a SecsItem of this machine's own
-        // choosing, because DSDATA has no defined format for anybody to agree on.
         // A control program this machine already runs, for a host to find with S8F11 and fetch
-        // with S8F5. Stream 8 has no message that announces one either, so it goes in from
-        // configuration and waits to be asked - and the bytes are the program, not an encoded
-        // item, which is where stream 8 and stream 13 part company.
+        // with S8F5. Stream 8 has no message that announces one, so it goes in from configuration
+        // and waits to be asked - and the bytes are the program, not an encoded item, which is
+        // where stream 8 and stream 13 part company. (The data set that makes the other half of
+        // that comparison is seeded further down, with the rest of stream 13.)
         if (controlPrograms is ControlProgramInMemoryStore firmware)
         {
             firmware.Add("BOOT-A", new byte[] { 0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01 }, "1.4.2");
+        }
+
+        // Two items for stream 21, which likewise has no message that announces one: a host finds
+        // them with S21F1 and reads their attributes with S21F3. They are seeded with attributes
+        // and no contents, which is a shape only this stream has - an item can be listed and
+        // described before anybody has sent its bytes, because the directory, the attributes and
+        // the data are three separate transactions.
+        if (items is ItemInMemoryStore inventoryOfItems)
+        {
+            inventoryOfItems.Add(
+                new Item { Id = "RECIPE-7", Type = "recipe", Length = 3 },
+                attributes:
+                [
+                    new ItemAttribute { Name = "Revision", Value = SecsItem.A("1.4.2") },
+                    new ItemAttribute { Name = "Steps", Value = SecsItem.U4(3) },
+                ]);
+
+            inventoryOfItems.Add(
+                new Item { Id = "LOG-2026-11-21", Type = "log" },
+                attributes: [new ItemAttribute { Name = "Lines", Value = SecsItem.U4(0) }]);
         }
 
         // The machine's sub-parts, which stream 18 has no message to create - so they come from

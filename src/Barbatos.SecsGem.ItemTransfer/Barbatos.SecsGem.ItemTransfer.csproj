@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.ItemTransfer</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.ItemTransfer</RootNamespace>
+    <PackageTags>secs;e5;stream21;item;transfer;attributes;directory</PackageTags>
+    <Description>Item transfer (SECS-II stream 21) for .NET: the item directory, item attributes, the transfer request and grant, the data send, the transfer abort and the item delete. Every row of stream 21 travels either way, so there is one peer type rather than a host and an equipment - both ends have items, and either may ask the other for its directory or send it one. The blocked half stays out, because every block-transfer item in the reference is undefined. Depends on Barbatos.SecsGem.Hsms, not on GEM.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referenced directly: the DI extension and the logging this end takes are used here, and a
+         transitive reference through Hsms is not a promise this project should rely on. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+</Project>

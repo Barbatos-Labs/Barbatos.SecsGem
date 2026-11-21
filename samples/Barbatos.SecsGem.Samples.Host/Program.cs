@@ -15,6 +15,7 @@ using Barbatos.SecsGem.ControlPrograms;
 using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
+using Barbatos.SecsGem.ItemTransfer;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.MaterialFlow;
 using Barbatos.SecsGem.Objects;
@@ -119,6 +120,23 @@ internal static class Program
     /// way, and only in one process can it make the machine half report something.
     /// </param>
     private sealed record SubsystemDemo(SubsystemHost Host, SubsystemEquipment? Equipment);
+
+    /// <summary>
+    /// The two ends of stream 21, which has only one kind of end.
+    /// </summary>
+    /// <param name="Host">This process's end. Never null - it is the one driving.</param>
+    /// <param name="Machine">
+    /// The other end, when it is in this process. Null over a socket - and that is what makes the
+    /// second half of this demo loopback-only: showing that a peer answers as well as asks means
+    /// making the <em>machine</em> ask, and a sample cannot make another process do that.
+    /// </param>
+    /// <param name="MachineStore">The machine's items, for reading what a transfer actually did.</param>
+    /// <param name="HostStore">This end's items, which start empty and do not stay that way.</param>
+    private sealed record ItemDemo(
+        ItemTransferPeer Host,
+        ItemTransferPeer? Machine,
+        ItemInMemoryStore? MachineStore,
+        ItemInMemoryStore? HostStore);
 
     /// <summary>
     /// A clock the sample moves by hand.
@@ -454,6 +472,20 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingControlPrograms!.HandleAsync(transaction, token));
         }
 
+        // And stream 21, which is the first capability in this sample where the SAME six pairs go
+        // into both routing tables. Stream 18 split into two disjoint halves and streams 8 and 13
+        // put everything on one side; here either end may ask the other, so leaving one table out
+        // would not look like a missing half - it would look like a working link that goes quiet
+        // the first time the conversation runs the other way.
+        ItemTransferPeer? pendingMachineItems = null;
+        ItemTransferPeer? pendingHostItems = null;
+
+        foreach (var (stream, function) in ItemTransferPeer.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingMachineItems!.HandleAsync(transaction, token));
+            hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingHostItems!.HandleAsync(transaction, token));
+        }
+
         // The host's half of stream 18: the two primaries a machine sends about one of its
         // sub-parts, an event and an alarm.
         SubsystemHost? pendingSubsystemHost = null;
@@ -562,6 +594,23 @@ internal static class Program
         // Neither end of stream 8 is disposable, and the equipment end takes no connection at all.
         var controlProgramEquipment = new ControlProgramEquipment(controlProgramStore);
         var controlProgramHost = new ControlProgramHost(hostLink);
+
+        // Two item stores and two ends of the same type, because stream 21 has one kind of end.
+        // The machine has items to be found; the host has none to start with and still needs a
+        // store, because the machine may ask it for a directory - which this demo makes it do.
+        var machineItems = new ItemInMemoryStore();
+
+        machineItems.Add(
+            new Item { Id = "RECIPE-7", Type = "recipe", Length = 3 },
+            attributes:
+            [
+                new ItemAttribute { Name = "Revision", Value = SecsItem.A("1.4.2") },
+                new ItemAttribute { Name = "Steps", Value = SecsItem.U4(3) },
+            ]);
+
+        var hostItems = new ItemInMemoryStore();
+        var machineItemEnd = new ItemTransferPeer(machineItems, equipmentLink);
+        var hostItemEnd = new ItemTransferPeer(hostItems, hostLink);
 
         // The machine as objects: a chamber with two attributes and a load port with one. The
         // types and the attribute names are this machine's own - E5 does not define object types,
@@ -765,6 +814,8 @@ internal static class Program
         pendingSubsystems = subsystemEquipment;
         pendingSubsystemHost = subsystemHost;
         pendingControlPrograms = controlProgramEquipment;
+        pendingMachineItems = machineItemEnd;
+        pendingHostItems = hostItemEnd;
         pendingReceivingEnd = receivingEnd;
         pendingObjects = equipmentObjects;
         pendingEnhanced = new EnhancedServicesEquipment(chamberData);
@@ -808,6 +859,7 @@ internal static class Program
                 dataSetHost,
                 new SubsystemDemo(subsystemHost, subsystemEquipment),
                 controlProgramHost,
+                new ItemDemo(hostItemEnd, machineItemEnd, machineItems, hostItems),
                 hostObjects,
                 enhancedHost,
                 new MaterialDemo(
@@ -927,6 +979,11 @@ internal static class Program
             // side and none here, so this adds a type and nothing else.
             .AddControlProgramHost()
 
+            // And stream 21, which declares six - the same six it sends. This is the one
+            // registration in this list that both samples call, because every row of the stream
+            // travels either way and there is no host half to pick.
+            .AddItemTransfer()
+
             // And the four things a machine says about its material without being asked. The five
             // questions in the other direction are this end sending, which needs nothing declared.
             .AddMaterialHost()
@@ -971,6 +1028,12 @@ internal static class Program
                 // Over a socket this one needs nothing of the machine's end either: stream 8 is
                 // the host's to drive from start to finish.
                 controlPrograms: provider.GetRequiredService<ControlProgramHost>(),
+
+                // Over a socket both ends are peers and both samples call AddItemTransfer, so
+                // this is the one capability here that works the same in both modes - except that
+                // the machine end is in the other process, so the half of the demo that has the
+                // machine ask THIS host for a directory is left to the loopback.
+                items: new ItemDemo(provider.GetRequiredService<ItemTransferPeer>(), null, null, null),
                 objects: provider.GetRequiredService<ObjectServices>(),
 
                 // Over a socket the equipment is the other sample, which does not serve E39's
@@ -1033,6 +1096,7 @@ internal static class Program
         DataSetHost? dataSets,
         SubsystemDemo? subsystems,
         ControlProgramHost? controlPrograms,
+        ItemDemo? items,
         ObjectServices? objects,
         EnhancedServicesHost? enhanced,
         MaterialDemo? flow,
@@ -1693,6 +1757,112 @@ internal static class Program
             Console.WriteLine($"   S8F3   -> ACKC8={await controlPrograms.SendAsync(update, cancellationToken)} for a send nobody granted");
 
             Console.WriteLine($"   S8F13  -> ACKC8={await controlPrograms.AbortAsync("BOOT-A", cancellationToken)} with nothing in flight");
+        }
+
+        if (items is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and moves named items either way, which is stream 21 --");
+            Console.WriteLine();
+
+            // What the machine has. Stream 21 has no message that announces an item either, so a
+            // host asks - and unlike stream 8 it can then ask what the item IS without fetching
+            // it, which is the transaction this stream has that the other two transfer streams do
+            // not.
+            var held = await items.Host.ListAsync(cancellationToken: cancellationToken);
+
+            Console.WriteLine($"   S21F1  -> {held.Count} item(s): {string.Join(", ", held.Select(item => item.ToString()))}");
+            ok &= held.Any(item => item.Id == "RECIPE-7");
+
+            // The attributes come back through a callback because each value is a view into the
+            // reply, which is disposed when the call returns. That is the same contract
+            // Barbatos.SecsGem.Objects states for ATTRID and ATTRDATA, which are the same two
+            // items - and the S21F4 body is nested the way S14F2 is for exactly that reason.
+            var described = await items.Host.AttributesAsync(
+                new ItemAttributeRequest { ItemId = "RECIPE-7" },
+                attributes => string.Join(
+                    ", ",
+                    attributes.Select(attribute => $"{attribute.Name}={attribute.Value.Format}")),
+                cancellationToken);
+
+            Console.WriteLine($"   S21F3  -> {described}");
+            ok &= described.Contains("Revision", StringComparison.Ordinal);
+
+            // And one going the other way, in the two transactions E5 describes. The grant hands
+            // back the correlation number the send has to quote, because a second request for the
+            // same item would otherwise be indistinguishable from a retry of the first.
+            var (grant, dataId) = await items.Host.RequestAsync("LOG-2026-11-21", 3, cancellationToken);
+
+            Console.WriteLine($"   S21F5  -> GRANT={grant}, DATAID={dataId}");
+            ok &= grant == ItemTransferGrant.Accepted;
+
+            using (var contents = SecsItem.U4(23, 41, 97))
+            {
+                var acknowledgement = await items.Host.SendAsync(
+                    "LOG-2026-11-21",
+                    dataId,
+                    contents,
+                    cancellationToken);
+
+                Console.WriteLine($"   S21F7  -> ACKC21={acknowledgement}");
+                ok &= acknowledgement == ItemAcknowledgement.Accepted;
+            }
+
+            // A send quoting a number nobody granted, which is the sequence rule the in-memory
+            // store keeps rather than one E5 states. ACKC21 has one refusal and no way to say
+            // which of the two things went wrong, because the item has no table of values at all.
+            using (var again = SecsItem.U4(23))
+            {
+                Console.WriteLine(
+                    $"   S21F7  -> ACKC21={await items.Host.SendAsync("LOG-2026-11-21", dataId + 99, again, cancellationToken)}"
+                    + " for a transfer nobody granted");
+            }
+
+            if (items.MachineStore is { } machineItems)
+            {
+                // What LENGTH counts, settled by looking: three values went out, so the directory
+                // reports three. The reference says nothing about what the field measures, so the
+                // store says what it chose and this line is the proof it did.
+                var stored = machineItems.Find("LOG-2026-11-21");
+
+                Console.WriteLine($"   and the machine now lists {stored}");
+                ok &= stored?.Length == 3;
+            }
+
+            // Then the other direction, which is the whole point of there being one end type: the
+            // MACHINE asks the host for a directory. Nothing else in this sample does this - every
+            // other capability has a fixed asker - and it is why both routing tables above carry
+            // the same six pairs.
+            if (items.Machine is { } machine)
+            {
+                var hostHas = await machine.ListAsync(cancellationToken: cancellationToken);
+
+                Console.WriteLine($"   S21F1 <- the machine asks, and this host has {hostHas.Count} item(s)");
+
+                var (machineGrant, machineDataId) = await machine.RequestAsync("TRACE-1", 1, cancellationToken);
+
+                using var trace = SecsItem.A("sent by the machine");
+
+                var machineAck = await machine.SendAsync("TRACE-1", machineDataId, trace, cancellationToken);
+
+                Console.WriteLine($"   S21F5 <- GRANT={machineGrant}, then S21F7 <- ACKC21={machineAck}");
+                ok &= machineGrant == ItemTransferGrant.Accepted
+                    && machineAck == ItemAcknowledgement.Accepted
+                    && items.HostStore?.Find("TRACE-1") is not null;
+
+                // And the one destructive message in the stream, which neither stream 8 nor
+                // stream 13 has at all: the machine deletes the item it just sent. Aborting would
+                // not have done this - S21F15 forgets a transfer and keeps what is stored.
+                var deleted = await machine.DeleteAsync("TRACE-1", cancellationToken);
+
+                Console.WriteLine($"   S21F17 <- DELACK={deleted}, and the host now has {items.HostStore?.Count ?? 0} item(s)");
+                ok &= deleted == ItemAcknowledgement.Accepted && items.HostStore?.Count == 0;
+
+                // A second delete of the same item, which is refused - and that is all DELACK can
+                // say, because it has no table to name a reason in.
+                Console.WriteLine(
+                    $"   S21F17 <- DELACK={await machine.DeleteAsync("TRACE-1", cancellationToken)} for an item already gone");
+            }
         }
 
         if (objects is not null)
@@ -2761,15 +2931,25 @@ internal static class Program
         // part of that. A host that needs a message outside the set still has the link: the helper
         // is a layer over it, not a wall in front of it.
         //
-        // Item transfer, which is the fourth stream this probe has used, and the note the third one
-        // left came true exactly as written: it was stream 7 until the equipment answered stream 7,
-        // stream 3 until the material package answered that, and stream 18 until the chapter that
-        // added Barbatos.SecsGem.Subsystems - at which point this stopped printing an S9F3 and the
-        // sample hung waiting for one. So the rule again, for whoever adds the next stream: this
-        // has to point at a stream nothing in this repository implements, and the set of those is
-        // down to five - 8, 15, 19, 20 and 21. Posted with W=0, because an S9 is what comes back
-        // instead of a secondary.
-        using (var absent = new SecsMessage(21, 1, replyExpected: false) { Item = SecsItem.U4(1u) })
+        // Stream 20, which is the fifth stream this probe has used, and it moved for the reason the
+        // last note predicted: stream 7 until the equipment answered stream 7, stream 3 until the
+        // material package answered that, stream 18 until Barbatos.SecsGem.Subsystems shipped, and
+        // stream 21 until Barbatos.SecsGem.ItemTransfer did - at which point this stopped printing
+        // an S9F3 and the sample hung waiting for one.
+        //
+        // That last note also miscounted the set twice, so here it is measured rather than
+        // remembered. The streams nothing in this repository implements are 15, 17, 19 and 20 -
+        // four, not the five it claimed, which listed stream 8 the chapter before it was
+        // implemented and omitted stream 17 altogether.
+        //
+        // And this is the last time the probe can move for free, because **all four of those
+        // streams have been refused for cause** rather than left for later: stream 17 for failing
+        // both provenance checks, and 15, 19 and 20 because the reference documented none of the
+        // 108 rows it gives them and streams 15 and 19 share a name and all twenty function
+        // numbers while meaning different transactions. A chapter that implements one of the four
+        // will have overturned an argument, not just got round to it. Posted with W=0, because an
+        // S9 is what comes back instead of a secondary.
+        using (var absent = new SecsMessage(20, 1, replyExpected: false) { Item = SecsItem.U4(1u) })
         {
             await link.PostAsync(absent, cancellationToken);
         }
