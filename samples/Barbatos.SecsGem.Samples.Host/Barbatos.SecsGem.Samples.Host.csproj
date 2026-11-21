@@ -26,6 +26,9 @@
     <!-- Item transfer, stream 21: one package, one end type, and both ends of this pair call its
          single registration - because every row of the stream travels either way. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.ItemTransfer\Barbatos.SecsGem.ItemTransfer.csproj" />
+    <!-- Recipes, stream 15: one way, like streams 8 and 13, so the host drives and the machine
+         answers out of an IRecipeStore. -->
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Recipes\Barbatos.SecsGem.Recipes.csproj" />
     <!-- Material status, for the same reason: E5 stream 3, its own package, on Hsms. -->
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Material\Barbatos.SecsGem.Material.csproj" />
     <!-- And object services, stream 14. The loopback machine has the objects; this host only asks. -->

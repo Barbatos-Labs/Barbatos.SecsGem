@@ -24,6 +24,7 @@ using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.ControlPrograms;
 using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.ItemTransfer;
+using Barbatos.SecsGem.Recipes;
 using Barbatos.SecsGem.Subsystems;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
@@ -95,6 +96,7 @@ internal static class Program
         await Run("subsystems: stream 18 resolves at both ends, which declare disjoint sets", SubsystemsResolveAsync).ConfigureAwait(false);
         await Run("controlprograms: stream 8 resolves at both ends, and a program is bytes rather than an item", ControlProgramsResolveAsync).ConfigureAwait(false);
         await Run("itemtransfer: stream 21 resolves from one registration both ends call", ItemTransferResolvesAsync).ConfigureAwait(false);
+        await Run("recipes: stream 15 resolves at both ends, and a recipe is bytes with a namespace", RecipesResolveAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
@@ -773,6 +775,131 @@ internal static class Program
                 await memory.RevisionAsync("NAMED", CancellationToken.None).ConfigureAwait(false) == "1.4.2",
                 "the store lost the revision it was given");
         }
+    }
+
+    /// <summary>
+    /// The recipe package, whose host half declares nothing and whose body is plain bytes.
+    /// </summary>
+    /// <remarks>
+    /// Three claims only a restore from the real <c>.nupkg</c> can check. The dependency, since
+    /// stream 15 is E5 and no part of E30. The <strong>empty host half</strong>, which is the
+    /// third such registration here and the kind of claim a <c>ProjectReference</c> build cannot
+    /// distinguish from a route that silently failed to register. And that <strong>nothing in the
+    /// package answers stream 19</strong> - the other standard also called Recipe Management,
+    /// whose F11 deletes where this stream's verifies.
+    /// </remarks>
+    private static async Task RecipesResolveAsync()
+    {
+        var equipmentServices = new ServiceCollection();
+
+        equipmentServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddRecipeEquipment();
+
+        await using var equipmentProvider = equipmentServices.BuildServiceProvider();
+
+        _ = equipmentProvider.GetRequiredService<RecipeEquipment>();
+
+        var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            RecipeEquipment.HandledMessages.Count == 9,
+            $"the equipment declares {RecipeEquipment.HandledMessages.Count} message(s), not nine");
+
+        foreach (var (stream, function) in RecipeEquipment.HandledMessages)
+        {
+            Assert(
+                equipmentRouter.TryGetHandler(stream, function, out _),
+                $"the router has no handler for S{stream}F{function}, so AddRecipeEquipment did not declare it");
+        }
+
+        // The rename and the copy, which this chapter measured and refused: their field names are
+        // undefined while near-twins of them sit in the dictionary unused.
+        Assert(
+            !equipmentRouter.TryGetHandler(15, 19, out _) && !equipmentRouter.TryGetHandler(15, 21, out _),
+            "the equipment declared the rename or the copy, whose field names the reference spells two ways");
+
+        // And the other Recipe Management stream, which is a different standard.
+        for (byte function = 1; function <= 20; function++)
+        {
+            Assert(
+                !equipmentRouter.TryGetHandler(19, function, out _),
+                $"the equipment declared S19F{function}, which belongs to the other Recipe Management stream");
+        }
+
+        var hostServices = new ServiceCollection();
+
+        hostServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddRecipeHost();
+
+        await using var hostProvider = hostServices.BuildServiceProvider();
+
+        _ = hostProvider.GetRequiredService<RecipeHost>();
+
+        var hostRouter = hostProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(RecipeHost.HandledMessages.Count == 0, "the host declares a message, and stream 15 gives it none");
+
+        for (byte function = 1; function <= 54; function++)
+        {
+            Assert(
+                !hostRouter.TryGetHandler(15, function, out _),
+                $"the router has a handler for S15F{function} at a host, so AddRecipeHost declared one");
+        }
+
+        // RMACK is defined, which is what lets this enum have a third member honestly - unlike
+        // ItemAcknowledgement, whose item has no table at all.
+        Assert(Enum.GetNames<RecipeAcknowledgement>().Length == 3, "RMACK's table changed shape");
+        Assert((byte)RecipeAcknowledgement.Other == 2, "the reserved range no longer starts at 2");
+
+        var store = equipmentProvider.GetRequiredService<IRecipeStore>();
+
+        Assert(store is RecipeInMemoryStore, $"the default store is {store.GetType().Name}, not the in-memory one");
+
+        Assert(
+            await store.CreateNamespaceAsync("PROD", CancellationToken.None).ConfigureAwait(false)
+                == RecipeAcknowledgement.Accepted,
+            "the store refused to create a namespace");
+
+        byte[] recipe = [0x53, 0x54, 0x45, 0x50];
+
+        var granted = await store
+            .RequestDownloadAsync(
+                new RecipeDownloadRequest { Namespace = "PROD", Id = "ETCH-7", Length = (uint)recipe.Length },
+                CancellationToken.None)
+            .ConfigureAwait(false);
+
+        Assert(granted == RecipeAcknowledgement.Accepted, $"the store refused a download request: {granted}");
+
+        var acknowledgement = await store
+            .SaveAsync("PROD", "ETCH-7", recipe, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        Assert(
+            acknowledgement == RecipeAcknowledgement.Accepted,
+            $"the store refused a recipe it had just granted room for: {acknowledgement}");
+
+        // The distinction worth a packaging test: these bytes are the recipe, because stream 15
+        // carries it in stream 7's own PPBODY. The same C# shape in Barbatos.SecsGem.DataSets and
+        // Barbatos.SecsGem.ItemTransfer holds an encoded item instead.
+        var (upload, body) = await store
+            .LoadAsync("PROD", "ETCH-7", CancellationToken.None)
+            .ConfigureAwait(false);
+
+        Assert(upload == RecipeAcknowledgement.Accepted, "the store lost the recipe it had just accepted");
+        Assert(
+            body.Span.SequenceEqual(recipe),
+            "the recipe came back as something other than the bytes that went in");
+
+        // And the guard that matters most: a namespace holding recipes is not deleted, because
+        // S15F17 names no recipe at all.
+        Assert(
+            await store.DeleteNamespaceAsync("PROD", CancellationToken.None).ConfigureAwait(false)
+                == RecipeAcknowledgement.Rejected,
+            "the store deleted a namespace that still held a recipe");
     }
 
     /// <summary>

@@ -19,6 +19,7 @@
     <Project Path="src/Barbatos.SecsGem.Subsystems/Barbatos.SecsGem.Subsystems.csproj" />
     <Project Path="src/Barbatos.SecsGem.ControlPrograms/Barbatos.SecsGem.ControlPrograms.csproj" />
     <Project Path="src/Barbatos.SecsGem.ItemTransfer/Barbatos.SecsGem.ItemTransfer.csproj" />
+    <Project Path="src/Barbatos.SecsGem.Recipes/Barbatos.SecsGem.Recipes.csproj" />
     <Project Path="src/Barbatos.SecsGem.Material/Barbatos.SecsGem.Material.csproj" />
     <Project Path="src/Barbatos.SecsGem.Objects/Barbatos.SecsGem.Objects.csproj" />
     <Project Path="src/Barbatos.SecsGem.Carriers/Barbatos.SecsGem.Carriers.csproj" />
@@ -49,6 +50,7 @@
     <Project Path="tests/Barbatos.SecsGem.Subsystems.UnitTests/Barbatos.SecsGem.Subsystems.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.ControlPrograms.UnitTests/Barbatos.SecsGem.ControlPrograms.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.ItemTransfer.UnitTests/Barbatos.SecsGem.ItemTransfer.UnitTests.csproj" />
+    <Project Path="tests/Barbatos.SecsGem.Recipes.UnitTests/Barbatos.SecsGem.Recipes.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.Material.UnitTests/Barbatos.SecsGem.Material.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.Objects.UnitTests/Barbatos.SecsGem.Objects.UnitTests.csproj" />
     <Project Path="tests/Barbatos.SecsGem.Carriers.UnitTests/Barbatos.SecsGem.Carriers.UnitTests.csproj" />

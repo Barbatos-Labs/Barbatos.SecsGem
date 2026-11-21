@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.Recipes</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Recipes</RootNamespace>
+    <PackageTags>secs;e5;stream15;recipe;namespace;transfer;download;upload</PackageTags>
+    <Description>Recipe management (SECS-II stream 15) for .NET, both ends: the namespace directory, create and delete, the recipe download in its two transactions, the upload, the delete, the select and the operation abort. Nine of stream 15's twenty-seven pairs, and they are the nine that need no inference at all - every field of each is a defined data item, the recipe body being stream 7's own PPBODY in a row whose siblings the reference documented. The rest of the stream stays out because its rows reach for names the dictionary spells differently: it defines twenty-four recipe items and its messages use two of them. Depends on Barbatos.SecsGem.Hsms, not on GEM: stream 15 is no part of SEMI E30.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referenced directly: the DI extension and the logging both ends take are used here, and a
+         transitive reference through Hsms is not a promise this project should rely on. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+</Project>

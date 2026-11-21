@@ -4,6 +4,7 @@
 // All Rights Reserved.
 
 using System.Globalization;
+using System.Text;
 using Barbatos.SecsGem;
 using Barbatos.SecsGem.ControlPrograms;
 using Barbatos.SecsGem.DataSets;
@@ -12,6 +13,7 @@ using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.ItemTransfer;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.Objects;
+using Barbatos.SecsGem.Recipes;
 using Barbatos.SecsGem.Subsystems;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
@@ -278,6 +280,11 @@ internal static class Program
             // directory. The runner below puts two items in for that question to find.
             .AddItemTransfer()
 
+            // And stream 15, which goes the way streams 8 and 13 do: nine primaries arrive here and
+            // this end sends none. A recipe is bytes with a namespace, because PPBODY is stream 7's
+            // own defined B - the firmest payload footing in this stack.
+            .AddRecipeEquipment()
+
             // And material status, the other stream a machine answers that GEM does not cover:
             // five questions about what it is holding, and four reports of its own. The runner
             // below loads the lot into the inventory while it processes and reports it moving out.
@@ -365,6 +372,7 @@ internal sealed class ChamberRunner(
     ISubsystemStore subsystemStore,
     IControlProgramStore controlPrograms,
     IItemStore items,
+    IRecipeStore recipes,
     IObjectProvider objects,
     Chamber chamber,
     ILogger<ChamberRunner> logger) : BackgroundService
@@ -387,6 +395,18 @@ internal sealed class ChamberRunner(
         if (controlPrograms is ControlProgramInMemoryStore firmware)
         {
             firmware.Add("BOOT-A", new byte[] { 0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01 }, "1.4.2");
+        }
+
+        // Two recipes in two namespaces for stream 15. Stream 15 has no message announcing one
+        // either, so a host finds the namespaces with S15F1 and then has to be told the recipe
+        // names some other way - S15F3, the directory of one namespace, is among the pairs that
+        // package leaves out, because its reply needs three names the dictionary does not define.
+        // That is the gap a user of this stream will feel first, and the sample shows it honestly
+        // rather than pretending otherwise.
+        if (recipes is RecipeInMemoryStore recipeStore)
+        {
+            recipeStore.Add("PROD", "ETCH-7", Encoding.ASCII.GetBytes("STEP 1: pump down\nSTEP 2: etch 40s\n"));
+            recipeStore.AddNamespace("DEV");
         }
 
         // Two items for stream 21, which likewise has no message that announces one: a host finds

@@ -7,7 +7,7 @@ signature is a breaking change in somebody's fab.
 ## Repository map
 
 ```
-src/          twenty-six shipping packages, one folder each (+ README.md, API-REFERENCE.md)
+src/          twenty-seven shipping packages, one folder each (+ README.md, API-REFERENCE.md)
 src/Shared/   compile-linked source, not a package: the serialization hub registration
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
@@ -30,6 +30,25 @@ Core  <-  Hsms  <-  Gem
                                stream 18 row is representative. SSID and SSSTATE are defined
                                nowhere; SubsystemId carries both readings of the first, and the
                                second is written as text and says so.)
+            ^----  Recipes    (E5 stream 15, and nothing else - NOT stream 19, which is also called
+                               "Recipe Management", uses all twenty of the same function numbers
+                               and means different transactions: S15F11 verifies where S19F11
+                               deletes. Nothing here declares a stream 19 route and a test says so.
+                               Nine of twenty-seven pairs, the nine whose primary and reply are
+                               made entirely of defined items - which is what overturned chapter
+                               42's sweep of this stream into stream 19's refusal, since stream 19
+                               has none and provenance is not a veto. The body is PPBODY, stream
+                               7's own defined B in rows the reference documented, so a recipe is
+                               plain bytes like a control program and LENGTH can be checked against
+                               what arrives. RMACK is defined WITH a table, so the enum's Other is
+                               honest the way GRANT's is. The other eighteen pairs stay out because
+                               the reference defines 24 RCP* items and its messages use 2: the
+                               names those rows use are rival spellings of the unused definitions,
+                               RCPIDNEW against RCPNEWID being one of only three exact anagrams in
+                               the whole reference. Do not read a format off a sibling when the
+                               sibling is a rival spelling. Only stream here with a TWO-LEVEL
+                               space, so the store checks the namespace at the grant AND at the
+                               send, and refuses to delete one that still holds recipes.)
             ^----  ControlPrograms (E5 stream 8: stream 7's transfer design applied to firmware
                                rather than recipes, which is where its two undefined items come
                                from - CPID is read off PPID's slot and CPBODY off PPBODY's, so the

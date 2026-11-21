@@ -5,6 +5,7 @@
 
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text;
 using Barbatos.SecsGem;
 using Barbatos.SecsGem.Carriers;
 using Barbatos.SecsGem.ControlJobs;
@@ -19,6 +20,7 @@ using Barbatos.SecsGem.ItemTransfer;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.MaterialFlow;
 using Barbatos.SecsGem.Objects;
+using Barbatos.SecsGem.Recipes;
 using Barbatos.SecsGem.Subsystems;
 using Barbatos.SecsGem.PerformanceFlow;
 using Barbatos.SecsGem.PerformanceTracking;
@@ -137,6 +139,17 @@ internal static class Program
         ItemTransferPeer? Machine,
         ItemInMemoryStore? MachineStore,
         ItemInMemoryStore? HostStore);
+
+    /// <summary>
+    /// The host end of stream 15, and the machine's store when it is in this process.
+    /// </summary>
+    /// <param name="Host">This end. Stream 15 runs one way, so it is the only end that acts.</param>
+    /// <param name="Store">
+    /// The machine's recipes. Null over a socket, where they are in the other process - and what
+    /// that costs is worth seeing: without the store the demo can only believe what the machine
+    /// says, which for a recipe download is all a real host ever has.
+    /// </param>
+    private sealed record RecipeDemo(RecipeHost Host, RecipeInMemoryStore? Store);
 
     /// <summary>
     /// A clock the sample moves by hand.
@@ -486,6 +499,16 @@ internal static class Program
             hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingHostItems!.HandleAsync(transaction, token));
         }
 
+        // And stream 15, back to one side only: nine primaries at the machine and none here, the
+        // way streams 8 and 13 go. Nothing to forget on the host side, because there is nothing
+        // there to declare.
+        RecipeEquipment? pendingRecipes = null;
+
+        foreach (var (stream, function) in RecipeEquipment.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingRecipes!.HandleAsync(transaction, token));
+        }
+
         // The host's half of stream 18: the two primaries a machine sends about one of its
         // sub-parts, an event and an alarm.
         SubsystemHost? pendingSubsystemHost = null;
@@ -611,6 +634,18 @@ internal static class Program
         var hostItems = new ItemInMemoryStore();
         var machineItemEnd = new ItemTransferPeer(machineItems, equipmentLink);
         var hostItemEnd = new ItemTransferPeer(hostItems, hostLink);
+
+        // Two recipes in two namespaces, for the host to find and fetch. Stream 15 has no message
+        // announcing a recipe either, so they come from configuration - and the bytes are the
+        // recipe, because PPBODY is stream 7's own defined B rather than a slot read off one.
+        var recipeStore = new RecipeInMemoryStore();
+
+        recipeStore.Add("PROD", "ETCH-7", Encoding.ASCII.GetBytes("STEP 1: pump down\nSTEP 2: etch 40s\n"));
+        recipeStore.AddNamespace("DEV");
+
+        // Neither end of stream 15 is disposable, and the equipment end takes no connection at all.
+        var recipeEquipment = new RecipeEquipment(recipeStore);
+        var recipeHost = new RecipeHost(hostLink);
 
         // The machine as objects: a chamber with two attributes and a load port with one. The
         // types and the attribute names are this machine's own - E5 does not define object types,
@@ -816,6 +851,7 @@ internal static class Program
         pendingControlPrograms = controlProgramEquipment;
         pendingMachineItems = machineItemEnd;
         pendingHostItems = hostItemEnd;
+        pendingRecipes = recipeEquipment;
         pendingReceivingEnd = receivingEnd;
         pendingObjects = equipmentObjects;
         pendingEnhanced = new EnhancedServicesEquipment(chamberData);
@@ -860,6 +896,7 @@ internal static class Program
                 new SubsystemDemo(subsystemHost, subsystemEquipment),
                 controlProgramHost,
                 new ItemDemo(hostItemEnd, machineItemEnd, machineItems, hostItems),
+                new RecipeDemo(recipeHost, recipeStore),
                 hostObjects,
                 enhancedHost,
                 new MaterialDemo(
@@ -984,6 +1021,11 @@ internal static class Program
             // travels either way and there is no host half to pick.
             .AddItemTransfer()
 
+            // And stream 15, which declares nothing here: all twenty-seven of its primaries are
+            // this end's, so the host half is a type and no routes - the third such registration
+            // in this list, beside the stream 8 and stream 13 hosts.
+            .AddRecipeHost()
+
             // And the four things a machine says about its material without being asked. The five
             // questions in the other direction are this end sending, which needs nothing declared.
             .AddMaterialHost()
@@ -1034,6 +1076,10 @@ internal static class Program
                 // the machine end is in the other process, so the half of the demo that has the
                 // machine ask THIS host for a directory is left to the loopback.
                 items: new ItemDemo(provider.GetRequiredService<ItemTransferPeer>(), null, null, null),
+
+                // Over a socket the recipes live in the other process, so the store is null and
+                // the demo reads what the machine reports rather than what it holds.
+                recipes: new RecipeDemo(provider.GetRequiredService<RecipeHost>(), null),
                 objects: provider.GetRequiredService<ObjectServices>(),
 
                 // Over a socket the equipment is the other sample, which does not serve E39's
@@ -1097,6 +1143,7 @@ internal static class Program
         SubsystemDemo? subsystems,
         ControlProgramHost? controlPrograms,
         ItemDemo? items,
+        RecipeDemo? recipes,
         ObjectServices? objects,
         EnhancedServicesHost? enhanced,
         MaterialDemo? flow,
@@ -1862,6 +1909,75 @@ internal static class Program
                 // say, because it has no table to name a reason in.
                 Console.WriteLine(
                     $"   S21F17 <- DELACK={await machine.DeleteAsync("TRACE-1", cancellationToken)} for an item already gone");
+            }
+        }
+
+        if (recipes is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and moves recipes, which is stream 15 --");
+            Console.WriteLine();
+
+            // What namespaces the machine has. Stream 15 has no message announcing a recipe, so a
+            // host asks - and this is as far as asking gets it: S15F3, the directory of ONE
+            // namespace, is not implemented, because its reply needs three names the dictionary
+            // spells differently from the rows that use them. A host has to be told the recipe
+            // names some other way, and that is the gap this stream's chapter could not close.
+            var spaces = await recipes.Host.ListNamespacesAsync(cancellationToken);
+
+            Console.WriteLine($"   S15F1  -> {spaces.Count} namespace(s): {string.Join(", ", spaces)}");
+            ok &= spaces.Contains("PROD") && spaces.Contains("DEV");
+
+            // Fetching is one transaction, and the machine can say no - S15F10 carries RMACK and
+            // PPBODY together, which is the thing stream 8's S8F6 cannot do.
+            var (uploaded, fetchedRecipe) = await recipes.Host.UploadAsync("PROD", "ETCH-7", cancellationToken);
+
+            Console.WriteLine($"   S15F9  -> RMACK={uploaded}, {fetchedRecipe?.ToString() ?? "no recipe"}");
+            ok &= uploaded == RecipeAcknowledgement.Accepted && fetchedRecipe?.Body.Length > 0;
+
+            var (missing, nothing) = await recipes.Host.UploadAsync("PROD", "NOPE", cancellationToken);
+
+            Console.WriteLine($"   S15F9  -> RMACK={missing}, {nothing?.ToString() ?? "no recipe"} for one that is not there");
+            ok &= missing == RecipeAcknowledgement.Rejected && nothing is null;
+
+            // And one going the other way, in the two transactions E5 describes. Unlike stream 8's
+            // load inquire, the request names what is coming - a recipe has a namespace and an
+            // identifier where a boot program is anonymous.
+            var fresh = Encoding.ASCII.GetBytes("STEP 1: pump down\nSTEP 2: etch 60s\n");
+
+            var (recipeGrant, recipeAck) = await recipes.Host.DownloadAsync(
+                "DEV",
+                "ETCH-8",
+                fresh,
+                cancellationToken);
+
+            Console.WriteLine($"   S15F5  -> RMACK={recipeGrant}, then S15F7 -> RMACK={recipeAck}");
+            ok &= recipeGrant == RecipeAcknowledgement.Accepted
+                && recipeAck == RecipeAcknowledgement.Accepted;
+
+            // A recipe for a namespace nobody created, which this stream can refuse and the other
+            // three transfer streams here cannot even express: they have no namespace to miss.
+            var (noSpace, _) = await recipes.Host.DownloadAsync("NOPE", "ETCH-9", fresh, cancellationToken);
+
+            Console.WriteLine($"   S15F5  -> RMACK={noSpace} for a namespace that is not there");
+            ok &= noSpace == RecipeAcknowledgement.Rejected;
+
+            Console.WriteLine($"   S15F31 -> RMACK={await recipes.Host.SelectAsync("DEV", "ETCH-8", cancellationToken)}");
+
+            // The guard that matters most: S15F17 names no recipe, so deleting a namespace that
+            // still holds one would take a whole directory with a single message. The in-memory
+            // store refuses, which is its own choice - RMACK has no code to explain it.
+            Console.WriteLine(
+                $"   S15F17 -> RMACK={await recipes.Host.DeleteNamespaceAsync("DEV", cancellationToken)}"
+                + " for a namespace that still holds a recipe");
+
+            Console.WriteLine($"   S15F13 -> RMACK={await recipes.Host.DeleteAsync("DEV", "ETCH-8", cancellationToken)}");
+            Console.WriteLine($"   S15F17 -> RMACK={await recipes.Host.DeleteNamespaceAsync("DEV", cancellationToken)} once it is empty");
+
+            if (recipes.Store is { } machineRecipes)
+            {
+                Console.WriteLine($"   and the machine now has {machineRecipes.Count} recipe(s) in {(await machineRecipes.ListNamespacesAsync(cancellationToken)).Count} namespace(s)");
+                ok &= machineRecipes.Count == 1 && !machineRecipes.HasNamespace("DEV");
             }
         }
 
