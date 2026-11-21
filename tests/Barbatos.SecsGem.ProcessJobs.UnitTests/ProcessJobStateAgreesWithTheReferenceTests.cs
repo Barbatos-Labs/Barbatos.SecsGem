@@ -126,6 +126,85 @@ public class ProcessJobStateAgreesWithTheReferenceTests
     }
 
     [Fact]
+    public void The_command_acknowledgement_is_CMDAs_table_and_not_HCACKs()
+    {
+        // Worth asserting because the two are easy to confuse and stream 16 carries both: S16F4
+        // and S16F24 carry CMDA, S16F22 carries HCACK. CMDA names three codes where HCACK names
+        // seven, so an enum sized for the wrong one is either short of codes or inventing them.
+        Assert.True(SecsCatalog.TryGetDataItem("CMDA", out var cmda));
+
+        Assert.Equal(4, cmda!.Codes.Count);
+        Assert.Equal("3-63", cmda.Codes[^1].Value);
+        Assert.Equal("Command performed / completed", cmda.Codes[0].Meaning);
+        Assert.Equal("Command does not exist", cmda.Codes[1].Meaning);
+
+        Assert.Equal((byte)0, (byte)ProcessJobCommandAcknowledgement.Performed);
+        Assert.Equal((byte)1, (byte)ProcessJobCommandAcknowledgement.DoesNotExist);
+        Assert.Equal((byte)2, (byte)ProcessJobCommandAcknowledgement.CannotPerformNow);
+
+        // Three members for three named codes, and no fourth: the reader folds the reserved range
+        // onto CannotPerformNow rather than onto a catch-all, which is a deliberate difference
+        // from the Other members Barbatos.SecsGem.Gem uses - a machine answering a code this
+        // library cannot read has the command, or it would have said 1 itself. Asserted so that a
+        // later tidy-up towards the house pattern has to argue with the reasoning rather than
+        // silently change the answer.
+        Assert.Equal(3, Enum.GetValues<ProcessJobCommandAcknowledgement>().Length);
+    }
+
+    [Fact]
+    public void The_queue_acknowledgement_is_HCACKs_table()
+    {
+        // S16F22's item, shared with GEM's S2F42 and stream 18's S18F2 - so three packages here
+        // read it and all three must agree about the numbers.
+        Assert.True(SecsCatalog.TryGetDataItem("HCACK", out var hcack));
+
+        Assert.Equal(8, hcack!.Codes.Count);
+        Assert.Equal("7-63", hcack.Codes[^1].Value);
+
+        Assert.Equal((byte)0, (byte)ProcessJobQueueAcknowledgement.Acknowledged);
+        Assert.Equal((byte)1, (byte)ProcessJobQueueAcknowledgement.CommandDoesNotExist);
+        Assert.Equal((byte)2, (byte)ProcessJobQueueAcknowledgement.CannotPerformNow);
+        Assert.Equal((byte)3, (byte)ProcessJobQueueAcknowledgement.ParameterInvalid);
+        Assert.Equal((byte)4, (byte)ProcessJobQueueAcknowledgement.WillBePerformed);
+        Assert.Equal((byte)5, (byte)ProcessJobQueueAcknowledgement.AlreadyInDesiredCondition);
+        Assert.Equal((byte)6, (byte)ProcessJobQueueAcknowledgement.NoSuchObject);
+
+        // Seven members for seven named codes, and the reserved range folded onto
+        // CannotPerformNow by the reader with the arriving code logged - again not an Other, and
+        // again on purpose.
+        Assert.Equal(7, Enum.GetValues<ProcessJobQueueAcknowledgement>().Length);
+    }
+
+    [Fact]
+    public void The_parameter_acknowledgement_has_a_zero_the_item_does_not_and_that_is_deliberate()
+    {
+        // The one place in this repository where two packages read one item differently.
+        // Barbatos.SecsGem.Subsystems has no member at zero and says why; this package has one and
+        // says why. Both are asserted, on both sides, so the difference reads as a decision rather
+        // than as one of them being wrong.
+        //
+        // CPACK's table starts at 1 because the list in S18F2 and S2F42 carries the parameters
+        // that were WRONG. S16F18 is read here as one code per parameter NAMED - successes
+        // included - which needs a code for "this one was fine". Neither shape can be had from the
+        // catalogue, which records the items a row carries and not how the row is built.
+        Assert.True(SecsCatalog.TryGetDataItem("CPACK", out var cpack));
+
+        Assert.DoesNotContain("0", cpack!.Codes.Select(code => code.Value));
+        Assert.Equal((byte)0, (byte)ProcessJobParameterAcknowledgement.Accepted);
+
+        // One, two and three are the table's, so the part that is shared agrees exactly.
+        Assert.Equal((byte)1, (byte)ProcessJobParameterAcknowledgement.NameDoesNotExist);
+        Assert.Equal((byte)2, (byte)ProcessJobParameterAcknowledgement.IllegalValue);
+        Assert.Equal((byte)3, (byte)ProcessJobParameterAcknowledgement.IllegalFormat);
+
+        // And four is the first code the reference leaves to the equipment, which an equipment is
+        // entitled to use: emitting one is allowed where reading somebody else's as this meaning
+        // would not be. The reader folds everything from four upwards onto it.
+        Assert.Equal("4-63", cpack.Codes[^1].Value);
+        Assert.Equal((byte)4, (byte)ProcessJobParameterAcknowledgement.CannotChangeNow);
+    }
+
+    [Fact]
     public void The_one_E40_table_nothing_here_models_is_recorded_rather_than_forgotten()
     {
         // PRCPREEXECHK enables or disables a pre-execution check on a process job. It is defined,

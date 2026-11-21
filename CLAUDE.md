@@ -217,9 +217,21 @@ matter, and record which check it passed. Stream 17 is the one that failed both.
 alone is not a verdict either - stream 15 was swept into stream 19's refusal on a shared figure and
 the dictionary overturned it, which is the one refusal here that has been reopened.
 
-**Where a package states a vocabulary the reference also states, make them meet.** Three do:
-`ProcessJobState` against `PRSTATE`, `ControlJobCommands` against `CTLJOBCMD`, and every one of
-GEM's acknowledgement enums against its item's code table. Those test projects reference
+**Where a package states a vocabulary the reference also states, make them meet** - against the
+reference's own table, never against another package's enum, because that is what makes the
+agreement transitive when three packages serve one item. All six of the tabled items served from
+more than one package here are asserted that way: GRANT in Material, ControlPrograms and
+ItemTransfer; HCACK in Gem, Subsystems and ProcessJobs; CPACK in Subsystems and ProcessJobs; and
+ALCD, CMDA and GRANT6 in the one package each that reads them. So are `PRSTATE` against `PRSTATE`,
+`ControlJobCommands` against `CTLJOBCMD`, and every one of GEM's acknowledgement enums against its
+item's code table.
+
+**Two packages may read one item differently if each says so and each is asserted.** There is one:
+CPACK has no code zero, because the list in S18F2 and S2F42 carries the parameters that were wrong -
+so `Barbatos.SecsGem.Subsystems` has no member at zero. `Barbatos.SecsGem.ProcessJobs` reads S16F18
+as one code per parameter named, successes included, so it has one. Neither shape can be had from
+the catalogue, which records the items a row carries and not how the row is built. What would be
+wrong is one package reading it both ways, or either side not mentioning the other. Those test projects reference
 `Barbatos.SecsGem.Catalog` while the libraries do not and must not - the dependency is the test's,
 not the layer's.
 
