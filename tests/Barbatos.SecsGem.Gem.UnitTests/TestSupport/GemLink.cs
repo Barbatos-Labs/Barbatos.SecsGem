@@ -84,6 +84,10 @@ internal sealed class GemLink : IAsyncDisposable
     /// <summary>Starts a link with the given model and options.</summary>
     /// <param name="model">Declares what the equipment publishes. Null gives the default model.</param>
     /// <param name="configure">Adjusts the GEM options.</param>
+    /// <param name="outputGate">
+    /// Put on the equipment's side of the transport, so a test can hold one of the frames it sends.
+    /// Null leaves the transport as it is.
+    /// </param>
     /// <returns>The link.</returns>
     public static GemLink Start(
         Action<GemEquipmentModelBuilder>? model = null,
@@ -93,7 +97,8 @@ internal sealed class GemLink : IAsyncDisposable
         IGemFormattedProcessProgramStore? formatted = null,
         IGemTerminal? terminal = null,
         bool traces = false,
-        bool limits = false)
+        bool limits = false,
+        OutputGate? outputGate = null)
     {
         var linkOptions = new SecsGemOptions
         {
@@ -167,7 +172,13 @@ internal sealed class GemLink : IAsyncDisposable
             routes.OnPrimary(stream, function, (transaction, token) => equipment!.HandleAsync(transaction, token));
         }
 
-        var connection = new HsmsConnection(linkOptions, transport, routes.Build(), clock);
+        // The gate wraps the equipment's end only: the test keeps reading the same pipe the
+        // equipment writes, and the gate decides when what was written becomes readable.
+        var connection = new HsmsConnection(
+            linkOptions,
+            outputGate is null ? transport : outputGate.Wrap(transport),
+            routes.Build(),
+            clock);
         equipment = new GemEquipment(
             gemOptions,
             builder.Build(),
