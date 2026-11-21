@@ -3,6 +3,9 @@
 // Copyright (C) Barbatos Labs | Pham The Hung and Barbatos.SecsGem Contributors.
 // All Rights Reserved.
 
+using Barbatos.SecsGem.Hsms;
+using Microsoft.Extensions.Time.Testing;
+
 namespace Barbatos.SecsGem.Gem.UnitTests;
 
 /// <summary>
@@ -416,6 +419,83 @@ public class GemHostTests
 
         Assert.NotEqual(GemHostCommandAcknowledgement.Accepted, unknown);
         Assert.NotEqual(GemHostCommandAcknowledgement.CompletionLater, unknown);
+    }
+
+    [Fact]
+    public async Task An_equipment_specific_acknowledgement_has_a_name_rather_than_being_a_cast()
+    {
+        // The machine is played by hand here, and it has to be. E5 reserves HCACK 7 to 63 for the
+        // equipment, and this enum used to stop at 6 - so one of those arrived as a cast with no
+        // name on it, printing as a number and missed by any switch without a default. It was
+        // never the dangerous direction, because an unnamed code is not a success either way, but
+        // it was a hole; it was closed in the chapter that served HCACK a second time, for S18F2,
+        // because one item cannot be read two ways in one repository.
+        //
+        // A real GemEquipment cannot send 40: it writes whatever a handler returns, and a handler
+        // returns this enum. The first version of this test returned Other, the machine wrote 7,
+        // and the cast gave Other back - so it passed with the fix reverted and proved nothing.
+        var options = new SecsGemOptions
+        {
+            DeviceId = 7,
+            T3 = TimeSpan.FromSeconds(45),
+            LinkTestInterval = TimeSpan.FromMinutes(5),
+        };
+
+        var clock = new FakeTimeProvider();
+        var (active, passive) = InMemorySecsTransport.CreatePair();
+
+        var machineRoutes = new SecsMessageRouterBuilder();
+
+        machineRoutes.OnPrimary(2, 41, async (transaction, token) =>
+        {
+            using var reply = new SecsMessage(2, 42, replyExpected: false)
+            {
+                Name = "HostCommandAcknowledge",
+                Item = SecsItem.L(SecsItem.B(40).Named("HCACK"), SecsItem.L()),
+            };
+
+            await transaction.ReplyAsync(reply, token).ConfigureAwait(false);
+        });
+
+        await using var hostLink = new HsmsConnection(options, active, new SecsMessageRouterBuilder().Build(), clock);
+        await using var machineLink = new HsmsConnection(options, passive, machineRoutes.Build(), clock);
+
+        using var cts = new CancellationTokenSource();
+        var running = Task.WhenAll(hostLink.RunAsync(cts.Token), machineLink.RunAsync(cts.Token));
+
+        try
+        {
+            for (var attempt = 0; attempt < 5_000 && !(hostLink.IsSelected && machineLink.IsSelected); attempt++)
+            {
+                await Task.Delay(1, GemPair.Token);
+            }
+
+            var host = new GemHost(new GemHostOptions(), hostLink, clock);
+
+            var hcack = await host.SendCommandAsync("VENDOR", [], GemPair.Token);
+
+            Assert.Equal(GemHostCommandAcknowledgement.Other, hcack);
+            Assert.Equal("Other", hcack.ToString());
+            Assert.True(Enum.IsDefined(hcack));
+            Assert.NotEqual(GemHostCommandAcknowledgement.Accepted, hcack);
+            Assert.NotEqual(GemHostCommandAcknowledgement.CompletionLater, hcack);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+
+            try
+            {
+                await running.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected: that is how the loops stop.
+            }
+
+            await active.DisposeAsync();
+            await passive.DisposeAsync();
+        }
     }
 
     // ----------------------------------------------------------------- stream 5

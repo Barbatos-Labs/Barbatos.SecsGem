@@ -3,12 +3,14 @@
 // Copyright (C) Barbatos Labs | Pham The Hung and Barbatos.SecsGem Contributors.
 // All Rights Reserved.
 
+using System.Globalization;
 using Barbatos.SecsGem;
 using Barbatos.SecsGem.DataSets;
 using Barbatos.SecsGem.Gem;
 using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.Objects;
+using Barbatos.SecsGem.Subsystems;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -256,6 +258,12 @@ internal static class Program
             // below puts one in the store and the host finds it by asking.
             .AddDataSetEquipment()
 
+            // And stream 18, which is this machine's own sub-parts: the chamber and the load lock,
+            // each commandable and readable on its own. Six primaries arrive here and two go the
+            // other way - the events and alarms a sub-part raises - so this is the second stream
+            // in the stack where both ends send.
+            .AddSubsystemEquipment()
+
             // And material status, the other stream a machine answers that GEM does not cover:
             // five questions about what it is holding, and four reports of its own. The runner
             // below loads the lot into the inventory while it processes and reports it moving out.
@@ -339,6 +347,8 @@ internal sealed class ChamberRunner(
     MaterialEquipment material,
     IMaterialSource inventory,
     IDataSetStore dataSets,
+    SubsystemEquipment subsystems,
+    ISubsystemStore subsystemStore,
     IObjectProvider objects,
     Chamber chamber,
     ILogger<ChamberRunner> logger) : BackgroundService
@@ -357,6 +367,39 @@ internal sealed class ChamberRunner(
         // Stream 13 has no primary that announces one, so this is the only way it can exist: put
         // it in the store and wait to be asked. The contents are a SecsItem of this machine's own
         // choosing, because DSDATA has no defined format for anybody to agree on.
+        // The machine's sub-parts, which stream 18 has no message to create - so they come from
+        // configuration here, the way ports and modules do everywhere else in this repository.
+        // One is named and one is numbered, because SSID has no dictionary entry and a real fab
+        // has both kinds of machine on the floor.
+        if (subsystemStore is SubsystemInMemoryStore parts)
+        {
+            parts.Add(SubsystemId.Named("CHAMBER-A"), "Process chamber A", "Idle");
+            parts.Set(SubsystemId.Named("CHAMBER-A"), 1001, "23.9");
+            parts.Set(SubsystemId.Named("CHAMBER-A"), 1002, "4.1", isReadOnly: true);
+
+            parts.Add(SubsystemId.Numbered(2), "Load lock", "Vented");
+
+            parts.SetCodeCondition(new SubsystemCodeCondition
+            {
+                TargetId = "READER-1",
+                Acknowledgement = SubsystemAcknowledgement.Accepted,
+                MaterialId = "W01-2026",
+                Status = 0,
+                Condition = "read first time",
+            });
+
+            parts.AnswerCommand = command => new SubsystemCommandResult
+            {
+                Subsystem = command.Subsystem,
+
+                // PUMP is slow, so it is accepted and not claimed as finished - which is what
+                // HCACK 4 is for, and the code in this stream most easily read backwards.
+                Acknowledgement = command.Command == "PUMP"
+                    ? SubsystemCommandAcknowledgement.CompletionLater
+                    : SubsystemCommandAcknowledgement.InvalidCommand,
+            };
+        }
+
         if (dataSets is DataSetInMemoryStore store)
         {
             using var log = SecsItem.L(
@@ -416,6 +459,33 @@ internal sealed class ChamberRunner(
                     alarmRaised ? "set" : "cleared",
                     chamber.Pressure,
                     sent);
+
+                // The same alarm again, about the chamber as a sub-part rather than about the
+                // machine: stream 5 says this tool has a problem and stream 18 says which part of
+                // it does. The second is the half of stream 18 this end initiates, and the same
+                // message carries the clear.
+                if (equipment.IsCommunicating)
+                {
+                    try
+                    {
+                        await subsystems.ReportAlarmAsync(
+                            new SubsystemAlarm
+                            {
+                                Subsystem = SubsystemId.Named("CHAMBER-A"),
+                                AlarmId = (uint)Program.PressureAlarm,
+                                IsSet = alarmRaised,
+                                Category = SubsystemAlarmCategory.ParameterControlError,
+                                Text = "Chamber pressure out of range",
+                            },
+                            stoppingToken).ConfigureAwait(false);
+                    }
+                    catch (SecsException exception)
+                    {
+                        // A host that never registered stream 18 answers S9F3 and no secondary, so
+                        // this end waits out T3. Worth logging and not worth stopping over.
+                        logger.LogWarning("The host did not take the subsystem alarm: {Reason}", exception.Message);
+                    }
+                }
             }
 
             if (!chamber.IsRunning)
@@ -428,6 +498,14 @@ internal sealed class ChamberRunner(
             if (inventory is MaterialInMemorySource holdings)
             {
                 holdings.Load(chamber.LotId, ProcessLocation, quantity: 25);
+            }
+
+            // And the chamber's own state follows the chamber, so a host asking S18F3 sees what
+            // the part is doing rather than what the machine is doing.
+            if (subsystemStore is SubsystemInMemoryStore running)
+            {
+                running.SetState(SubsystemId.Named("CHAMBER-A"), "Processing");
+                running.Set(SubsystemId.Named("CHAMBER-A"), 1001, chamber.Pressure.ToString("F2", CultureInfo.InvariantCulture));
             }
 
             if (await equipment.TriggerEventAsync(Program.ProcessEndEvent, stoppingToken).ConfigureAwait(false))

@@ -150,6 +150,24 @@ public enum GemHostCommandAcknowledgement : byte
 
     /// <summary>There is no such object to command.</summary>
     NoSuchObject = 6,
+
+    /// <summary>Some other answer: E5 reserves 7 to 63 for the equipment to define.</summary>
+    /// <remarks>
+    /// <para>
+    /// Every code from 7 upwards reads as this one, and the arriving code is logged. Added after
+    /// the fact: this enum stopped at 6 while the table reserves 7 to 63, so an equipment-specific
+    /// acknowledgement used to arrive as a cast with no name on it - printing as a number, missed
+    /// by any <c>switch</c> without a default, and promised as an enum by the signature.
+    /// </para>
+    /// <para>
+    /// It was never the dangerous direction, because an unnamed code is not
+    /// <see cref="Accepted"/> and not <see cref="CompletionLater"/>, so a host asking "did it
+    /// work" always got no. What it was is a hole, and it had to be closed in the chapter that
+    /// served <c>HCACK</c> a second time: <c>Barbatos.SecsGem.Subsystems</c> quotes the same
+    /// dictionary entry for S18F2, and one item cannot be read two ways in one repository.
+    /// </para>
+    /// </remarks>
+    Other = 7,
 }
 
 /// <summary>ACKC5 - the answer to an alarm message, in stream 5.</summary>

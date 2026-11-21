@@ -22,6 +22,7 @@ using Barbatos.SecsGem.Substrates;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.Objects;
 using Barbatos.SecsGem.DataSets;
+using Barbatos.SecsGem.Subsystems;
 using Barbatos.SecsGem.WaferMap;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -89,6 +90,7 @@ internal static class Program
         await Run("gem: the host side resolves on a builder of its own", GemHostResolvesAsync).ConfigureAwait(false);
         await Run("wafermap: stream 12 resolves at both ends without the gem package", WaferMapResolvesAsync).ConfigureAwait(false);
         await Run("datasets: stream 13 resolves at both ends, and the host declares nothing", DataSetsResolveAsync).ConfigureAwait(false);
+        await Run("subsystems: stream 18 resolves at both ends, which declare disjoint sets", SubsystemsResolveAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
@@ -643,6 +645,115 @@ internal static class Program
         Assert(
             again!.ToByteArray().AsSpan().SequenceEqual(expected),
             "the data set did not survive the round trip through its encoded form");
+    }
+
+    /// <summary>
+    /// The subsystem package, whose two ends declare disjoint sets.
+    /// </summary>
+    /// <remarks>
+    /// Two claims only a restore from the real <c>.nupkg</c> can check. One is the dependency:
+    /// stream 18 is E5 and no part of E30, so a subsystem controller that never references Gem has
+    /// to work. The other is the split - six primaries at the equipment and two at the host, with
+    /// nothing in common - because nothing at runtime would complain if a machine declared the
+    /// wrong one.
+    /// </remarks>
+    private static async Task SubsystemsResolveAsync()
+    {
+        var equipmentServices = new ServiceCollection();
+
+        equipmentServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddSubsystemEquipment();
+
+        await using var equipmentProvider = equipmentServices.BuildServiceProvider();
+
+        _ = equipmentProvider.GetRequiredService<SubsystemEquipment>();
+
+        var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            SubsystemEquipment.HandledMessages.Count == 6,
+            $"the equipment declares {SubsystemEquipment.HandledMessages.Count} message(s), not six");
+
+        foreach (var (stream, function) in SubsystemEquipment.HandledMessages)
+        {
+            Assert(
+                equipmentRouter.TryGetHandler(stream, function, out _),
+                $"the router has no handler for S{stream}F{function}, so AddSubsystemEquipment did not declare it");
+        }
+
+        var hostServices = new ServiceCollection();
+
+        hostServices
+            .AddSecsGem()
+            .UseInMemoryTransport()
+            .AddSubsystemHost();
+
+        await using var hostProvider = hostServices.BuildServiceProvider();
+
+        _ = hostProvider.GetRequiredService<SubsystemHost>();
+
+        var hostRouter = hostProvider.GetRequiredService<ISecsMessageRouter>();
+
+        Assert(
+            SubsystemHost.HandledMessages.Count == 2,
+            $"the host declares {SubsystemHost.HandledMessages.Count} message(s), not two");
+
+        foreach (var (stream, function) in SubsystemHost.HandledMessages)
+        {
+            Assert(
+                hostRouter.TryGetHandler(stream, function, out _),
+                $"the router has no handler for S{stream}F{function}, so AddSubsystemHost did not declare it");
+
+            Assert(
+                !equipmentRouter.TryGetHandler(stream, function, out _),
+                $"the equipment claimed S{stream}F{function}, which it is the one that sends");
+        }
+
+        foreach (var (stream, function) in SubsystemEquipment.HandledMessages)
+        {
+            Assert(
+                !hostRouter.TryGetHandler(stream, function, out _),
+                $"the host claimed S{stream}F{function}, which it is the one that sends");
+        }
+
+        // And the identifier, which is the package's answer to an SSID the dictionary never
+        // defines: a number and a name that read alike are two subsystems.
+        var store = equipmentProvider.GetRequiredService<ISubsystemStore>();
+
+        Assert(
+            SubsystemId.Numbered(7) != SubsystemId.Named("7"),
+            "a numbered identifier compared equal to a name that reads the same");
+
+        Assert(!default(SubsystemId).IsNumber, "the default identifier is a number, so an unset one addresses subsystem zero");
+
+        if (store is SubsystemInMemoryStore memory)
+        {
+            memory.Add(SubsystemId.Named("CHAMBER-A"), "Process chamber A", "Idle");
+            memory.Set(SubsystemId.Named("CHAMBER-A"), 1001, "23.9");
+
+            var listed = await memory.ListAsync(CancellationToken.None).ConfigureAwait(false);
+
+            Assert(listed.Count == 1, $"the store listed {listed.Count} subsystem(s), not one");
+            Assert(listed[0].State == "Idle", $"the store reported the state as '{listed[0].State}'");
+
+            var written = await memory.WriteAsync(
+                new SubsystemVariable { Subsystem = SubsystemId.Named("CHAMBER-A"), VariableId = 1001, Value = "25.0" },
+                CancellationToken.None).ConfigureAwait(false);
+
+            Assert(
+                written == SubsystemAcknowledgement.Accepted,
+                $"the store refused a write to a variable it has: {written}");
+
+            var unknown = await memory.WriteAsync(
+                new SubsystemVariable { Subsystem = SubsystemId.Numbered(7), VariableId = 1, Value = "x" },
+                CancellationToken.None).ConfigureAwait(false);
+
+            Assert(
+                unknown == SubsystemAcknowledgement.UnknownVariable,
+                $"the store accepted a write to a subsystem it does not have: {unknown}");
+        }
     }
 
     /// <summary>

@@ -7,7 +7,7 @@ signature is a breaking change in somebody's fab.
 ## Repository map
 
 ```
-src/          twenty-three shipping packages, one folder each (+ README.md, API-REFERENCE.md)
+src/          twenty-four shipping packages, one folder each (+ README.md, API-REFERENCE.md)
 src/Shared/   compile-linked source, not a package: the serialization hub registration
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
@@ -20,6 +20,16 @@ assets/       SML/JSON conformance fixtures
 
 ```
 Core  <-  Hsms  <-  Gem
+            ^----  Subsystems (E5 stream 18, and nothing else. Both ends send primaries, and the
+                               two sets are DISJOINT - six and two - so the routing table cannot
+                               catch a machine that declares the wrong one; a test does. Six of
+                               its eight pairs are GEM's own rows re-addressed by an SSID, which
+                               is the same capability Objects serves on the enhanced half of
+                               stream 2 by an OBJSPEC: serve one or the other, and E39's is the
+                               firmer of the two because S2F49/F50 are definitions where every
+                               stream 18 row is representative. SSID and SSSTATE are defined
+                               nowhere; SubsystemId carries both readings of the first, and the
+                               second is written as text and says so.)
             ^----  DataSets   (E5 stream 13, and nothing else: the only stream here whose every
                                primary is the host's, so the host end declares no message at all.
                                Its payload item DSDATA is defined nowhere, which is why a data set

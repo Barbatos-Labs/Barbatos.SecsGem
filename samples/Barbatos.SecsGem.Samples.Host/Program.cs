@@ -17,6 +17,7 @@ using Barbatos.SecsGem.Hsms;
 using Barbatos.SecsGem.Material;
 using Barbatos.SecsGem.MaterialFlow;
 using Barbatos.SecsGem.Objects;
+using Barbatos.SecsGem.Subsystems;
 using Barbatos.SecsGem.PerformanceFlow;
 using Barbatos.SecsGem.PerformanceTracking;
 using Barbatos.SecsGem.Substrates;
@@ -106,6 +107,17 @@ internal static class Program
         SampleClock Clock,
         PerformanceProductivityBridge Flow,
         ControlJobCarrierBridge CarrierJobs);
+
+    /// <summary>
+    /// The two ends of stream 18, which is the second stream here where both ends send primaries.
+    /// </summary>
+    /// <param name="Host">The end that asks, and that is told about events and alarms.</param>
+    /// <param name="Equipment">
+    /// The end the sub-parts are on. Null over a socket, where it lives in the other process - and
+    /// that asymmetry is the whole point of the type: this sample can drive the host half either
+    /// way, and only in one process can it make the machine half report something.
+    /// </param>
+    private sealed record SubsystemDemo(SubsystemHost Host, SubsystemEquipment? Equipment);
 
     /// <summary>
     /// A clock the sample moves by hand.
@@ -417,6 +429,30 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingDataSets!.HandleAsync(transaction, token));
         }
 
+        // And stream 18, which splits: six primaries arrive at the machine and two arrive here.
+        // The two sets have nothing in common, so declaring the wrong one would not be refused by
+        // the routing table - it would just make this end answer its own questions.
+        //
+        // Both halves have to be registered, and leaving one out is quiet in exactly the way the
+        // package warns about: the first version of this sample declared the machine's six and not
+        // the host's two, so the alarm the machine raises below reached a host with no handler,
+        // came back S9F5, and timed out on T3 forty-five seconds later.
+        SubsystemEquipment? pendingSubsystems = null;
+
+        foreach (var (stream, function) in SubsystemEquipment.HandledMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingSubsystems!.HandleAsync(transaction, token));
+        }
+
+        // The host's half of stream 18: the two primaries a machine sends about one of its
+        // sub-parts, an event and an alarm.
+        SubsystemHost? pendingSubsystemHost = null;
+
+        foreach (var (stream, function) in SubsystemHost.HandledMessages)
+        {
+            hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingSubsystemHost!.HandleAsync(transaction, token));
+        }
+
         // And two of stream 16, which is the only thing any of E87, E90, E94 or E40 gives a host
         // to answer: a process job changed state, and here is the whole queue.
         ProcessJobHost? pendingProcessHost = null;
@@ -476,6 +512,35 @@ internal static class Program
         // at all - it has no primary to send.
         var dataSetEquipment = new DataSetEquipment(dataSetStore);
         var dataSetHost = new DataSetHost(hostLink);
+
+        // The machine's sub-parts, for stream 18. One named and one numbered, because SSID has no
+        // dictionary entry and this library writes whichever reading it is handed.
+        var subsystemStore = new SubsystemInMemoryStore();
+
+        subsystemStore.Add(SubsystemId.Named("CHAMBER-A"), "Process chamber A", "Idle");
+        subsystemStore.Set(SubsystemId.Named("CHAMBER-A"), 1001, "23.9");
+        subsystemStore.Set(SubsystemId.Named("CHAMBER-A"), 1002, "4.1", isReadOnly: true);
+        subsystemStore.Add(SubsystemId.Numbered(2), "Load lock", "Vented");
+
+        subsystemStore.SetCodeCondition(new SubsystemCodeCondition
+        {
+            TargetId = "READER-1",
+            Acknowledgement = SubsystemAcknowledgement.Accepted,
+            MaterialId = "W01-2026",
+            Status = 0,
+            Condition = "read first time",
+        });
+
+        subsystemStore.AnswerCommand = command => new SubsystemCommandResult
+        {
+            Subsystem = command.Subsystem,
+            Acknowledgement = command.Command == "PUMP"
+                ? SubsystemCommandAcknowledgement.CompletionLater
+                : SubsystemCommandAcknowledgement.InvalidCommand,
+        };
+
+        var subsystemEquipment = new SubsystemEquipment(subsystemStore, equipmentLink);
+        var subsystemHost = new SubsystemHost(hostLink);
 
         // The machine as objects: a chamber with two attributes and a load port with one. The
         // types and the attribute names are this machine's own - E5 does not define object types,
@@ -676,6 +741,8 @@ internal static class Program
         pendingMaterialHost = materialHost;
         pendingSendingEnd = sendingEnd;
         pendingDataSets = dataSetEquipment;
+        pendingSubsystems = subsystemEquipment;
+        pendingSubsystemHost = subsystemHost;
         pendingReceivingEnd = receivingEnd;
         pendingObjects = equipmentObjects;
         pendingEnhanced = new EnhancedServicesEquipment(chamberData);
@@ -717,6 +784,7 @@ internal static class Program
                 sendingEnd,
                 receivingEnd,
                 dataSetHost,
+                new SubsystemDemo(subsystemHost, subsystemEquipment),
                 hostObjects,
                 enhancedHost,
                 new MaterialDemo(
@@ -827,6 +895,11 @@ internal static class Program
             // below drives the whole stream from here.
             .AddDataSetHost()
 
+            // And the host half of stream 18: the two primaries the machine sends about one of its
+            // sub-parts. The other six are the machine's to answer, and over a socket they are
+            // answered by the equipment sample.
+            .AddSubsystemHost()
+
             // And the four things a machine says about its material without being asked. The five
             // questions in the other direction are this end sending, which needs nothing declared.
             .AddMaterialHost()
@@ -863,6 +936,10 @@ internal static class Program
                 // stream 13 gives the equipment nothing to start: the equipment sample seeds a
                 // data set and waits to be asked.
                 dataSets: provider.GetRequiredService<DataSetHost>(),
+
+                // Over a socket only the host half lives here; the two primaries the machine sends
+                // arrive from the other sample, which raises them on its own end.
+                subsystems: new SubsystemDemo(provider.GetRequiredService<SubsystemHost>(), null),
                 objects: provider.GetRequiredService<ObjectServices>(),
 
                 // Over a socket the equipment is the other sample, which does not serve E39's
@@ -923,6 +1000,7 @@ internal static class Program
         MaterialHandoff? sendingEnd,
         MaterialHandoff? receivingEnd,
         DataSetHost? dataSets,
+        SubsystemDemo? subsystems,
         ObjectServices? objects,
         EnhancedServicesHost? enhanced,
         MaterialDemo? flow,
@@ -1433,6 +1511,110 @@ internal static class Program
 
             Console.WriteLine($"   S13F15 -> {missing}");
             ok &= !missing.Exists;
+        }
+
+        if (subsystems is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and drives one sub-part of the machine, which is stream 18 --");
+            Console.WriteLine();
+
+            SubsystemAlarm? subsystemAlarm = null;
+            subsystems.Host.AlarmReported += (_, args) => subsystemAlarm = args.Alarm;
+
+            // What there is. Stream 18 has no message that announces a subsystem, so a host asks -
+            // and gets the names and the states in one reply, which is more than S18F3 gives.
+            var parts = await subsystems.Host.ListAsync(cancellationToken);
+
+            Console.WriteLine($"   S18F9  -> {parts.Count} subsystem(s)");
+
+            foreach (var part in parts)
+            {
+                Console.WriteLine($"             {part}");
+            }
+
+            ok &= parts.Count == 2;
+
+            // One named and one numbered on the same link, which is the whole reason SubsystemId
+            // carries both readings: SSID has no dictionary entry, and the eight identifier-and-
+            // name pairs the catalogue does define split five to three on what one looks like.
+            var chamber = SubsystemId.Named("CHAMBER-A");
+            var loadLock = SubsystemId.Numbered(2);
+
+            Console.WriteLine($"   S18F3  -> {chamber} is {await subsystems.Host.StatusAsync(chamber, cancellationToken)}");
+            Console.WriteLine($"   S18F3  -> {loadLock} is {await subsystems.Host.StatusAsync(loadLock, cancellationToken)}");
+
+            // And a number is not the name that reads the same. Read by format, never by content.
+            var mistaken = await subsystems.Host.StatusAsync(SubsystemId.Named("2"), cancellationToken);
+
+            Console.WriteLine($"   S18F3  -> the name \"2\" is {mistaken ?? "nobody"}, which is not subsystem #2");
+            ok &= mistaken is null;
+
+            Console.WriteLine($"   S18F5  -> VID 1001 = {await subsystems.Host.ReadAsync(chamber, 1001, cancellationToken)}");
+
+            var written = await subsystems.Host.WriteAsync(
+                new SubsystemVariable { Subsystem = chamber, VariableId = 1001, Value = "24.5" },
+                cancellationToken);
+
+            Console.WriteLine($"   S18F7  -> SSACK={written}");
+            ok &= written == SubsystemAcknowledgement.Accepted;
+
+            // The one transaction in this stream whose refusals carry a reason - SSACK's table was
+            // written for exactly this message, and a read of the same variable cannot be refused
+            // at all.
+            var refused = await subsystems.Host.WriteAsync(
+                new SubsystemVariable { Subsystem = chamber, VariableId = 1002, Value = "9.9" },
+                cancellationToken);
+
+            Console.WriteLine($"   S18F7  -> SSACK={refused} for a read-only variable");
+            ok &= refused == SubsystemAcknowledgement.ReadOnlyVariable;
+
+            var pumped = await subsystems.Host.CommandAsync(
+                new SubsystemCommand
+                {
+                    Subsystem = chamber,
+                    Command = "PUMP",
+                    Parameters = [new SubsystemParameter("TARGET", "4.0")],
+                },
+                cancellationToken);
+
+            // HCACK 4 is a success: accepted, and not finished. The same table GEM's S2F42 uses.
+            Console.WriteLine($"   S18F1  -> {pumped}, accepted={pumped.IsAccepted}");
+            ok &= pumped.IsAccepted;
+
+            var unknown = await subsystems.Host.CommandAsync(
+                new SubsystemCommand { Subsystem = SubsystemId.Named("NOPE"), Command = "PUMP" },
+                cancellationToken);
+
+            Console.WriteLine($"   S18F1  -> {unknown}");
+            ok &= unknown.Acknowledgement == SubsystemCommandAcknowledgement.NoSuchSubsystem;
+
+            // The one pair in stream 18 that is not a GEM row re-addressed, and the only one whose
+            // every item the dictionary defines.
+            var code = await subsystems.Host.ReadCodeAsync("READER-1", cancellationToken);
+
+            Console.WriteLine($"   S18F15 -> {code}");
+            ok &= code.IsRead && code.MaterialId == "W01-2026";
+
+            if (subsystems.Equipment is { } machine)
+            {
+                // And the half that goes the other way: the machine reporting about its own
+                // sub-part. Stream 5 says the tool has a problem; this says which part of it does.
+                var taken = await machine.ReportAlarmAsync(
+                    new SubsystemAlarm
+                    {
+                        Subsystem = chamber,
+                        AlarmId = 9_000,
+                        IsSet = true,
+                        Category = SubsystemAlarmCategory.ParameterControlError,
+                        Text = "Chamber pressure out of range",
+                    },
+                    cancellationToken);
+
+                Console.WriteLine($"   S18F13 <- {subsystemAlarm} (SSACK={taken})");
+                ok &= subsystemAlarm?.IsSet == true
+                    && subsystemAlarm.Category == SubsystemAlarmCategory.ParameterControlError;
+            }
         }
 
         if (objects is not null)
@@ -2501,13 +2683,15 @@ internal static class Program
         // part of that. A host that needs a message outside the set still has the link: the helper
         // is a layer over it, not a wall in front of it.
         //
-        // Subsystem control, which is the third stream this probe has used: it was stream 7 until
-        // the equipment answered stream 7, and stream 3 until the material package answered that.
-        // So the rule, for whoever adds the next stream: this has to point at a stream nothing in
-        // this repository implements, and the set of those keeps shrinking. If the sample stops
-        // printing an S9F3 here, that is why. Posted with W=0, because an S9 is what comes back
+        // Item transfer, which is the fourth stream this probe has used, and the note the third one
+        // left came true exactly as written: it was stream 7 until the equipment answered stream 7,
+        // stream 3 until the material package answered that, and stream 18 until the chapter that
+        // added Barbatos.SecsGem.Subsystems - at which point this stopped printing an S9F3 and the
+        // sample hung waiting for one. So the rule again, for whoever adds the next stream: this
+        // has to point at a stream nothing in this repository implements, and the set of those is
+        // down to five - 8, 15, 19, 20 and 21. Posted with W=0, because an S9 is what comes back
         // instead of a secondary.
-        using (var absent = new SecsMessage(18, 1, replyExpected: false) { Item = SecsItem.U4(1u) })
+        using (var absent = new SecsMessage(21, 1, replyExpected: false) { Item = SecsItem.U4(1u) })
         {
             await link.PostAsync(absent, cancellationToken);
         }

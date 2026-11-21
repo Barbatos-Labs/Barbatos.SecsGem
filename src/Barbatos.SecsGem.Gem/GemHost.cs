@@ -739,7 +739,20 @@ public sealed class GemHost : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
 
         // S2F42 is L[2]{HCACK, L[n]{parameter acknowledgements}}, so the code is inside the list.
-        return (GemHostCommandAcknowledgement)ReadCode(reply, 0);
+        var hcack = ReadCode(reply, 0);
+
+        if (hcack < (byte)GemHostCommandAcknowledgement.Other)
+        {
+            return (GemHostCommandAcknowledgement)hcack;
+        }
+
+        // E5 reserves 7 to 63 for the equipment. Reading one of those as itself would hand back an
+        // enum value with no name, which is what this used to do.
+        _logger.LogInformation(
+            "S2F42 carried HCACK {Code}, which E5 reserves for the equipment and does not name.",
+            hcack);
+
+        return GemHostCommandAcknowledgement.Other;
     }
 
     // ----------------------------------------------------------------- stream 5

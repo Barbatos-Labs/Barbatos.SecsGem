@@ -14,6 +14,7 @@ One page per package, generated per release:
 - [`Barbatos.SecsGem.Gem`](src/Barbatos.SecsGem.Gem/API-REFERENCE.md)
 - [`Barbatos.SecsGem.WaferMap`](src/Barbatos.SecsGem.WaferMap/API-REFERENCE.md)
 - [`Barbatos.SecsGem.DataSets`](src/Barbatos.SecsGem.DataSets/API-REFERENCE.md)
+- [`Barbatos.SecsGem.Subsystems`](src/Barbatos.SecsGem.Subsystems/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Material`](src/Barbatos.SecsGem.Material/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Objects`](src/Barbatos.SecsGem.Objects/API-REFERENCE.md)
 - [`Barbatos.SecsGem.Carriers`](src/Barbatos.SecsGem.Carriers/API-REFERENCE.md)
@@ -38,6 +39,7 @@ One page per package, generated per release:
 | `Barbatos.SecsGem.Gem` | Gem | GEM state models, object model and equipment service |
 | `Barbatos.SecsGem.WaferMap` | WaferMap | stream 12: setup data, the three map data formats, both ends |
 | `Barbatos.SecsGem.DataSets` | DataSets | stream 13: open, send, get, directory, close and status, both ends - and the payload as the encoded item that carried it, because `DSDATA` is defined nowhere |
+| `Barbatos.SecsGem.Subsystems` | Subsystems | stream 18: command, status, variable read and write, listing, events, alarms and the 2D code read, both ends - and `SubsystemId`, which carries either reading of an `SSID` the dictionary never defines |
 | `Barbatos.SecsGem.Material` | Material | stream 3: material status, location, transfer, movement, both ends |
 | `Barbatos.SecsGem.Objects` | Objects | SEMI E39, both its streams: stream 14's GetAttr, SetAttr, namelists, create, delete and act - either direction - and the enhanced half of stream 2, where GEM's own questions carry an OBJSPEC |
 | `Barbatos.SecsGem.Carriers` | Carriers | SEMI E87: the carrier and load port objects, their seven state machines, the actions |
@@ -49,4 +51,4 @@ One page per package, generated per release:
 | `Barbatos.SecsGem.Productivity` | Productivity | SEMI E10 and E79: the six equipment states, their roll-ups, the RAM metrics and OEE; no wire presence at all |
 | `Barbatos.SecsGem.PerformanceFlow` | PerformanceFlow | The join between E116 and E10/E79: a module's EPT state drives the tool's six states, by way of the task type that records the intent |
 | `Barbatos.SecsGem.Serialization.Sml` / `.Json` / `.Xml` / `.Ini` | the four spokes | format readers and writers |
-| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, DataSets, Material, Objects, Carriers, Substrates, ControlJobs, ProcessJobs, MaterialFlow, PerformanceTracking, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddDataSetEquipment`, `AddDataSetHost`, `AddMaterialHost`, `AddControlJobs`, `AddProcessJobEquipment`, `AddCarrierSubstrateBridge`, `AddProcessJobSubstrateBridge`, `AddControlJobCarrierBridge`, `AddPerformanceTracking`, `AddEnhancedServices`, `AddProductivityTracking`, `AddPerformanceProductivityBridge`, `AddSecsSml`, ... |
+| `Microsoft.Extensions.DependencyInjection` | Hsms, Gem, WaferMap, DataSets, Subsystems, Material, Objects, Carriers, Substrates, ControlJobs, ProcessJobs, MaterialFlow, PerformanceTracking, Mapper, spokes | `AddSecsGem`, `AddGemEquipment`, `AddWaferMapEquipment`, `AddDataSetEquipment`, `AddDataSetHost`, `AddSubsystemEquipment`, `AddSubsystemHost`, `AddMaterialHost`, `AddControlJobs`, `AddProcessJobEquipment`, `AddCarrierSubstrateBridge`, `AddProcessJobSubstrateBridge`, `AddControlJobCarrierBridge`, `AddPerformanceTracking`, `AddEnhancedServices`, `AddProductivityTracking`, `AddPerformanceProductivityBridge`, `AddSecsSml`, ... |

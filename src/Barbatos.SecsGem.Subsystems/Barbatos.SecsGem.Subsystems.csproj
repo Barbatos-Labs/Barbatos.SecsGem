@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Barbatos.SecsGem.Subsystems</PackageId>
+    <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
+    <RootNamespace>Barbatos.SecsGem.Subsystems</RootNamespace>
+    <PackageTags>secs;e5;stream18;subsystem;controller;2dcode;datamatrix</PackageTags>
+    <Description>Subsystem control and data (SECS-II stream 18) for .NET, both ends: commanding one subsystem inside a machine, reading and writing its variables, its status, the list of them, the events and alarms it raises, and the 2D code condition read. Both ends send primaries. Stream 18 is GEM's own message set re-addressed to a sub-part of the equipment, so six of its eight pairs are the same capability SEMI E39's enhanced stream 2 gives by a different route - this package says so and says which is firmer. Depends on Barbatos.SecsGem.Hsms, not on GEM: a subsystem controller need not implement SEMI E30.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referenced directly: the DI extension and the logging both ends take are used here, and a
+         transitive reference through Hsms is not a promise this project should rely on. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
+    <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+</Project>
