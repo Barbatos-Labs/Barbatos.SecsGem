@@ -341,6 +341,12 @@ numbering is yours.
 answers S6F24. A host that has just come up may not want an hour of history, and that is its call
 to make rather than something it has done to it.
 
+**The answer goes first.** The transmit runs on the equipment's own loop, and it is started only
+once the S6F24 has been flushed - so a host that reads frames in order never meets a report before
+the acknowledgement that announced it. Queueing the transmit ahead of the answer left the two racing
+for the link, and the loop could win. A request sent with W clear gets no S6F24 and its transmit all
+the same, and if the S6F24 cannot be sent the messages stay held for the host's next S6F23.
+
 Three things in here are decisions worth knowing:
 
 **A held report carries the values from when the event happened.** The spool holds an *encoded*

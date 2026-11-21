@@ -694,6 +694,15 @@ public sealed class GemEquipment : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(transaction);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        // S6F23 starts work that puts frames on the link, and those frames must follow its answer,
+        // so it is answered in a method of its own: the switches below build the reply and send it
+        // as their last act, which leaves no place for something that has to come after it.
+        if (transaction.S == 6 && transaction.F == 23)
+        {
+            await HandleSpooledDataRequestAsync(transaction, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         var reply = (transaction.S, transaction.F) switch
         {
             (1, 1) => OnAreYouThere(),
@@ -733,7 +742,6 @@ public sealed class GemEquipment : IAsyncDisposable
             (7, 19) => await OnProgramListAsync(cancellationToken).ConfigureAwait(false),
             (7, 23) => await OnFormattedProgramSendAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 25) => await OnFormattedProgramRequestAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
-            (6, 23) => await OnRequestSpooledDataAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (10, 3) => await OnTerminalDisplayAsync(transaction.Message, multiBlock: false, cancellationToken).ConfigureAwait(false),
             (10, 5) => await OnTerminalDisplayAsync(transaction.Message, multiBlock: true, cancellationToken).ConfigureAwait(false),
             (10, 9) => await OnBroadcastAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
@@ -2283,20 +2291,46 @@ public sealed class GemEquipment : IAsyncDisposable
 
     // ----------------------------------------------------------------- spooling
 
-    private async ValueTask<SecsMessage?> OnRequestSpooledDataAsync(SecsMessage request, CancellationToken cancellationToken)
+    /// <summary>Answers S6F23, and begins the transmit it asked for only once the answer has gone out.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The order is the contract.</strong> The transmit runs on this object's own loop,
+    /// which is another thread from the one answering. Queued before the S6F24 is sent, it leaves
+    /// the acknowledgement and the first spooled message racing for the connection's one write
+    /// lock, and when the loop wins a host is handed an S6F11 ahead of the S6F24 that announced it.
+    /// A host that matches a secondary to its primary by system bytes copes. One that takes the
+    /// next frame to be its answer reads the data as the answer and reports a reply that never
+    /// came, which is how a test host behaves.
+    /// </para>
+    /// <para>
+    /// <see cref="SecsTransaction.ReplyAsync"/> completes once the reply has been flushed and the
+    /// write lock released, so anything written to the connection after it returns is behind the
+    /// S6F24 on the wire. The transmit is queued after it, and not at all when the reply could not
+    /// be sent: a host that never saw RSDA 0 has no reason to expect data and will ask again, and
+    /// everything is still held for it.
+    /// </para>
+    /// <para>
+    /// Sending the messages from here would remove the question, and would hold the dispatch loop -
+    /// and this very transaction - open well past T3 for a long spool. So the work stays on the
+    /// loop and only its start is ordered.
+    /// </para>
+    /// </remarks>
+    private async ValueTask HandleSpooledDataRequestAsync(SecsTransaction transaction, CancellationToken cancellationToken)
     {
         if (_spool is null)
         {
-            return null;
+            _logger.LogWarning("S{S}F{F} reached the GEM handler with nothing to answer it.", transaction.S, transaction.F);
+            return;
         }
 
         var acknowledgement = GemSpooledDataAcknowledgement.Denied;
+        var transmit = false;
 
         // RSDC is read tolerantly, like every other numeric field here. It matters more than usual
         // for this one: the reference table in Barbatos.SecsGem.Catalog flags S6F23 as a
         // representative subset and gives its body as DATAID, which is not what E30 says, so a
         // host built from one reading or the other should still be understood.
-        if (request.Item is { } item && TryReadId(item, out var command))
+        if (transaction.Message.Item is { } item && TryReadId(item, out var command))
         {
             switch (command)
             {
@@ -2307,10 +2341,8 @@ public sealed class GemEquipment : IAsyncDisposable
                     break;
 
                 case (ulong)GemSpooledDataRequest.Transmit when SpoolCountActual > 0:
-                    // Acknowledged now, transmitted later. Sending a thousand messages inside this
-                    // handler would hold the dispatch loop - and this very transaction - open well
-                    // past T3, so the work goes to this object's own loop.
-                    _events.Writer.TryWrite(LinkEvent.TransmitSpool);
+                    // Acknowledged now, transmitted later, and "later" is after the reply below.
+                    transmit = true;
                     acknowledgement = GemSpooledDataAcknowledgement.Accepted;
                     break;
 
@@ -2320,11 +2352,23 @@ public sealed class GemEquipment : IAsyncDisposable
             }
         }
 
-        return new SecsMessage(6, 24, replyExpected: false)
+        // A host that left W clear is not waiting for an answer, and is still entitled to the data
+        // it asked for.
+        if (transaction.ReplyExpected)
         {
-            Name = "RequestSpooledDataAcknowledge",
-            Item = SecsItem.B((byte)acknowledgement).Named("RSDA"),
-        };
+            using var reply = new SecsMessage(6, 24, replyExpected: false)
+            {
+                Name = "RequestSpooledDataAcknowledge",
+                Item = SecsItem.B((byte)acknowledgement).Named("RSDA"),
+            };
+
+            await transaction.ReplyAsync(reply, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (transmit)
+        {
+            _events.Writer.TryWrite(LinkEvent.TransmitSpool);
+        }
     }
 
     /// <summary>Holds a message that could not be delivered. Does nothing when spooling is off.</summary>

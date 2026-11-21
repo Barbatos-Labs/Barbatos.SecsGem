@@ -436,6 +436,13 @@ the `IGemSpool` and a custom one need not have a number to compare against.
 
 S6F23 RSDC: `Transmit` 0, `Purge` 1. S6F24 RSDA: `Accepted` 0, `Denied` 1.
 
+**Order on the wire: the S6F24 first, then the spooled messages.** A `Transmit` is acknowledged and
+then transmitted, and the transmit is queued to the equipment's own loop only after the S6F24 has
+been flushed - never before it, because the loop runs on another thread and the two would race for
+the connection's write lock. A request with W clear gets no S6F24 and is transmitted all the same.
+When the S6F24 cannot be sent (the link went away under it) nothing is queued and everything stays
+held for the host's next S6F23.
+
 RSDC is read in any numeric format. `Barbatos.SecsGem.Catalog` flags S6F23 as a representative
 subset and gives its body as `DATAID` with RSDC as `U2`, while E30 says `U1` - so being strict about
 the width would mean failing against a host built from the other reading. RSDA is written as `B`,

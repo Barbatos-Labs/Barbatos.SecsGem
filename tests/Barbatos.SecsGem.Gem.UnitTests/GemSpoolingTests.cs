@@ -16,6 +16,9 @@ namespace Barbatos.SecsGem.Gem.UnitTests;
 /// </remarks>
 public class GemSpoolingTests
 {
+    /// <summary>The transaction id for an S6F23 the test sends itself, without <c>RequestAsync</c>.</summary>
+    private const int HostSystemBytes = 0x7001;
+
     private static double _pressure = 1_013.25d;
 
     private static void Model(GemEquipmentModelBuilder builder)
@@ -27,7 +30,14 @@ public class GemSpoolingTests
             .AddAlarm(new GemAlarm { Id = 900, Text = "Pressure" });
 
     /// <summary>Selects, has the host deny S1F13, and links report 5000 to event 1000.</summary>
-    private static async Task<GemLink> NotCommunicatingAsync(IGemSpool? spool, Action<GemOptions>? configure = null)
+    /// <remarks>
+    /// <paramref name="gate"/>, when given, is on the equipment's side of the link from the start, but
+    /// holds nothing until the test arms it.
+    /// </remarks>
+    private static async Task<GemLink> NotCommunicatingAsync(
+        IGemSpool? spool,
+        Action<GemOptions>? configure = null,
+        OutputGate? gate = null)
     {
         _pressure = 1_013.25d;
 
@@ -40,7 +50,8 @@ public class GemSpoolingTests
                 options.ResetLinkStateOnDisconnect = false;
                 configure?.Invoke(options);
             },
-            spool: spool);
+            spool: spool,
+            outputGate: gate);
 
         await link.SelectAsync();
         using var denied = await link.EstablishAsync(GemCommunicationAcknowledgement.Denied);
@@ -326,6 +337,93 @@ public class GemSpoolingTests
         Assert.Equal(GemSpoolState.Active, link.Equipment.SpoolState);
     }
 
+    // ----------------------------------------------------------------- the answer comes first
+
+    [Fact]
+    public async Task The_transmit_does_not_begin_until_the_acknowledgement_is_on_the_wire()
+    {
+        using var gate = new OutputGate();
+        var spool = new PeekCountingSpool(new GemInMemorySpool());
+
+        await using var link = await NotCommunicatingAsync(spool, gate: gate);
+
+        Assert.False(await link.Equipment.TriggerEventAsync(1_000, GemLink.Token));
+        await CommunicateAsync(link);
+
+        // The equipment looks at the head of the spool once at start-up, to adopt whatever a
+        // durable spool was holding, and once more every time a transmit begins. So a rise in this
+        // count is the transmit starting.
+        var before = spool.Peeks;
+
+        // The next frame the equipment flushes is the S6F24, and it is held on its way out.
+        gate.HoldNextFlush();
+
+        using (var request = new SecsMessage(6, 23, replyExpected: true)
+        {
+            Item = SecsItem.U1((byte)GemSpooledDataRequest.Transmit),
+        })
+        {
+            await link.SendDataAsync(request, HostSystemBytes);
+        }
+
+        await gate.WhenHeld.WaitAsync(TimeSpan.FromSeconds(10), GemLink.Token);
+
+        // Long enough for a transmit that was going to start to have started. It is one channel
+        // read away - microseconds on an idle machine - and this is thousands of times that. A wall
+        // clock, because "nothing happened" has no event to wait on, and it cannot make this flaky:
+        // it never fails correct equipment however loaded the machine is, and can only let a
+        // violation slip past if the thread pool stalls for a tenth of a second.
+        await Task.Delay(TimeSpan.FromMilliseconds(100), GemLink.Token);
+
+        // A transmit is one channel read from starting the moment it is queued, so one queued ahead
+        // of the S6F24 would have read the spool by now - with the answer still in the writer, and
+        // on a bad turn of the scheduler the first report on the wire in front of it. The other
+        // tests in this class read the wire and see whichever order the scheduler chose, which is
+        // the right one nearly every time; this one holds the answer back and watches.
+        Assert.True(
+            spool.Peeks == before,
+            "The equipment began transmitting while its S6F24 had not yet been flushed.");
+
+        gate.Release();
+
+        // And once the answer is out, the data follows it - in that order.
+        using (var answer = await link.ReadAsync())
+        {
+            Assert.Equal(HostSystemBytes, answer.Header.SystemBytes);
+            Assert.Equal(24, answer.Data!.F);
+            Assert.Equal((byte)GemSpooledDataAcknowledgement.Accepted, answer.Data.Item!.FirstValueOrDefault<byte>());
+        }
+
+        using var report = await link.ReceiveAsync();
+        Assert.Equal(11, report.F);
+    }
+
+    [Fact]
+    public async Task A_transmit_asked_for_without_a_reply_is_still_made()
+    {
+        await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
+
+        Assert.False(await link.Equipment.TriggerEventAsync(1_000, GemLink.Token));
+        await CommunicateAsync(link);
+
+        // W clear: the host is not waiting for an S6F24, and its request is no less a request. The
+        // answer and the transmit are two decisions that happen to be taken together, and this is
+        // the case that tells them apart - a transmit nested inside "send the answer" would pass
+        // every other test in this class and never start here.
+        using (var request = new SecsMessage(6, 23, replyExpected: false)
+        {
+            Item = SecsItem.U1((byte)GemSpooledDataRequest.Transmit),
+        })
+        {
+            await link.SendDataAsync(request, HostSystemBytes);
+        }
+
+        using var report = await link.ReceiveAsync();
+
+        Assert.Equal(6, report.S);
+        Assert.Equal(11, report.F);
+    }
+
     // ----------------------------------------------------------------- full
 
     [Fact]
@@ -470,5 +568,31 @@ public class GemSpoolingTests
         // A capacity of zero is a slower way of dropping the message, so it is a configuration
         // error rather than a valid choice.
         Assert.Throws<ArgumentOutOfRangeException>(() => new GemInMemorySpool(capacity: 0));
+    }
+
+    /// <summary>A spool that counts how often it is asked for its head, which is how a transmit begins.</summary>
+    private sealed class PeekCountingSpool(IGemSpool inner) : IGemSpool
+    {
+        private int _peeks;
+
+        public int Peeks => Volatile.Read(ref _peeks);
+
+        public ValueTask<int> CountAsync(CancellationToken cancellationToken)
+            => inner.CountAsync(cancellationToken);
+
+        public ValueTask<bool> TryAppendAsync(GemSpooledMessage message, CancellationToken cancellationToken)
+            => inner.TryAppendAsync(message, cancellationToken);
+
+        public ValueTask<GemSpooledMessage?> TryPeekAsync(CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _peeks);
+            return inner.TryPeekAsync(cancellationToken);
+        }
+
+        public ValueTask<bool> RemoveHeadAsync(CancellationToken cancellationToken)
+            => inner.RemoveHeadAsync(cancellationToken);
+
+        public ValueTask PurgeAsync(CancellationToken cancellationToken)
+            => inner.PurgeAsync(cancellationToken);
     }
 }
