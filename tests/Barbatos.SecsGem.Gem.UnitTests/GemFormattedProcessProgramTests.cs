@@ -54,7 +54,9 @@ public class GemFormattedProcessProgramTests
             Assert.DoesNotContain(pair, GemEquipment.ProcessProgramMessages);
         }
 
-        Assert.Equal(2, GemEquipment.FormattedProcessProgramMessages.Count);
+        // Four: the two the reference documents, plus the verify and the load inquire it
+        // illustrates - S7F9's and S7F1's twins for this half of the stream.
+        Assert.Equal(4, GemEquipment.FormattedProcessProgramMessages.Count);
         Assert.All(GemEquipment.FormattedProcessProgramMessages, p => Assert.Equal(7, p.Stream));
         Assert.All(GemEquipment.FormattedProcessProgramMessages, p => Assert.True(p.Function % 2 == 1));
     }

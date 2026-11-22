@@ -331,9 +331,22 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
         }
 
-        // And the formatted half of stream 7, declared on its own because it is a capability of its
-        // own - the conversation below sends a structured recipe. Equipment that holds no recipes
-        // leaves these out and answers S9F3 for stream 7, which is the honest answer.
+        // And both halves of stream 7, each a capability of its own - the conversation below sends
+        // a structured recipe and then asks the questions that are not per-format. Equipment that
+        // holds no recipes leaves both out and answers S9F3 for stream 7, which is the honest
+        // answer.
+        //
+        // Both and not just the formatted one, because four of the rows are about a *program*
+        // rather than about a flavour: the directory, the availability question and the two
+        // program-related remote commands consult whichever stores are configured, and a stream and
+        // function may be declared only once - so they live with the unformatted capability. A
+        // machine that offers only formatted recipes and wants them registers both lists, which is
+        // the same rule S7F17 and S7F19 have always had.
+        foreach (var (stream, function) in GemEquipment.ProcessProgramMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
+        }
+
         foreach (var (stream, function) in GemEquipment.FormattedProcessProgramMessages)
         {
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
@@ -533,6 +546,7 @@ internal static class Program
             gemOptions,
             BuildModel(),
             equipmentLink,
+            processPrograms: new GemInMemoryProcessProgramStore(),
             formattedProcessPrograms: new GemInMemoryFormattedProcessProgramStore(),
             terminal: new GemInMemoryTerminal());
         await using var host = new GemHost(hostOptions, hostLink);
@@ -1340,6 +1354,73 @@ internal static class Program
         var back = await host.RequestFormattedProcessProgramAsync("RECIPE-7", cancellationToken);
         Console.WriteLine($"   S7F25 -> {back?.ToString() ?? "no such program"}");
         ok &= back?.Commands.Count == 2;
+
+        // And the five rows the stream 7 sweep added, which are what a host actually does with a
+        // recipe once it has sent one.
+
+        // Is it there at all? Two of PPGNT's six codes answer this: AlreadyHave is yes, InvalidId
+        // is no. Ok would mean "go ahead and send", which answers S7F1 and not this.
+        var available = await host.IsProcessProgramAvailableAsync("RECIPE-7", cancellationToken);
+        Console.WriteLine($"   S7F31 -> PPGNT={available}");
+        ok &= available == GemProcessProgramGrant.AlreadyHave;
+
+        // Is it the one I sent? ACKC7 has no code for "those bytes are not these bytes", so only
+        // Accepted means yes - read anything else as "not verified" rather than as a reason.
+        var verified = await host.VerifyFormattedProcessProgramAsync(recipe, cancellationToken);
+        Console.WriteLine($"   S7F27 -> ACKC7={verified}");
+        ok &= verified == GemProcessProgramAcknowledgement.Accepted;
+
+        // The same question with one field changed. The commands match and it is still not the same
+        // program, because it was written for another software revision - which is the whole reason
+        // MDLN and SOFTREV are in the body.
+        var elsewhere = new GemFormattedProcessProgram("RECIPE-7", "BRBTOS-1", "9.9.9", recipe.Commands);
+        var mismatch = await host.VerifyFormattedProcessProgramAsync(elsewhere, cancellationToken);
+        Console.WriteLine($"   S7F27 -> ACKC7={mismatch} for a revision nobody stored");
+        ok &= mismatch != GemProcessProgramAcknowledgement.Accepted;
+
+        // The directory, by the other function number the reference gives it. S7F8 and S7F20 carry
+        // one item each and the same one, so a host sends whichever the machine understands.
+        var programDirectory = await host.ReadProcessProgramDirectoryAsync(cancellationToken);
+        Console.WriteLine($"   S7F7  -> {string.Join(", ", programDirectory)}");
+        ok &= programDirectory.Contains("RECIPE-7");
+
+        // And a command about that program. S2F41 with a PPID in front, run from the same command
+        // table - the recipe reaches the handler as context.ProcessProgramId.
+        var programCmda = await host.SendProgramCommandAsync(
+            "RECIPE-7",
+            "START",
+            [("LOTID", StartedLot)],
+            cancellationToken);
+
+        Console.WriteLine($"   S7F41 -> CMDA={programCmda}");
+
+        // CannotPerformNow, because this machine's START answers HCACK 4 and CMDA has no code for
+        // "completion later" - the same narrowing S2F22 does, for the same reason.
+        ok &= programCmda == GemRemoteCommandAcknowledgement.CannotPerformNow;
+
+        if (equipment is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("-- and the machine mentions a recipe nobody asked it about --");
+            Console.WriteLine();
+
+            // The only two things a machine says first in stream 7. Without them an operator
+            // editing a recipe at the machine is invisible until somebody asks for the directory.
+            // Not spooled, deliberately: a held notice would reach a host that can get something
+            // fresher by asking.
+            Console.WriteLine(
+                $"   S7F29 -> ACKC7={await equipment.NotifyProgramChangedAsync("RECIPE-7", cancellationToken)}");
+
+            Console.WriteLine(
+                $"   S7F39 -> ACKC7={await equipment.NotifyProgramSelectedAsync("RECIPE-7", cancellationToken)}");
+
+            await WaitUntilAsync(() => !Reports.IsEmpty, "the program notices to arrive at the host");
+
+            while (Reports.TryDequeue(out var report))
+            {
+                Console.WriteLine($"   {report}");
+            }
+        }
 
         if (equipment is not null)
         {
@@ -3259,6 +3340,11 @@ internal static class Program
         // ACKC5. Merging them would hand an application one notification whose two halves it has
         // to tell apart itself.
         host.ExceptionReceived += (_, e) => Reports.Enqueue($"S5F9 arrived: {e.Exception}");
+
+        // One event for S7F29 and S7F39, because the bodies are identical - e.Function is the only
+        // thing that separates a recipe changing from a recipe being selected.
+        host.ProcessProgramNoticeReceived += (_, e) =>
+            Reports.Enqueue($"{e} arrived: {(e.IsChange ? "changed" : "selected")}");
 
         // S6F5 grants by default, so this handler is here to show where a host would refuse -
         // a handshake whose only purpose is to let a host say no should not say no by silence.

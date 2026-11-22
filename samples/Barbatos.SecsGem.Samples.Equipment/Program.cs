@@ -170,7 +170,10 @@ internal static class Program
                             ClearEventId = AlarmClearedEvent,
                         })
 
-                        .AddRemoteCommand("START", (context, _) =>
+                        // context.ProcessProgramId is empty for S2F21 and S2F41 and set for S7F37 and S7F41:
+            // one command table for all four, because a machine that can be told to START has one
+            // START whether or not the host named a recipe.
+            .AddRemoteCommand("START", (context, _) =>
                         {
                             var lot = context.GetText("LOTID");
 

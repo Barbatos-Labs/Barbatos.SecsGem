@@ -33,9 +33,21 @@ public class GemProcessProgramTests
             Assert.DoesNotContain(pair, GemEquipment.HandledMessages);
         }
 
-        Assert.Equal(5, GemEquipment.ProcessProgramMessages.Count);
+        // Ten: the five rows the reference documents, and five it illustrates that the stream 7
+        // sweep measured and implemented - the directory, the verify, the availability question and
+        // the two program-related remote commands. The first three name only items the documented
+        // five already carry; the commands borrow RCMD, CPNAME and CPVAL from stream 2, where this
+        // library already serves them. Either way nothing is inferred, in a stream with no gaps.
+        Assert.Equal(10, GemEquipment.ProcessProgramMessages.Count);
         Assert.All(GemEquipment.ProcessProgramMessages, p => Assert.Equal(7, p.Stream));
         Assert.All(GemEquipment.ProcessProgramMessages, p => Assert.True(p.Function % 2 == 1));
+
+        // The program-related commands are here and not in the core set, although the command table
+        // they use is the core set's. Stream 7 is declared by equipment that manages programs: a
+        // machine with no recipes should answer S9F3 for the whole stream rather than refuse one
+        // function of it.
+        Assert.Contains(((byte)7, (byte)37), GemEquipment.ProcessProgramMessages);
+        Assert.Contains(((byte)7, (byte)41), GemEquipment.ProcessProgramMessages);
     }
 
     // ----------------------------------------------------------------- S7F1

@@ -113,6 +113,12 @@ public sealed class GemHost : IAsyncDisposable
         (6, 5),    // Multi-block Data Send Inquire
         (6, 11),   // Event Report Send
         (6, 13),   // Annotated Event Report Send
+
+        // The only two things a machine says first in stream 7. Declared unconditionally, unlike
+        // the equipment's stream 7, because a host has no process program capability to opt into -
+        // it either hears about a recipe changing or it does not.
+        (7, 29),   // Process Program Change Notify
+        (7, 39),   // Process Program Selected Notify
         (10, 1),   // Terminal Request
         (9, 1),    // Unrecognized Device ID
         (9, 3),    // Unrecognized Stream Type
@@ -142,6 +148,23 @@ public sealed class GemHost : IAsyncDisposable
     /// time. Merging them would hand a host one event whose two halves it has to tell apart.
     /// </remarks>
     public event EventHandler<GemHostExceptionEventArgs>? ExceptionReceived;
+
+    /// <summary>Raised when the equipment says a process program changed - S7F29, or was selected - S7F39.</summary>
+    /// <remarks>
+    /// <para>
+    /// One event for two messages, with <see cref="GemProcessProgramNoticeEventArgs.Function"/>
+    /// saying which: a program changing is about the store and a program being selected is about
+    /// what the machine will run next, and the bodies are identical, so the message number is the
+    /// only thing that separates them.
+    /// </para>
+    /// <para>
+    /// <strong>Neither is spooled by the machine</strong>, so a host that was away does not get
+    /// these on reconnecting - it asks <see cref="ReadProcessProgramDirectoryAsync"/> instead,
+    /// which answers with the directory as it is now rather than with news from an hour ago.
+    /// Treat the event as a prompt to look, not as a log.
+    /// </para>
+    /// </remarks>
+    public event EventHandler<GemProcessProgramNoticeEventArgs>? ProcessProgramNoticeReceived;
 
     /// <summary>Raised when the equipment asks permission to send something large - S6F5.</summary>
     /// <remarks>
@@ -214,6 +237,8 @@ public sealed class GemHost : IAsyncDisposable
             (6, 5) => OnMultiBlockInquire(transaction.Message),
             (6, 11) => OnEventReport(transaction.Message, 12),
             (6, 13) => OnEventReport(transaction.Message, 14),
+            (7, 29) => OnProgramNotice(transaction.Message, 30),
+            (7, 39) => OnProgramNotice(transaction.Message, 40),
             (10, 1) => OnTerminalRequest(transaction.Message),
             _ => null,
         };
@@ -1218,6 +1243,200 @@ public sealed class GemHost : IAsyncDisposable
         return (GemProcessProgramGrant)ReadNamedCode(reply, 6, "PPGNT");
     }
 
+    /// <summary>Asks whether a body is the one the machine holds - S7F9, answered by S7F10.</summary>
+    /// <param name="id">PPID.</param>
+    /// <param name="body">PPBODY, the bytes to compare against.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC7.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong><c>Accepted</c> is the only answer that means "yes".</strong> <c>ACKC7</c> has no
+    /// code for "those bytes are not these bytes", so a machine written to this library answers
+    /// <c>NotFound</c> for an identifier it has not got, <c>LengthError</c> for a body of the wrong
+    /// length, and <c>PermissionNotGranted</c> for one of the right length and the wrong contents -
+    /// the table's nearest word for "I will not confirm that". Another machine may choose
+    /// differently, so treat anything but <c>Accepted</c> as "not verified" rather than reading the
+    /// reason out of the code.
+    /// </para>
+    /// <para>
+    /// Worth sending after <see cref="SendProcessProgramAsync"/> on a link that has been
+    /// misbehaving, which is the only use the message really has: it is the one transaction in
+    /// stream 7 that reads the store without moving a body back.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemProcessProgramAcknowledgement> VerifyProcessProgramAsync(
+        string id,
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(7, 9, replyExpected: true)
+            {
+                Name = "ProcessProgramVerifySend",
+                Item = SecsItem.L(
+                    SecsItem.A(id).Named("PPID"),
+                    SecsItem.B(body.ToArray()).Named("PPBODY")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemProcessProgramAcknowledgement)ReadNamedCode(reply, 7, "ACKC7");
+    }
+
+    /// <summary>Asks whether a program is on the machine at all - S7F31, answered by S7F32.</summary>
+    /// <param name="id">PPID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>PPGNT.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Two of <c>PPGNT</c>'s codes answer this and the rest answer S7F1.</strong> The item
+    /// exists for a load grant, so <c>AlreadyHave</c> is yes and <c>InvalidId</c> is no, while
+    /// <c>Ok</c> means "go ahead and send" - which is a reply to a question nobody asked here.
+    /// Compare on <c>AlreadyHave</c>, not on "anything but a refusal".
+    /// </para>
+    /// <para>
+    /// Cheaper than <see cref="ReadProcessProgramDirectoryAsync"/> for one identifier, and the
+    /// difference is not academic: a machine holding several hundred recipes answers this with one
+    /// byte.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemProcessProgramGrant> IsProcessProgramAvailableAsync(
+        string id,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(7, 31, replyExpected: true)
+            {
+                Name = "ProcessProgramAvailableRequest",
+                Item = SecsItem.A(id).Named("PPID"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemProcessProgramGrant)ReadNamedCode(reply, 6, "PPGNT");
+    }
+
+    /// <summary>Asks permission to send a formatted program - S7F33, answered by S7F34.</summary>
+    /// <param name="id">PPID.</param>
+    /// <param name="length">LENGTH.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>PPGNT.</returns>
+    /// <remarks>
+    /// S7F1's twin for the formatted half of the stream. Equipment written to this library cannot
+    /// answer <c>NoSpace</c> here, because its formatted store exposes no capacity - so a
+    /// <c>PPGNT</c> of <c>Ok</c> is not a promise that S7F23 will be accepted, and the
+    /// acknowledgement to that message remains the one that decides.
+    /// </remarks>
+    public async ValueTask<GemProcessProgramGrant> InquireFormattedProcessProgramAsync(
+        string id,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(7, 33, replyExpected: true)
+            {
+                Name = "FormattedProcessProgramLoadInquire",
+                Item = SecsItem.L(SecsItem.A(id).Named("PPID"), SecsItem.U4((uint)length).Named("LENGTH")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemProcessProgramGrant)ReadNamedCode(reply, 6, "PPGNT");
+    }
+
+    /// <summary>Asks whether a formatted program is the one the machine holds - S7F27, answered by S7F28.</summary>
+    /// <param name="program">The program to compare against.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC7.</returns>
+    /// <remarks>
+    /// S7F9's twin, with the same shortage in <c>ACKC7</c> - and one difference worth knowing: the
+    /// comparison is over structure, so equipment written to this library compares the model name
+    /// and the software revision as well as the commands. A program whose commands match but which
+    /// was written for another machine is not the same program.
+    /// </remarks>
+    public async ValueTask<GemProcessProgramAcknowledgement> VerifyFormattedProcessProgramAsync(
+        GemFormattedProcessProgram program,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(program);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(7, 27, replyExpected: true)
+            {
+                Name = "FormattedProcessProgramVerifySend",
+                Item = GemFormattedProcessProgramCodec.Write(program),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemProcessProgramAcknowledgement)ReadNamedCode(reply, 7, "ACKC7");
+    }
+
+    /// <summary>Sends a remote command about one process program - S7F37, or S7F41 with parameters.</summary>
+    /// <param name="programId">PPID - which program the command is about.</param>
+    /// <param name="command">RCMD.</param>
+    /// <param name="parameters">The CPNAME and CPVAL pairs. Empty sends S7F37, which carries none.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>CMDA.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>S2F21 and S2F41 with a program named.</strong> The same command table on the other
+    /// end, the same control-state rule, and the same three <c>CMDA</c> codes - so "will complete
+    /// later" arrives as <c>CannotPerformNow</c> here as it does for S2F22.
+    /// </para>
+    /// <para>
+    /// Which function goes out is decided by <paramref name="parameters"/>, because the reference
+    /// gives S7F37 two items and S7F41 three: an empty list is the message that carries no list
+    /// rather than the message carrying an empty one. A machine that has the program but not the
+    /// command answers <c>DoesNotExist</c>; one that has the command but not the program answers
+    /// <c>CannotPerformNow</c>, since <c>CMDA</c> has no code for a missing program.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemRemoteCommandAcknowledgement> SendProgramCommandAsync(
+        string programId,
+        string command,
+        IReadOnlyList<(string Name, string Value)> parameters,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(programId);
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        var withParameters = parameters.Count > 0;
+        var items = new List<SecsItem>(parameters.Count);
+
+        foreach (var (name, value) in parameters)
+        {
+            items.Add(SecsItem.L(
+                SecsItem.A(name).Named("CPNAME"),
+                SecsItem.A(value).Named("CPVAL")));
+        }
+
+        var body = withParameters
+            ? SecsItem.L(
+                SecsItem.A(programId).Named("PPID"),
+                SecsItem.A(command).Named("RCMD"),
+                SecsItem.L(items))
+            : SecsItem.L(
+                SecsItem.A(programId).Named("PPID"),
+                SecsItem.A(command).Named("RCMD"));
+
+        using var reply = await RequestAsync(
+            new SecsMessage(7, withParameters ? (byte)41 : (byte)37, replyExpected: true)
+            {
+                Name = withParameters
+                    ? "ProcessProgramRelatedRemoteCommandWithParametersSend"
+                    : "ProcessProgramRelatedRemoteCommandSend",
+                Item = body,
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemRemoteCommandAcknowledgement)ReadNamedCode(reply, 3, "CMDA");
+    }
+
     /// <summary>Sends a process program - S7F3.</summary>
     /// <param name="id">PPID.</param>
     /// <param name="body">PPBODY.</param>
@@ -1305,10 +1524,38 @@ public sealed class GemHost : IAsyncDisposable
     /// <summary>Asks what process programs the equipment holds - S7F19.</summary>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>Every PPID, in the order the equipment gave them.</returns>
-    public async ValueTask<IReadOnlyList<string>> ListProcessProgramsAsync(CancellationToken cancellationToken = default)
+    public ValueTask<IReadOnlyList<string>> ListProcessProgramsAsync(CancellationToken cancellationToken = default)
+        => ReadProgramDirectoryAsync(19, cancellationToken);
+
+    /// <summary>Asks for the process program directory - S7F7, answered by S7F8.</summary>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Every PPID the machine holds.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The same question <see cref="ListProcessProgramsAsync"/> asks</strong>, by the other
+    /// function number the reference gives it. S7F8 is "Process Program Directory Data" and S7F20
+    /// is "Current EPPD Data" - the equipment process program directory - and the reference gives
+    /// both bodies one item, a list of <c>PPID</c>. Nothing in it distinguishes them.
+    /// </para>
+    /// <para>
+    /// Both are here because a host does not choose which function the machine on the other end
+    /// understands. S7F19/F20 is the pair the reference documents and the one to prefer; this is
+    /// for a machine that answers S9F5 to it.
+    /// </para>
+    /// </remarks>
+    public ValueTask<IReadOnlyList<string>> ReadProcessProgramDirectoryAsync(
+        CancellationToken cancellationToken = default)
+        => ReadProgramDirectoryAsync(7, cancellationToken);
+
+    private async ValueTask<IReadOnlyList<string>> ReadProgramDirectoryAsync(
+        byte function,
+        CancellationToken cancellationToken)
     {
         using var reply = await RequestAsync(
-            new SecsMessage(7, 19, replyExpected: true) { Name = "CurrentEppdRequest" },
+            new SecsMessage(7, function, replyExpected: true)
+            {
+                Name = function == 19 ? "CurrentEppdRequest" : "ProcessProgramDirectoryRequest",
+            },
             cancellationToken).ConfigureAwait(false);
 
         List<string> ids = [];
@@ -1672,6 +1919,34 @@ public sealed class GemHost : IAsyncDisposable
         {
             Name = "DiscreteVariableDataAcknowledge",
             Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC6"),
+        };
+    }
+
+    private SecsMessage OnProgramNotice(SecsMessage request, byte replyFunction)
+    {
+        var id = request.Item is { } item && item.Format.IsText() ? GemItems.ReadText(item) : string.Empty;
+
+        var args = new GemProcessProgramNoticeEventArgs(id, (byte)(replyFunction - 1))
+        {
+            // NotFound when the machine named nothing, which is the table's nearest word for a
+            // notice about no program - and not Accepted, because accepting one would tell the
+            // machine its notice landed when there is nothing a host could act on.
+            Acknowledgement = id.Length == 0
+                ? GemProcessProgramAcknowledgement.NotFound
+                : GemProcessProgramAcknowledgement.Accepted,
+        };
+
+        _logger.LogInformation(
+            "S7F{Function} from the equipment: process program '{Program}'.",
+            args.Function,
+            id);
+
+        ProcessProgramNoticeReceived?.Invoke(this, args);
+
+        return new SecsMessage(7, replyFunction, replyExpected: false)
+        {
+            Name = replyFunction == 30 ? "ProcessProgramChangeAcknowledge" : "ProcessProgramSelectedAcknowledge",
+            Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC7"),
         };
     }
 

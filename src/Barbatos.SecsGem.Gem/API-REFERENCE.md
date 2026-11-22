@@ -94,8 +94,8 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | --- | --- | --- |
 | ctor | `GemEquipment(GemOptions options, GemEquipmentModel model, HsmsConnection connection, TimeProvider? timeProvider = null, ILogger<GemEquipment>? logger = null, IGemProcessProgramStore? processPrograms = null, IGemSpool? spool = null, IGemFormattedProcessProgramStore? formattedProcessPrograms = null)` | `null` provider means `TimeProvider.System`; `null` logger discards diagnostics. The last three are the opt-in capabilities, and `null` in each leaves its messages undeclared rather than declared and refused. |
 | `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The twenty-four core pairs. Registering them is how the equipment declares its capability - see below. |
-| `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The five unformatted stream 7 pairs - S7F1, S7F3, S7F5, and the S7F17/S7F19 both halves share - registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn. |
-| `FormattedProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F23 and S7F25, registered only when a formatted store is configured. Independent of `ProcessProgramMessages`, and disjoint from it: a stream and function may be declared only once. |
+| `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The ten unformatted stream 7 pairs - S7F1, S7F3, S7F5, S7F7, S7F9, S7F31, S7F37, S7F41, and the S7F17/S7F19 both halves share - registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn, which is also why the two program-related remote commands are here rather than with the core set that owns their command table. |
+| `FormattedProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F23, S7F25, S7F27 and S7F33, registered only when a formatted store is configured. Independent of `ProcessProgramMessages`, and disjoint from it: a stream and function may be declared only once. |
 | `SpoolMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S6F23, registered only when a spool is configured. Equipment that does not spool answers S9F5 rather than RSDA 1 - "I do not do that" and "no, not now" are different answers to a host deciding whether to wait. |
 | `TerminalMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S10F3, S10F5 and S10F9, registered only when a terminal is configured. Not S10F1, which the equipment sends; not S10F7, which the catalogue flags as representative and which ACKC10 2 already says. |
 | `CheckLimitsAsync` | `ValueTask<bool> CheckLimitsAsync(uint variableId, CancellationToken cancellationToken = default)` | E30 limits monitoring: checks a variable against the bands a host set, and reports a crossing. Called by the application when a value changes - see [Limits monitoring](#limits-monitoring). |
@@ -115,6 +115,8 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `PostExceptionAsync` | `ValueTask<bool> PostExceptionAsync(string exceptionId, string type, string message, CancellationToken cancellationToken = default)` | S5F9: EXID, EXTYPE and EXMESSAGE, timestamped from `Now`. Three strings rather than an identifier into a table, because the documented half of stream 5 has no exception namelist, no enable message and no way to ask what is outstanding. Spooled like a report - nothing will repeat it. `false` means nothing reached the host, kept or not; `SpoolCountActual` separates the two. |
 | `SendDiscreteVariableDataAsync` | `ValueTask<bool> SendDiscreteVariableDataAsync(uint eventId, CancellationToken cancellationToken = default)` | S6F3: DATAID and CEID, which is all this reference's row names - **no values**, since the items that would carry them, `DVNAME` and `DVVAL`, are named by none of its 524 rows. Gated on the same two conditions as `TriggerEventAsync`, because S2F37 disables a CEID and this message names one. |
 | `InquireMultiBlockAsync` | `ValueTask<GemMultiBlockGrant> InquireMultiBlockAsync(uint length, CancellationToken cancellationToken = default)` | S6F5, answered by S6F6's `GRANT6`. **Never spooled**: a question, not news. With no link it answers `NoSpace`, the table having no code for "nobody was listening" and `Busy` inviting a pointless retry. Sends nothing afterwards and measures nothing - how much fits in a block is the link's business and whether a report is worth the round trip is the application's. `DATALENGTH` is passed through as given; the reference records no units for it. |
+| `NotifyProgramChangedAsync` | `ValueTask<GemProcessProgramAcknowledgement?> NotifyProgramChangedAsync(string programId, CancellationToken cancellationToken = default)` | S7F29 - one of only two things a machine says first in stream 7. Returns the host's ACKC7, or `null` when there was nobody to tell. **Not spooled**: a held notice would reach a host that can get something fresher by asking S7F7, so a stale prompt is worse than none. |
+| `NotifyProgramSelectedAsync` | `ValueTask<GemProcessProgramAcknowledgement?> NotifyProgramSelectedAsync(string programId, CancellationToken cancellationToken = default)` | S7F39, the other. The same body and the same acknowledgement as S7F29, and not its synonym: a program changing is about the store, and a program being selected is about what the machine will run next. |
 | `GoOnline` | `bool GoOnline(bool remote = true)` | The equipment's own decision. Refused - returns `false` - unless communication is established. |
 | `GoOffline` | `bool GoOffline()` | The equipment's own decision. |
 | `CommunicationStateChanged` | `event EventHandler<GemCommunicationStateChangedEventArgs>?` | Raised on the thread that made the transition. Keep handlers short. |
@@ -180,6 +182,8 @@ known stream and S9F3 for a stream that is not there at all.
 | S6F5 | `InquireMultiBlockAsync` | S6F6, always - the answer is the point |
 | S5F1 | `SetAlarmAsync` / `ClearAlarmAsync`, when the alarm is enabled | S5F2, when `AlarmReportsExpectReply` |
 | S5F9 | `PostExceptionAsync` | S5F10, when `ExceptionPostsExpectReply` |
+| S7F29 | `NotifyProgramChangedAsync` | S7F30, always - the host's ACKC7 is the return value |
+| S7F39 | `NotifyProgramSelectedAsync` | S7F40, always |
 
 ---
 
@@ -393,11 +397,19 @@ and therefore every other message on the link. A handler that throws is logged a
 | ctor | `GemRemoteCommandContext(string command, IReadOnlyDictionary<string, SecsItem> parameters)` | |
 | `Command` | `string { get; }` | RCMD. |
 | `Parameters` | `IReadOnlyDictionary<string, SecsItem> { get; }` | Keyed by CPNAME, ordinal. |
+| `ProcessProgramId` | `string { get; init; }` | PPID, for S7F37 and S7F41. Empty for S2F21 and S2F41, which name no program - and empty means "the host did not say", not a program called the empty string. |
 | `GetText` | `string? GetText(string name)` | The value when present and a text item. |
 | `GetValue<T>` | `T? GetValue<T>(string name) where T : unmanaged, IEquatable<T>` | The first element when present and the width matches. |
 
 The parameter items belong to the incoming S2F41 and are disposed with it. Read them inside the
 handler; do not keep one past the call, and do not dispose one.
+
+**One command table serves four messages** - S2F21, S2F41, S7F37 and S7F41 - because a machine that
+can be told to START has one START whether or not the host mentioned a recipe. Two tables would have
+made the same command name mean two things depending on which stream carried it. A handler that
+does not care about the program may ignore `ProcessProgramId`; the equipment refuses a stream 7
+command naming a program it has not got before any handler runs, so it is never a program the
+machine lacks.
 
 ### `GemRemoteCommand`
 
@@ -851,10 +863,16 @@ are not; without either, stream 7 is unknown and the connection answers S9F3 for
 | --- | --- | --- |
 | `InquireAsync` | `ValueTask<GemProcessProgramGrant> InquireAsync(string id, int length, CancellationToken cancellationToken)` | S7F2 (PPGNT) |
 | `SaveAsync` | `ValueTask<GemProcessProgramAcknowledgement> SaveAsync(string id, ReadOnlyMemory<byte> body, CancellationToken cancellationToken)` | S7F4 (ACKC7) |
-| `LoadAsync` | `ValueTask<ReadOnlyMemory<byte>?> LoadAsync(string id, CancellationToken cancellationToken)` | S7F6; `null` means no such program |
+| `LoadAsync` | `ValueTask<ReadOnlyMemory<byte>?> LoadAsync(string id, CancellationToken cancellationToken)` | S7F6, and **S7F10, S7F32 and the stream 7 commands**; `null` means no such program |
 | `DeleteAsync` | `ValueTask<GemProcessProgramAcknowledgement> DeleteAsync(string id, CancellationToken cancellationToken)` | S7F18 |
 | `DeleteAllAsync` | `ValueTask<GemProcessProgramAcknowledgement> DeleteAllAsync(CancellationToken cancellationToken)` | S7F18, for an S7F17 carrying an empty list |
-| `ListAsync` | `ValueTask<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken)` | S7F20 |
+| `ListAsync` | `ValueTask<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken)` | S7F20 and S7F8 |
+
+**The stream 7 sweep added five messages and not one method here**, which was a constraint on the
+design rather than a happy accident: this interface is public, so a new member breaks every store
+anybody has written. S7F9 compares with `LoadAsync` and the equipment does the comparing; S7F31 and
+the program-related commands ask `LoadAsync` whether a program exists, rather than scanning
+`ListAsync` - a store over a filesystem answers the first for one identifier far more cheaply.
 
 **The body passed to `SaveAsync` is only valid for the length of the call.** It is a window onto the
 message that arrived, and that message is disposed as soon as the handler returns. Copy what you
@@ -1005,6 +1023,12 @@ non-zero member already covered the whole range:
 | `CMDA` | 0-2 | 3-63 | `GemRemoteCommandAcknowledgement.Other` |
 | `GRANT6` | 0-2 | 3-63 | `GemMultiBlockGrant.Other` |
 
+`ACKC7` is read at **four** sites now and `CMDA` at **three**, and both counts matter more than the
+table above: the stream 7 sweep added two `CMDA` readers, a control moved the boundary at one of
+them, and the whole suite stayed green. The same hole `ACKC7` had when one of its three sites was
+driven. Every site is driven now, which is the only check that catches this - a boundary that is
+right in the enum and right in the table and unused in *one* reader passes every comparison.
+
 `GemHost` folds the whole reserved range onto that member and logs the arriving code, which is the
 only place it survives. **Twelve of the first thirteen used to cast the code straight to its
 enum**, so an equipment answering S1F18 with 40 produced an `ONLACK` value with no name and a
@@ -1056,6 +1080,7 @@ established.
 | `AlarmReceived` | `event EventHandler<GemHostAlarmEventArgs>?` | S5F1, before the acknowledgement. |
 | `ExceptionReceived` | `event EventHandler<GemHostExceptionEventArgs>?` | S5F9, before the acknowledgement. Separate from `AlarmReceived` although both are stream 5 and both answer with `ACKC5`: an alarm is a condition with an identifier and a state a host can read back, and an exception post is an occurrence named by free text that nothing will mention again. Arrives already set to `Error` when the body did not read. |
 | `MultiBlockInquired` | `event EventHandler<GemMultiBlockInquiryEventArgs>?` | S6F5, before the grant. **Grants by default**, so a host with no handler says yes - a handshake whose only purpose is to let a host refuse should not refuse by silence. |
+| `ProcessProgramNoticeReceived` | `event EventHandler<GemProcessProgramNoticeEventArgs>?` | S7F29 and S7F39, the only two things a machine says first in stream 7, with `Function` saying which. Neither is spooled by the machine, so a host that was away asks `ReadProcessProgramDirectoryAsync` instead - treat the event as a prompt to look, not as a log. |
 | `TraceDataReceived` | `event EventHandler<GemTraceDataEventArgs>?` | S6F1. The samples are a view into the arriving message and die with the handler. |
 | `TerminalRequestReceived` | `event EventHandler<GemTerminalRequestEventArgs>?` | S10F1 - something an operator typed. There is a person waiting, so a handler that cannot deal with it now should say so in the acknowledgement rather than accept and drop it. |
 | `ErrorReported` | `event EventHandler<GemHostErrorEventArgs>?` | Stream 9. No reply exists to send. |
@@ -1096,6 +1121,12 @@ table claiming it.
 | `InquireProcessProgramAsync(id, length)` | S7F1 | `GemProcessProgramGrant` |
 | `SendProcessProgramAsync(id, body)` | S7F3 | `GemProcessProgramAcknowledgement` |
 | `RequestProcessProgramAsync(id)` | S7F5 | `ReadOnlyMemory<byte>?` - `null` is the zero-length refusal S7F6 uses, because it has no code for one |
+| `ReadProcessProgramDirectoryAsync` | S7F7 | `IReadOnlyList<string>`. The same question `ListProcessProgramsAsync` asks, by the other function number the reference gives it - for a machine that answers S9F5 to S7F19 |
+| `VerifyProcessProgramAsync(id, body)` | S7F9 | `GemProcessProgramAcknowledgement`. **Only `Accepted` means yes**: `ACKC7` has no code for a mismatch, so read anything else as "not verified" rather than as a reason |
+| `IsProcessProgramAvailableAsync(id)` | S7F31 | `GemProcessProgramGrant`. Compare on `AlreadyHave` - `Ok` means "go ahead and send", which answers S7F1 and not this |
+| `SendProgramCommandAsync(programId, command, parameters)` | S7F37, or S7F41 when `parameters` is non-empty | `GemRemoteCommandAcknowledgement`. S2F21 and S2F41 with a program named, narrowed the same way |
+| `VerifyFormattedProcessProgramAsync(program)` | S7F27 | `GemProcessProgramAcknowledgement`. Compares the structure, model name and revision included |
+| `InquireFormattedProcessProgramAsync(id, length)` | S7F33 | `GemProcessProgramGrant`. Cannot answer `NoSpace`: the formatted store declares no capacity |
 | `DeleteProcessProgramsAsync(ids)` | S7F17 | `GemProcessProgramAcknowledgement`. Empty list means every program |
 | `ListProcessProgramsAsync` | S7F19 | `IReadOnlyList<string>` |
 | `SendFormattedProcessProgramAsync(program)` | S7F23 | `GemProcessProgramAcknowledgement` |
@@ -1183,6 +1214,7 @@ that message is disposed as soon as the event returns. Read what you need, or co
 | `GemHostAlarmEventArgs` | `Alarm` | `Acknowledgement` (ACKC5) |
 | `GemHostExceptionEventArgs` | `Exception` - a `GemExceptionPost` of `PostedAt` (null when TIMESTAMP would not parse), `Id`, `Type` and `Message` | `Acknowledgement` (ACKC5), arriving as `Error` when the body did not read |
 | `GemMultiBlockInquiryEventArgs` | `DataId`, `Length` - DATALENGTH as the machine sent it, in whatever it and the host have agreed it counts; the reference records no units | `Grant` (GRANT6), **defaulting to `Ok`** |
+| `GemProcessProgramNoticeEventArgs` | `ProgramId`, `Function` - 29 for a change and 39 for a selection, the bodies being identical - and `IsChange` | `Acknowledgement` (ACKC7), arriving as `NotFound` when the machine named no program |
 | `GemTraceDataEventArgs` | `TraceId`, `SampleNumber` and `SampledAt` (both describing the **last** sample in the group), `Samples` - each a live view, valid only inside the handler | `Acknowledgement` (ACKC6) |
 | `GemTerminalRequestEventArgs` | `TerminalId`, `Text` (not trimmed - TEXT is variable-length, so its spaces are somebody's) | `Acknowledgement` (ACKC10) |
 | `GemHostErrorEventArgs` | `Function`, `OffendingHeader` (ten bytes, copied; empty for S9F13), `Description` (S9F13's MEXP and EDID, else empty) | - |

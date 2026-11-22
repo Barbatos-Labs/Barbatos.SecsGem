@@ -207,6 +207,23 @@ public sealed class GemRemoteCommandContext
     /// <summary>Gets the parameters, keyed by CPNAME. Ordinal comparison, as the wire is bytes.</summary>
     public IReadOnlyDictionary<string, SecsItem> Parameters { get; }
 
+    /// <summary>Gets the PPID the command is about, or an empty string when it is about none.</summary>
+    /// <remarks>
+    /// <para>
+    /// Empty for S2F21 and S2F41, which name no program, and set for S7F37 and S7F41, which are
+    /// the same two messages with a <c>PPID</c> in front. One command table serves all four,
+    /// because a machine that can be told to START has one START whether or not the host mentioned
+    /// a recipe - two tables would have made the same command name mean two things depending on
+    /// which stream carried it.
+    /// </para>
+    /// <para>
+    /// A handler that does not care may ignore it. A handler that does care should treat an empty
+    /// value as "the host did not say", not as a program named by the empty string: the equipment
+    /// refuses a stream 7 command naming a program it has not got before any handler runs.
+    /// </para>
+    /// </remarks>
+    public string ProcessProgramId { get; init; } = string.Empty;
+
     /// <summary>Reads a parameter as text, when it is present and is a text item.</summary>
     /// <param name="name">The CPNAME.</param>
     /// <returns>The value, or <see langword="null"/> when absent.</returns>

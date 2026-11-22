@@ -479,14 +479,93 @@ services.AddSecsGem(builder.Configuration)
 | S7F1 | May I send you this program, this many bytes? | S7F2 (PPGNT) |
 | S7F3 | Here it is | S7F4 (ACKC7) |
 | S7F5 | Send me this one back | S7F6 - PPID and PPBODY, or a zero-length list |
+| S7F7 | What do you have? | S7F8 - the PPID list |
+| S7F9 | Is this body the one you hold? | S7F10 (ACKC7) |
 | S7F17 | Delete these - or all of them, with an empty list | S7F18 (ACKC7) |
 | S7F19 | What do you have? | S7F20 - the PPID list |
+| S7F31 | Do you have this one at all? | S7F32 (PPGNT) |
+| S7F37 | Run this command, about this program | S7F38 (CMDA) |
+| S7F41 | ... and with these parameters | S7F42 (CMDA) |
+
+Five of those are rows the reference **illustrates** rather than defines, and they are here because
+the measurement said so rather than because the table looked copyable. The argument is in
+[`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs),
+and it comes to this: **stream 7 has no gaps at all.** Every name it uses is defined, and two of
+them - `PPGNT` and `ACKC7` - are named by no other stream in the whole reference, so its firm
+ground is its own vocabulary. That is the inverse of the four streams this repository has refused,
+every one of which has gaps *and* nothing of its own. Six of the nine pairs added read their body
+off a documented row in stream 7 itself; the three command pairs borrow `RCMD`, `CPNAME`, `CPVAL`
+and `CMDA` from stream 2, where this library already serves them.
+
+**S7F7 and S7F19 are the same question.** The reference names S7F8 "Process Program Directory Data"
+and S7F20 "Current EPPD Data", and gives both bodies one item: a list of `PPID`. Nothing in it
+tells them apart, so answering them differently would be inventing a distinction - one handler
+serves both, and a host calls whichever the machine on the other end understands.
+
+**S7F9 is the one message in stream 7 that cannot report its own finding.** A verify exists to
+discover that the body you hold is not the body here, and `ACKC7` has no code for that: its seven
+names are acceptance, permission not granted, a length error, matrix overflow, PPID not found, mode
+unsupported and performed later. So equipment written to this library answers `NotFound` for an
+unknown identifier, `LengthError` for a body of the wrong length - which is exactly what it says -
+and `PermissionNotGranted` for one of the right length and the wrong contents, the table's nearest
+word for "I will not confirm that". The comparison is logged, because the code cannot carry it.
+**Treat anything but `Accepted` as "not verified"** rather than reading the reason out of the code:
+another machine may well choose differently.
+
+**S7F31 uses two of `PPGNT`'s six codes and the other four answer S7F1.** The item exists for a
+load grant, so `AlreadyHave` is yes and `InvalidId` is no, while `Ok` means "go ahead and send" -
+an answer to a question nobody asked here. Compare on `AlreadyHave`, not on "anything but a
+refusal". It is also far cheaper than the directory for one identifier: a machine holding several
+hundred recipes answers this with one byte.
+
+**S7F37 and S7F41 are S2F21 and S2F41 with a program named**, and they run the same command table
+for that reason - a machine that can be told to START has one START whether or not the host
+mentioned a recipe. The program reaches a handler as `GemRemoteCommandContext.ProcessProgramId`:
+
+```csharp
+.AddRemoteCommand("START", (context, _) =>
+{
+    // Empty for S2F21 and S2F41, set for the stream 7 pair. A command naming a program the
+    // machine has not got never reaches here - it is refused as CannotPerformNow, because
+    // CMDA 1 would claim the *command* does not exist.
+    var recipe = context.ProcessProgramId;
+
+    return ValueTask.FromResult(GemHostCommandAcknowledgement.Accepted);
+})
+```
+
+Both are declared with the process program capability and not with the core set, although the
+command table they use is the core set's: stream 7 is declared by equipment that manages programs,
+so a machine with no recipes answers S9F3 for the whole stream rather than refusing one function
+of it.
+
+**And two things the machine says first.** Everything else in stream 7 is the host asking, which
+means an operator editing a recipe at the machine is invisible until somebody asks for the
+directory:
+
+```csharp
+await equipment.NotifyProgramChangedAsync("RECIPE-7");    // S7F29
+await equipment.NotifyProgramSelectedAsync("RECIPE-7");   // S7F39
+```
+
+Both return the host's `ACKC7`, or `null` when there was nobody to tell. **Neither is spooled**, and
+that is deliberate: a held "RECIPE-7 changed" would reach a host that can get something strictly
+better by asking, since S7F7 answers with the directory as it is *now*. Reports and alarms are
+spooled because a host reads those as history; these are prompts to look, and a stale prompt is
+worse than none.
 
 **Equipment that calls neither `AddGemProcessPrograms` nor `AddGemFormattedProcessPrograms` does
 not answer stream 7 at all.** The routing table is the declaration of what an entity understands,
 so leaving both out means the connection reports S9F3 - "I do not do stream 7" - which is true and
 useful. Declaring the messages and then refusing every one with an acknowledgement code would be
 neither. That is why `ProcessProgramMessages` is a separate list from `HandledMessages`.
+
+**Four of the rows above are about a program rather than a flavour**, and a stream and function may
+be declared only once - so S7F7, S7F17, S7F19, S7F31, S7F37 and S7F41 live in
+`ProcessProgramMessages` and their handlers consult whichever stores are configured. **A machine
+that offers only formatted recipes and wants them calls both methods.** The sample does, and says
+so; getting this wrong is a T3 timeout rather than an error, because an undeclared function is
+answered with an S9F5 that arrives as a new primary while the host is still waiting for a reply.
 
 **S7F1 exists so a refusal is cheap.** A recipe can be megabytes. The host names the identifier and
 the length first, and the equipment answers on the strength of that:
@@ -516,8 +595,8 @@ commands each with its own parameters. It is a capability of its own:
 services.AddSecsGem(builder.Configuration)
     .UseTcp()
     .AddGemEquipment(model => { /* ... */ })
-    .AddGemProcessPrograms()                     // S7F1, S7F3, S7F5, and S7F17/S7F19 with them
-    .AddGemFormattedProcessPrograms()            // S7F23 and S7F25
+    .AddGemProcessPrograms()                     // the unformatted half, and S7F17/S7F19 with it
+    .AddGemFormattedProcessPrograms()            // S7F23, S7F25, and the verify and inquire
     .RunAsHostedService();
 ```
 
@@ -525,6 +604,20 @@ services.AddSecsGem(builder.Configuration)
 | --- | --- | --- |
 | S7F23 | Here is a structured recipe | S7F24 (ACKC7) |
 | S7F25 | Send that one back | S7F26 - the same four items, or a zero-length list |
+| S7F27 | Is this structure the one you hold? | S7F28 (ACKC7) |
+| S7F33 | May I send you this one? | S7F34 (PPGNT) |
+
+The second pair are S7F9's and S7F1's twins for this half, and each has a difference worth
+knowing. **The verify compares the whole structure** - the model name and the software revision as
+well as the commands - because a program whose commands match but which was written for another
+machine is not the same program, which is the entire reason `MDLN` and `SOFTREV` are in the body.
+And **the inquire cannot refuse on capacity.** `IGemProcessProgramStore` has an `InquireAsync`
+whose purpose is exactly that refusal; `IGemFormattedProcessProgramStore` has none, and adding a
+method would break every store anybody has already written. So `NoSpace`, `Busy` and
+`WillNotAccept` are unreachable at S7F33, a `PPGNT` of `Ok` is not a promise that S7F23 will be
+accepted, and the acknowledgement to *that* message remains the one that decides. `LENGTH` is read
+and discarded: read, because a body that does not carry it is not this message; discarded, because
+acting on it would mean inventing a capacity the store never declared.
 
 The two halves are independent: equipment may offer either, both, or neither. **S7F17 and S7F19
 come with the unformatted half**, because a stream and function may be declared only once and
@@ -830,7 +923,7 @@ not a wall in front of it.
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
-| The rest of stream 7 | Both halves E30 asks for are here: S7F1-S7F6 and S7F17-S7F20 unformatted, S7F23-S7F26 formatted. What is left - the directory pair S7F7/F8, verification S7F9/F10, the matrix messages S7F11 through S7F16, references S7F21/F22, and everything from S7F27 up - is outside the GEM capability, and every one of them is an entry [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) flags as representative: a starting point for reading E5 rather than a definition to implement against. Implementing one means reading the standard first, not copying a table |
+| Six pairs of stream 7 | Sixteen of its twenty-two primaries are here now, and the six that are not were each refused on evidence rather than on provenance. **The matrix family**, S7F11 through S7F16: no item in the reference is named for a matrix, and the only matrix word anywhere is `ACKC7` 3, "Matrix overflow" - a capability's failure mode is not its definition, so what these rows transfer is a vocabulary the source never wrote down. **S7F21/F22**, whose name is the whole of what the reference says about it: a one-item body answered with an `ACKC7` could be made to mean anything, and "reference" is not a transaction. **S7F35/F36**, a directory reply that carries bodies - either the reference abbreviated and it is `PPID` alone, like S7F8 and S7F20, or a directory request returns every formatted program whole, which is not a directory; the two readings put different bytes on the wire. **S7F43/F44**, cancelling a command sent earlier, which needs a register of commands in flight that neither this library nor the reference has. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) |
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
 | The rest of streams 1, 2, 5 and 6 | Nothing, now, of what the reference *documents*: every primary in those four streams that it defines rather than illustrates is implemented here, the last seven of them in one sweep - S1F21, S1F23, S2F21, S2F25, S5F9, S6F3 and S6F5. What is left in them is representative rows, and `s.Provenance` on [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) says which: a starting point for reading E5, not a table to copy. S5F11-S5F18, the exception recovery flow, is the largest single group |
 | A trace that outlives a reconnect | Deliberate, and the only part of tracing with no test of its own. Every trace is cancelled where the host's report definitions are reset, on a re-establish - and an in-memory transport pair cannot re-select after a deselect, because the select is driven by the connection's own state machine and nothing public asks it to. The test covers the other side: that a second S1F13 on a live conversation resets nothing |

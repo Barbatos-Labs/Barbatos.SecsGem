@@ -103,6 +103,18 @@ public class GemReservedAcknowledgementTests
         await DriveAsync(2, 21, 22, "CMDA",
             host => host.SendRemoteCommandAsync("START", GemPair.Token),
             (byte)GemRemoteCommandAcknowledgement.Other);
+
+        // And CMDA is read at three sites now, which the stream 7 sweep discovered the way this
+        // file was built to discover things: a control moved the boundary at one of the two new
+        // ones and the whole suite stayed green. The same hole ACKC7 had, in the same shape - one
+        // site driven, three sites written - so all three are here.
+        await DriveAsync(7, 37, 38, "CMDA",
+            host => host.SendProgramCommandAsync("RECIPE-1", "START", [], GemPair.Token),
+            (byte)GemRemoteCommandAcknowledgement.Other);
+
+        await DriveAsync(7, 41, 42, "CMDA",
+            host => host.SendProgramCommandAsync("RECIPE-1", "START", [("LOTID", "LOT-1")], GemPair.Token),
+            (byte)GemRemoteCommandAcknowledgement.Other);
     }
 
     /// <summary>Drives one reader against a machine that answers <see cref="Reserved"/>.</summary>

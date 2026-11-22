@@ -257,6 +257,14 @@ the row is therefore part of adding the enum, not a follow-up - and folding a re
 existing refusal is not a substitute for the member, because it reports a refusal the machine never
 made.
 
+**So does a new READER of an old item**, which the stream 7 chapter proved the very next turn: CMDA
+had its member and its row in the comparison, and the two new sites that read it were undriven, so
+a control moved the boundary at one of them with the whole suite green. ACKC7 had the same hole
+once, with one of three sites driven. The rule is per site and not per item - `ReadNamedCode` and
+its siblings are easy to grep for, and `GemReservedAcknowledgementTests` is where each new one gets
+a line. The count is in that package's API reference, so a sweep can check it: ACKC7 is read at
+four sites and CMDA at three.
+
 Older files here are **CRLF** where the newer ones are LF, `GemHost.cs` among them. A multi-line
 mini-patch against one of those matches zero times until the patch text is converted, which has now
 cost two chapters a confusing round of "the control found nothing".

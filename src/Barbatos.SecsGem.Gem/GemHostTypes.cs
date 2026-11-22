@@ -469,6 +469,46 @@ public sealed class GemHostExceptionEventArgs : EventArgs
     public GemAlarmAcknowledgement Acknowledgement { get; set; } = GemAlarmAcknowledgement.Accepted;
 }
 
+/// <summary>A process program notice the equipment sent - S7F29 or S7F39.</summary>
+/// <remarks>
+/// The only two messages in stream 7 the machine sends first. Everything else there is the host
+/// asking, so without these a host that did not make a change has no way to learn of one - an
+/// operator editing a recipe at the machine is invisible until somebody asks for the directory.
+/// </remarks>
+public sealed class GemProcessProgramNoticeEventArgs : EventArgs
+{
+    internal GemProcessProgramNoticeEventArgs(string programId, byte function)
+    {
+        ProgramId = programId;
+        Function = function;
+    }
+
+    /// <summary>Gets the PPID, or an empty string when the machine named nothing.</summary>
+    public string ProgramId { get; }
+
+    /// <summary>Gets which notice this was - 29 for a change, 39 for a selection.</summary>
+    /// <remarks>
+    /// The bodies are identical, so this is the only thing that separates them. A program changing
+    /// is about what the store holds; a program being selected is about what the machine will run
+    /// next, and a host may well care about one and not the other.
+    /// </remarks>
+    public byte Function { get; }
+
+    /// <summary>Gets a value indicating whether this notice is about a program changing rather than being selected.</summary>
+    public bool IsChange => Function == 29;
+
+    /// <summary>Gets or sets the ACKC7 to answer with.</summary>
+    /// <remarks>
+    /// Accepted unless a handler says otherwise, and already <c>NotFound</c> when the machine named
+    /// no program at all - the table's nearest word for a notice there is nothing to act on.
+    /// </remarks>
+    public GemProcessProgramAcknowledgement Acknowledgement { get; set; } = GemProcessProgramAcknowledgement.Accepted;
+
+    /// <summary>Returns which notice it was and which program it named.</summary>
+    /// <returns>For example <c>S7F29 RECIPE-7</c>.</returns>
+    public override string ToString() => $"S7F{Function} {ProgramId}";
+}
+
 /// <summary>The equipment asking permission to send something too large for one block - S6F5.</summary>
 /// <remarks>
 /// <para>

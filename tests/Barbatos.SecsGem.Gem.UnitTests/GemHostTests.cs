@@ -122,12 +122,21 @@ public class GemHostTests
         await host.InquireProcessProgramAsync("RECIPE-1", 3, token);
         await host.SendProcessProgramAsync("RECIPE-1", new byte[] { 1, 2, 3 }, token);
         await host.RequestProcessProgramAsync("RECIPE-1", token);
+        await host.ReadProcessProgramDirectoryAsync(token);
+        await host.VerifyProcessProgramAsync("RECIPE-1", new byte[] { 1, 2, 3 }, token);
+        await host.IsProcessProgramAvailableAsync("RECIPE-1", token);
+        await host.SendProgramCommandAsync("RECIPE-1", "START", [], token);
+        await host.SendProgramCommandAsync("RECIPE-1", "START", [("LOTID", "LOT-1")], token);
         await host.ListProcessProgramsAsync(token);
         await host.DeleteProcessProgramsAsync(["RECIPE-1"], token);
         await host.SendFormattedProcessProgramAsync(
             new GemFormattedProcessProgram("SHAPED", "BRBTOS-1", "0.1.0", []),
             token);
         await host.RequestFormattedProcessProgramAsync("SHAPED", token);
+        await host.InquireFormattedProcessProgramAsync("SHAPED", 3, token);
+        await host.VerifyFormattedProcessProgramAsync(
+            new GemFormattedProcessProgram("SHAPED", "BRBTOS-1", "0.1.0", []),
+            token);
         await host.DisplayTerminalMessageAsync("one block", 0, token);
         await host.DisplayTerminalMessageAsync(["two", "blocks"], 0, token);
         await host.BroadcastAsync("everybody", token);
