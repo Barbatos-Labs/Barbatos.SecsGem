@@ -75,6 +75,83 @@ public sealed class ObjectAttribute
     public required SecsItem Value { get; init; }
 }
 
+/// <summary>
+/// How an attribute is compared in an S14F11 query - <c>ATTRRELN</c>, and the eight names are the
+/// table's own.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Nothing here is inferred. <c>ATTRRELN</c> is a <c>U1</c> in the dictionary <em>with a table of
+/// eight values</em>, which is what let this row be served at all: the operator is quoted, and the
+/// last two need no value to compare against.
+/// </para>
+/// <para>
+/// The table names no reserved range, so there is no catch-all member and nothing to fold - the
+/// same position <c>COMMACK</c> is in. A relation this end cannot read is a query it cannot
+/// perform, which is a refusal rather than a value.
+/// </para>
+/// </remarks>
+public enum ObjectAttributeRelation : byte
+{
+    /// <summary>Equal to the value given.</summary>
+    EqualTo = 0,
+
+    /// <summary>Not equal to it.</summary>
+    NotEqualTo = 1,
+
+    /// <summary>Less than it.</summary>
+    LessThan = 2,
+
+    /// <summary>Less than or equal to it.</summary>
+    LessThanOrEqualTo = 3,
+
+    /// <summary>Greater than it.</summary>
+    GreaterThan = 4,
+
+    /// <summary>Greater than or equal to it.</summary>
+    GreaterThanOrEqualTo = 5,
+
+    /// <summary>The object has the attribute at all. Needs no value.</summary>
+    Present = 6,
+
+    /// <summary>The object does not have it. Needs no value.</summary>
+    Absent = 7,
+}
+
+/// <summary>What an S14F11 query is asking - which objects of a type stand in a relation.</summary>
+/// <remarks>
+/// <para>
+/// A filtered instance namelist: S14F15 asks which objects of a type exist, and this asks which of
+/// them have an attribute standing in one of <see cref="ObjectAttributeRelation"/>'s eight
+/// relations to a value. The reply is the specifications that matched and nothing else - S14F12
+/// carries one item, <c>OBJSPEC</c>.
+/// </para>
+/// <para>
+/// <see cref="Value"/> is <see langword="null"/> for <see cref="ObjectAttributeRelation.Present"/>
+/// and <see cref="ObjectAttributeRelation.Absent"/>, which compare against nothing. For the other
+/// six it belongs to the caller on the way out and to the arriving message on the way in, which is
+/// the same contract every <c>ATTRDATA</c> in this package has.
+/// </para>
+/// </remarks>
+public sealed class ObjectRelationRequest
+{
+    /// <summary>Which type of object to look through - <c>OBJTYPE</c>.</summary>
+    public required string ObjectType { get; init; }
+
+    /// <summary>Which attribute to compare - <c>ATTRID</c>.</summary>
+    public required string Attribute { get; init; }
+
+    /// <summary>How to compare it - <c>ATTRRELN</c>.</summary>
+    public required ObjectAttributeRelation Relation { get; init; }
+
+    /// <summary>What to compare against - <c>ATTRDATA</c>. Null for <c>Present</c> and <c>Absent</c>.</summary>
+    public SecsItem? Value { get; init; }
+
+    /// <summary>Returns the query in the order the row carries it.</summary>
+    /// <returns>For example <c>Carrier.SlotCount GreaterThan</c>.</returns>
+    public override string ToString() => $"{ObjectType}.{Attribute} {Relation}";
+}
+
 /// <summary>What a get is asking for - S14F1 and S14F19.</summary>
 /// <remarks>
 /// One type for both, because the only difference is how many objects are named. S14F1 names one

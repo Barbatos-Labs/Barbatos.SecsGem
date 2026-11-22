@@ -81,7 +81,7 @@ public class ObjectHostingTests
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
         Assert.True(provider.GetRequiredService<ObjectServices>().CanAnswer);
-        Assert.Equal(12, ObjectServices.HandledMessages.Count);
+        Assert.Equal(14, ObjectServices.HandledMessages.Count);
 
         foreach (var (stream, function) in ObjectServices.HandledMessages)
         {

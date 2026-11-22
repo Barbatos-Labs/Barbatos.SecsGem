@@ -241,6 +241,16 @@ with gaps, which means **the group measure is spent and what is left needs measu
 Stream 2 has seven gaps and stream 6 four; neither can be done as a batch the way the gapless
 streams could.
 
+**Stream 14 is the worked example of a gap measured per row**, and it is why the rule above is a
+rule rather than a nuisance: it has exactly one undefined name in twenty-eight rows, so two of its
+last three went in and the third did not. Which means an own gap is read twice - once for whether
+the field is defined, and once for **what the field is to the message**. The normal answer is to
+carry it untouched, and three packages here do. It does not apply when the undefined field is the
+one the message turns on: `ENABLE` is the enable-or-disable flag of S14F23, so carrying it opaquely
+would leave the library unable to tell the two apart, which is the same reason stream 21's
+S21F19 stays out on `CHKSUM`. Look at where the gap sits in the row, not just at how many there
+are.
+
 **A refusal's stated reason is part of the API and goes stale like the rest of it.** Both stream 4
 refusals were argued from the message rows when the answer was in the item dictionary: one said a
 transfer job has no state model anywhere in the reference, where `TRJOBMS` names six states; the

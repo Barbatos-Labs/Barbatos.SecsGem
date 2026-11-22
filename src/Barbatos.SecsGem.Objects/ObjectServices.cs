@@ -77,11 +77,13 @@ public sealed class ObjectServices
         (14, 5),    // Create Object Request
         (14, 7),    // Delete Object Request
         (14, 9),    // Object Action Request
+        (14, 11),   // Object Attribute Relation Request
         (14, 13),   // Object Type Namelist Request
         (14, 15),   // Object Instance Namelist Request
         (14, 17),   // Object Attribute Namelist Request
         (14, 19),   // Multi-Object GetAttr Request
         (14, 21),   // Multi-Object SetAttr Request
+        (14, 25),   // Object Error Report Request
         (14, 27),   // Object Multi-Action Request
     ];
 
@@ -228,6 +230,119 @@ public sealed class ObjectServices
         }
 
         return names;
+    }
+
+    // ----------------------------------------------------------- queries and errors
+
+    /// <summary>Finds the objects of a type whose attribute stands in a relation - S14F11.</summary>
+    /// <param name="objectType">OBJTYPE.</param>
+    /// <param name="attribute">ATTRID - which attribute to compare.</param>
+    /// <param name="relation">ATTRRELN.</param>
+    /// <param name="value">ATTRDATA. Ignored for <c>Present</c> and <c>Absent</c>, which compare against nothing.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The <c>OBJSPEC</c> of every object that matched.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="objectType"/> or <paramref name="attribute"/> is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply was not a list of specifications.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>A filtered instance namelist.</strong> S14F15 asks which objects of a type exist;
+    /// this asks which of them have an attribute standing in one of eight relations to a value, and
+    /// S14F12 answers with the specifications and nothing else. For a machine holding several
+    /// hundred carriers that is one transaction where the alternative is one listing and a get per
+    /// object.
+    /// </para>
+    /// <para>
+    /// <c>ATTRRELN</c> arrives with its eight relations tabled in the reference, which is what let
+    /// this row be served. How two <c>ATTRDATA</c> items stand in one of them is this library's
+    /// decision, because that item has no format - numbers as numbers, text ordinally, binaries for
+    /// equality alone, and anything else matches nothing. A provider with an index over its
+    /// attributes overrides <c>IObjectProvider.FindAsync</c> and decides for itself.
+    /// </para>
+    /// <para>
+    /// The value belongs to the caller and is placed in the request, which is disposed with it -
+    /// the same contract every other <c>ATTRDATA</c> this type sends has.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<string>> FindObjectsAsync(
+        string objectType,
+        string attribute,
+        ObjectAttributeRelation relation,
+        SecsItem? value = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(objectType);
+        ArgumentNullException.ThrowIfNull(attribute);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(14, 11, replyExpected: true)
+            {
+                Name = "ObjectAttributeRelationRequest",
+                Item = ObjectCodec.RelationRequestBody(new ObjectRelationRequest
+                {
+                    ObjectType = objectType,
+                    Attribute = attribute,
+                    Relation = relation,
+                    Value = value,
+                }),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!ObjectCodec.TryReadNameList(reply.Item, out var matched))
+        {
+            throw new SecsException("S14F12 did not carry a list of object specifications.");
+        }
+
+        return matched;
+    }
+
+    /// <summary>Asks what is wrong with an object - S14F25, answered by S14F26.</summary>
+    /// <param name="objectSpecification">OBJSPEC.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The error, or <see langword="null"/> when the other end reports none.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="objectSpecification"/> is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply was not an error report.</exception>
+    /// <remarks>
+    /// <para>
+    /// The same <c>ERRCODE</c> and <c>ERRTEXT</c> pair S1F20 carries, so the same type comes back:
+    /// one item means one thing, and a second type for the same two fields would be two ways to
+    /// read one reading. Neither is tabled, so what a code means is between the two ends.
+    /// </para>
+    /// <para>
+    /// <see langword="null"/> is "nothing wrong", which is also what an object the other end holds
+    /// and has nothing to say about reports. An object it does not have at all comes back as an
+    /// error, because that is something a host needs to tell apart from silence.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<ObjectAttributeError?> GetObjectErrorAsync(
+        string objectSpecification,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(objectSpecification);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(14, 25, replyExpected: true)
+            {
+                Name = "ObjectErrorReportRequest",
+                Item = SecsItem.A(objectSpecification).Named("OBJSPEC"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (reply.Item is not { IsList: true, Count: >= 1 } body)
+        {
+            throw new SecsException("S14F26 did not carry an error report.");
+        }
+
+        var code = body[0].Format switch
+        {
+            SecsFormat.U1 => body[0].FirstValueOrDefault<byte>(),
+            SecsFormat.U2 => body[0].FirstValueOrDefault<ushort>(),
+            SecsFormat.U4 => body[0].FirstValueOrDefault<uint>(),
+            _ => 0u,
+        };
+
+        var text = body.Count >= 2 ? ObjectCodec.TryReadText(body[1]) ?? string.Empty : string.Empty;
+
+        return code == 0 && text.Length == 0 ? null : new ObjectAttributeError(code, text);
     }
 
     // ------------------------------------------------------- stream 1's one E39 row
@@ -721,6 +836,56 @@ public sealed class ObjectServices
                 // No OBJACK on S14F2, so an object this end does not have is an empty list. The
                 // asking end reads that as "not here" rather than as a failure.
                 return Reply(2, "GetAttrData", ObjectCodec.GetDataBody(values.Count > 0 ? values[0] : null));
+            }
+
+            case 11:
+            {
+                // A zero-length list for a query this end could not read, which is the refusal
+                // S14F12 has: the row carries one item and no acknowledgement, so "no objects
+                // matched" is the only thing it can say. A relation outside the table reaches here.
+                if (!ObjectCodec.TryReadRelationRequest(transaction.Message.Item, out var query)
+                    || query is null)
+                {
+                    return Empty(12, "ObjectAttributeRelationData", "S14F11");
+                }
+
+                var matched = await provider.FindAsync(query, cancellationToken).ConfigureAwait(false);
+
+                return Reply(12, "ObjectAttributeRelationData", ObjectCodec.NameListBody(matched, "OBJSPEC"));
+            }
+
+            case 25:
+            {
+                var specification = ObjectCodec.TryReadText(transaction.Message.Item);
+
+                if (string.IsNullOrEmpty(specification))
+                {
+                    return Reply(
+                        26,
+                        "ObjectErrorReportData",
+                        ObjectCodec.ErrorReportBody(new ObjectAttributeError(1, "S14F25 named no object")));
+                }
+
+                // An object this provider does not have at all is an error rather than silence,
+                // because a host needs to tell "nothing wrong" from "not here" - and the provider
+                // never has to check that itself, which is why its default can simply report none.
+                // GetAttributesAsync and not GetAttributeNamesAsync, which a sample run found the
+                // hard way: the namelist member takes an object type as well as a specification,
+                // and what it does with an empty one is the provider's business - a composite over
+                // several providers answered for an object nobody held. This member's contract is
+                // the one already written down and already relied on by S14F1: an empty result
+                // means the provider has not got that object.
+                var known = await provider
+                    .GetAttributesAsync(
+                        new ObjectAttributeRequest { Objects = [specification] },
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                var error = known.Count == 0
+                    ? new ObjectAttributeError(1, "no such object")
+                    : await provider.GetErrorAsync(specification, cancellationToken).ConfigureAwait(false);
+
+                return Reply(26, "ObjectErrorReportData", ObjectCodec.ErrorReportBody(error));
             }
 
             case 3:

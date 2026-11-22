@@ -837,6 +837,90 @@ internal static class ObjectCodec
         return SecsItem.L(entries);
     }
 
+    /// <summary>S14F11 - Object Attribute Relation Request.</summary>
+    /// <remarks>
+    /// Four items in the order the row names them. <c>ATTRDATA</c> is a zero-length list for
+    /// <c>Present</c> and <c>Absent</c>, which compare against nothing - the same way every other
+    /// row in this stream says "there is nothing here", since none of them carries a marker for it.
+    /// </remarks>
+    internal static SecsItem RelationRequestBody(ObjectRelationRequest request) => SecsItem.L(
+        SecsItem.A(request.ObjectType).Named("OBJTYPE"),
+        SecsItem.A(request.Attribute).Named("ATTRID"),
+        SecsItem.U1((byte)request.Relation).Named("ATTRRELN"),
+        request.Value ?? SecsItem.L());
+
+    /// <summary>Reads S14F11.</summary>
+    /// <param name="body">The item.</param>
+    /// <param name="request">The query.</param>
+    /// <returns><see langword="false"/> when the body is not four items, or names a relation the table does not.</returns>
+    /// <remarks>
+    /// <strong>A relation outside the table is a refusal and not a fold.</strong> Every other
+    /// acknowledgement reader here folds an unnamed code onto a catch-all, because an
+    /// acknowledgement that cannot be read still has to be reported. This is not an
+    /// acknowledgement - it is the verb of the query - and <c>ATTRRELN</c> names no reserved range
+    /// to fold onto. A query whose relation this end cannot read is a query it cannot perform.
+    /// </remarks>
+    internal static bool TryReadRelationRequest(SecsItem? body, out ObjectRelationRequest? request)
+    {
+        request = null;
+
+        if (body is not { IsList: true, Count: 4 } || body.Items[2].Count == 0)
+        {
+            return false;
+        }
+
+        // U1 on the wire, and tolerant of the wider widths - the tolerance every numeric reader in
+        // this repository has, because a machine that encoded the right value in the wrong width
+        // has still said which relation it meant.
+        var relation = body.Items[2].Format switch
+        {
+            SecsFormat.U1 => body.Items[2].FirstValueOrDefault<byte>(),
+            SecsFormat.U2 => (byte)Math.Min(body.Items[2].FirstValueOrDefault<ushort>(), byte.MaxValue),
+            SecsFormat.U4 => (byte)Math.Min(body.Items[2].FirstValueOrDefault<uint>(), byte.MaxValue),
+            SecsFormat.Binary => body.Items[2].FirstValueOrDefault<byte>(),
+            _ => byte.MaxValue,
+        };
+
+        if (!Enum.IsDefined((ObjectAttributeRelation)relation))
+        {
+            return false;
+        }
+
+        var attribute = TryReadText(body.Items[1]);
+
+        if (string.IsNullOrEmpty(attribute))
+        {
+            return false;
+        }
+
+        var wanted = (ObjectAttributeRelation)relation;
+
+        request = new ObjectRelationRequest
+        {
+            ObjectType = TryReadText(body.Items[0]) ?? string.Empty,
+            Attribute = attribute,
+            Relation = wanted,
+
+            // The two relations that compare against nothing carry nothing, so a value is not read
+            // for them even when one arrived - a Present query with a value in it is still a
+            // Present query, and keeping the value would invite a provider to compare against it.
+            Value = wanted is ObjectAttributeRelation.Present or ObjectAttributeRelation.Absent
+                ? null
+                : body.Items[3],
+        };
+
+        return true;
+    }
+
+    /// <summary>S14F26 - Object Error Report Data.</summary>
+    /// <remarks>
+    /// The same <c>ERRCODE</c> and <c>ERRTEXT</c> pair S1F20 carries, written the same way: zero
+    /// and an empty string are "no error", which is what an object with nothing wrong reports.
+    /// </remarks>
+    internal static SecsItem ErrorReportBody(ObjectAttributeError? error) => SecsItem.L(
+        SecsItem.U4(error?.Code ?? 0).Named("ERRCODE"),
+        SecsItem.A(error?.Text ?? string.Empty).Named("ERRTEXT"));
+
     /// <summary>S1F20 - Attribute Data, with the reason S14F2 has nowhere to put.</summary>
     /// <param name="attributes">The attributes, or an empty list.</param>
     /// <param name="errorCode">ERRCODE. Zero for none.</param>

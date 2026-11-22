@@ -153,9 +153,9 @@ public class ObjectAttributeGetTests
         // Twelve, and exactly one of them outside stream 14. A package that registers object
         // services declares S1F19 with them, which is how a machine with carriers comes to answer
         // it without anybody wiring stream 1 by hand.
-        Assert.Equal(12, ObjectServices.HandledMessages.Count);
+        Assert.Equal(14, ObjectServices.HandledMessages.Count);
         Assert.Equal(((byte)1, (byte)19), Assert.Single(ObjectServices.HandledMessages, m => m.Stream != 14));
-        Assert.Equal(11, ObjectServices.HandledMessages.Count(m => m.Stream == 14));
+        Assert.Equal(13, ObjectServices.HandledMessages.Count(m => m.Stream == 14));
 
         // And it does not collide with the enhanced half of stream 2, which this package also
         // serves: two reaches into other standards' streams, disjoint from each other.

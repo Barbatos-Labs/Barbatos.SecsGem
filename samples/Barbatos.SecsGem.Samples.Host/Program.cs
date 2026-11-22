@@ -2343,6 +2343,42 @@ internal static class Program
                 _ => { },
                 cancellationToken);
 
+            // S14F11 asks which objects stand in a relation, where S14F15 only asks which exist.
+            // ATTRRELN arrives with its eight relations tabled, which is what let the row be
+            // served - and Present compares against nothing, which is the only way to ask whether
+            // an attribute is there at all.
+            var withSetpoint = await objects.FindObjectsAsync(
+                ChamberType,
+                "Setpoint",
+                ObjectAttributeRelation.Present,
+                cancellationToken: cancellationToken);
+
+            Console.WriteLine($"   S14F11 -> {withSetpoint.Count} object(s) have a setpoint at all");
+            ok &= withSetpoint.Contains(ChamberObject);
+
+            using (var zero = SecsItem.F8(0d))
+            {
+                var above = await objects.FindObjectsAsync(
+                    ChamberType,
+                    "Setpoint",
+                    ObjectAttributeRelation.GreaterThan,
+                    zero,
+                    cancellationToken);
+
+                Console.WriteLine($"   S14F11 -> {above.Count} above zero");
+                ok &= above.Contains(ChamberObject);
+            }
+
+            // And what is wrong with an object. The same ERRCODE and ERRTEXT pair S1F20 carries,
+            // so the same type comes back - one item means one thing. Null is nothing wrong.
+            Console.WriteLine(
+                $"   S14F25 -> {(await objects.GetObjectErrorAsync(ChamberObject, cancellationToken))?.ToString() ?? "nothing wrong"}");
+
+            var missing = await objects.GetObjectErrorAsync("CHAMBER-NONE", cancellationToken);
+
+            Console.WriteLine($"   S14F25 -> {missing}");
+            ok &= missing is not null;
+
             var acknowledgement = await objects.SetAttributesAsync(
                 ChamberObject,
                 ChamberType,

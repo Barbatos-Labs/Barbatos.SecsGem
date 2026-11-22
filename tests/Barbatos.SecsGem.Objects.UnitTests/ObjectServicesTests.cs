@@ -434,6 +434,15 @@ public class ObjectServicesTests
         // say why it failed.
         await pair.Asker.GetAttributeAsync("Carrier", "CAR-001", ["LotId"], _ => { }, ObjectPair.Token);
 
+        // The relational query and the error report, the stream's last two pairs.
+        await pair.Asker.FindObjectsAsync(
+            "Carrier",
+            "SlotCount",
+            ObjectAttributeRelation.Present,
+            cancellationToken: ObjectPair.Token);
+
+        await pair.Asker.GetObjectErrorAsync("CAR-001", ObjectPair.Token);
+
         await pair.Asker.SetAttributesAsync(
             "CAR-001",
             "Carrier",

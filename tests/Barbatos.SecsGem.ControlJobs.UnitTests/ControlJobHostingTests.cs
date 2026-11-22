@@ -81,9 +81,9 @@ public class ControlJobHostingTests
         // used to say "the stream 14 primaries and nothing else", which was true of eleven rows
         // and never of the enhanced half of stream 2 this package also serves - the claim that
         // matters is the one below, that nothing here reaches into another standard's stream.
-        Assert.Equal(12, ObjectServices.HandledMessages.Count);
+        Assert.Equal(14, ObjectServices.HandledMessages.Count);
         Assert.Single(ObjectServices.HandledMessages, message => message.Stream == 1);
-        Assert.Equal(11, ObjectServices.HandledMessages.Count(message => message.Stream == 14));
+        Assert.Equal(13, ObjectServices.HandledMessages.Count(message => message.Stream == 14));
         Assert.False(router.TryGetHandler(3, 17, out _));
         Assert.IsType<ControlJobObjectProvider>(provider.GetRequiredService<IObjectProvider>());
     }

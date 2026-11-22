@@ -1281,7 +1281,16 @@ internal static class Program
         // create, delete and the two actions - and S1F19, stream 1's one E39 row. That row is here
         // rather than in the GEM package because its items are stream 14's, and it is served rather
         // than refused as a duplicate of S14F1 because its reply can say why it failed.
-        Assert(ObjectServices.HandledMessages.Count == 12, $"the stream declares {ObjectServices.HandledMessages.Count} primaries, not twelve");
+        Assert(ObjectServices.HandledMessages.Count == 14, $"the stream declares {ObjectServices.HandledMessages.Count} primaries, not fourteen");
+
+        Assert(
+            ObjectServices.HandledMessages.Contains(((byte)14, (byte)11))
+                && ObjectServices.HandledMessages.Contains(((byte)14, (byte)25)),
+            "the packed object services lost the attribute query or the error report");
+
+        Assert(
+            !ObjectServices.HandledMessages.Contains(((byte)14, (byte)23)),
+            "the packed object services declares S14F23, whose ENABLE has no definition at all");
 
         Assert(
             ObjectServices.HandledMessages.Contains(((byte)1, (byte)19)),

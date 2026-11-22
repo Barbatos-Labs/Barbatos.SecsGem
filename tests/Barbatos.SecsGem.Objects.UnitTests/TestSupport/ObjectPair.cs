@@ -5,6 +5,7 @@
 
 using System.Collections.Concurrent;
 using Barbatos.SecsGem.Hsms;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Barbatos.SecsGem.Objects.UnitTests;
@@ -87,7 +88,8 @@ internal sealed class ObjectPair : IAsyncDisposable
     public static ObjectPair Start(
         ObjectInMemoryProvider? provider = null,
         Func<SecsTransaction, SecsMessage?>? answer = null,
-        IObjectProvider? askerProvider = null)
+        IObjectProvider? askerProvider = null,
+        ILogger<ObjectServices>? answererLogger = null)
     {
         var options = new SecsGemOptions
         {
@@ -152,7 +154,7 @@ internal sealed class ObjectPair : IAsyncDisposable
         var answererLink = new HsmsConnection(options, passive, answererRoutes.Build(), clock);
 
         pendingAsker = new ObjectServices(askerLink, askerProvider);
-        pendingAnswerer = new ObjectServices(answererLink, objects);
+        pendingAnswerer = new ObjectServices(answererLink, objects, answererLogger);
 
         return new ObjectPair(
             active,

@@ -46,6 +46,8 @@ no state, no timer, nothing to release.
 | `GetAttributeNamesAsync` | `ValueTask<IReadOnlyList<string>> GetAttributeNamesAsync(string objectSpecification, string objectType, CancellationToken = default)` | S14F17. An empty specification asks about the type. |
 | `GetAttributesAsync` | `ValueTask<bool> GetAttributesAsync(string objectSpecification, string objectType, IReadOnlyList<string> attributes, Action<ObjectAttributeValues> read, CancellationToken = default)` | S14F1. `false` means the other end does not have that object - and that is all it can mean, because S14F2 carries no acknowledgement. |
 | `GetAttributeAsync` | `ValueTask<ObjectAttributeError?> GetAttributeAsync(string objectType, string objectId, IReadOnlyList<string> attributes, Action<ObjectAttributeValues> read, CancellationToken = default)` | S1F19, **stream 1's one E39 row**. `null` means no error. Not a duplicate of S14F1: its reply carries an `ERRCODE` and an `ERRTEXT`, which makes it the only attribute get in the reference that can say *why* - where S14F2 can only send an empty list. Names its object with an `OBJID` where S14F1 uses an `OBJSPEC`, and this package does not reconcile them. |
+| `FindObjectsAsync` | `ValueTask<IReadOnlyList<string>> FindObjectsAsync(string objectType, string attribute, ObjectAttributeRelation relation, SecsItem? value = null, CancellationToken = default)` | S14F11 - a filtered instance namelist. `ATTRRELN` arrives with its eight relations tabled, which is what let the row be served; how two `ATTRDATA` items stand in one is this library's decision and the package README tabulates it. The value is ignored for `Present` and `Absent`, and belongs to the caller. **S14F12 has no acknowledgement**, so a query this end could not read is the same empty list as one that matched nothing - the machine logs which. |
+| `GetObjectErrorAsync` | `ValueTask<ObjectAttributeError?> GetObjectErrorAsync(string objectSpecification, CancellationToken = default)` | S14F25. `null` means nothing wrong, which is also what a provider keeping no errors reports. An object the other end does not have at all comes back as an error, because a host needs to tell that from silence. The same `ERRCODE`/`ERRTEXT` pair S1F20 carries, so the same type - one item means one thing. |
 | `GetAttributesAsync` | `ValueTask<int> GetAttributesAsync(IReadOnlyList<string> objectSpecifications, IReadOnlyList<string> attributes, Action<ObjectAttributeValues> read, CancellationToken = default)` | S14F19. Returns how many objects came back. |
 | `SetAttributesAsync` | `ValueTask<ObjectAcknowledgement> SetAttributesAsync(string objectSpecification, string objectType, IReadOnlyList<ObjectAttribute> attributes, CancellationToken = default)` | S14F3. |
 | `SetAttributesAsync` | `ValueTask<IReadOnlyList<ObjectSetResult>> SetAttributesAsync(IReadOnlyList<string> objectSpecifications, IReadOnlyList<ObjectAttribute> attributes, CancellationToken = default)` | S14F21. One result per object. |
@@ -75,6 +77,8 @@ live. Each is awaited inside a transaction, so none should take long.
 | `GetInstancesAsync` | `ValueTask<IReadOnlyList<string>> GetInstancesAsync(string objectType, CancellationToken)` | S14F15 |
 | `GetAttributeNamesAsync` | `ValueTask<IReadOnlyList<string>> GetAttributeNamesAsync(string objectSpecification, string objectType, CancellationToken)` | S14F17 |
 | `GetAttributesAsync` | `ValueTask<IReadOnlyList<ObjectAttributeValues>> GetAttributesAsync(ObjectAttributeRequest, CancellationToken)` | S14F1, S14F19 **and S1F19** - one provider method for all three, since what they ask for is the same thing |
+| `FindAsync` | `ValueTask<IReadOnlyList<string>> FindAsync(ObjectRelationRequest, CancellationToken)` | S14F11. **Has a default**, which answers the query out of `GetInstancesAsync` and `GetAttributesAsync` - so every provider already written gets it for nothing, and one with an index over its attributes overrides it and does the work where the work is cheap |
+| `GetErrorAsync` | `ValueTask<ObjectAttributeError?> GetErrorAsync(string objectSpecification, CancellationToken)` | S14F25. **Has a default** reporting none, which is the honest answer from a provider that keeps no errors. An object the provider does not have is answered by `ObjectServices` and never reaches here |
 | `SetAttributesAsync` | `ValueTask<IReadOnlyList<ObjectSetResult>> SetAttributesAsync(ObjectAttributeWrite, CancellationToken)` | S14F3 and S14F21 |
 | `ActAsync` | `ValueTask<IReadOnlyList<ObjectActionResult>> ActAsync(ObjectActionRequest, CancellationToken)` | S14F9 and S14F27. Default: an empty list, read as "no object of mine". |
 | `CreateAsync` | `ValueTask<ObjectCreateResult> CreateAsync(ObjectCreateRequest, CancellationToken)` | S14F5. Default: `InvalidObjectType`. |
@@ -140,6 +144,28 @@ the rest.
 Ownership, in two rules: a value you hand this library becomes the library's and is disposed with
 the message it travels in; a value this library hands you is a live view that ends when the call
 returns. The one place the library copies a value for you is the echo in a set reply, which has to.
+
+### `ObjectAttributeRelation`
+
+`enum : byte` - `ATTRRELN`, and the eight names are the table's own: `EqualTo = 0`,
+`NotEqualTo = 1`, `LessThan = 2`, `LessThanOrEqualTo = 3`, `GreaterThan = 4`,
+`GreaterThanOrEqualTo = 5`, `Present = 6`, `Absent = 7`.
+
+The last two compare against nothing, so a query using them carries no value. The table names no
+reserved range, so there is **no catch-all member and nothing to fold** - the same position
+`COMMACK` is in, and the reason a relation outside the table is a refusal rather than a value: a
+query whose relation cannot be read is a query that cannot be performed.
+
+---
+
+### `ObjectRelationRequest`
+
+`public sealed class` - what an S14F11 query is asking. `ObjectType` (`required string`),
+`Attribute` (`required string`), `Relation` (`required ObjectAttributeRelation`) and `Value`
+(`SecsItem?`, null for `Present` and `Absent`), with a `ToString()` of `Carrier.SlotCount
+GreaterThan`.
+
+---
 
 ### `ObjectAttributeRequest`
 

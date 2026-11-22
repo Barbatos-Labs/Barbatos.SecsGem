@@ -415,11 +415,77 @@ One provider method serves all three gets, because what they ask for is the same
 differs is how the row names its object - an `OBJID` here, an `OBJSPEC` on stream 14 - and this
 package does not reconcile them: a provider sees whichever string arrived.
 
+## Asking which objects, rather than which attributes
+
+S14F15 asks which objects of a type exist. **S14F11 asks which of them stand in a relation** - and
+for a machine holding several hundred carriers that is one transaction where the alternative is a
+listing and a get per object:
+
+```csharp
+using var twenty = SecsItem.U1(20);
+
+var roomy = await objects.FindObjectsAsync(
+    "Carrier",
+    "SlotCount",
+    ObjectAttributeRelation.GreaterThan,
+    twenty);
+
+// And the two relations that compare against nothing:
+var unmapped = await objects.FindObjectsAsync("Carrier", "SlotMap", ObjectAttributeRelation.Absent);
+```
+
+**What let this row in is that `ATTRRELN` arrives with its table**: eight relations, quoted -
+equal, not equal, the four orderings, and present and absent. The operator is the verb of the
+query, so a table for it is the difference between a message that can be served and one that
+cannot.
+
+**How two values stand in a relation is this library's decision**, because `ATTRDATA` has no format
+of its own, and it is worth knowing before you rely on it:
+
+| Both values are | Compared |
+| --- | --- |
+| numbers, any widths | as numbers - a `U1` of 25 is greater than a `U4` of 13 |
+| text | ordinally, which is this repository's comparison for everything off a wire |
+| binaries | for equality of their bytes, and no ordering |
+| anything else | nothing matches - including equality |
+
+An attribute the object has not got matches no value relation at all, **"not equal to" included**:
+an object with no slot count is not an object whose slot count differs. A provider with an index
+over its attributes overrides `IObjectProvider.FindAsync` and decides all of this for itself; the
+default answers the query out of `GetInstancesAsync` and `GetAttributesAsync`, so every provider
+already written gets it for nothing.
+
+**S14F12 has no acknowledgement**, which is worth saying twice: a query this end could not read
+comes back as the same zero-length list as a query that matched nothing. The machine logs which it
+was, and that log is the only place the difference exists.
+
+## What is wrong with an object
+
+```csharp
+var error = await objects.GetObjectErrorAsync("CAR-001");   // null means nothing wrong
+```
+
+S14F25 and S14F26 carry the same `ERRCODE` and `ERRTEXT` pair S1F20 does, so **the same type comes
+back from both**: one item means one thing, and a second type for the same two fields would be two
+ways to read one reading. Neither is tabled, so what a code means is between the two ends.
+
+An object this end holds and has nothing to say about reports nothing, which is also the provider
+default. **An object it does not have at all is an error**, because a host needs to tell that from
+silence - and `ObjectServices` answers it, so a provider never has to check.
+
 ## What is not here yet
 
-- **S14F11 and S14F12** (attribute relations) and **S14F23 to S14F26** (attribute enable, object
-  error reports). All representative in the catalogue, and `ENABLE` among them has no definition at
-  all - which is reason enough to leave S14F23 alone until a machine needs it.
+- **S14F23 and S14F24**, the attribute enable. `ENABLE` is stream 14's **one** undefined name - the
+  smallest gap of any stream with work left in it - and it is the field this message turns on.
+  An own gap is normally carried untouched, which is the rule three packages here keep; it does not
+  apply when the undefined field is the one the message is *for*, because carrying it opaquely
+  would leave this library unable to tell an enable from a disable. The same reason stream 21's
+  S21F19 stays out on `CHKSUM`, and worse than that one: `ENABLE` has no dictionary entry at all,
+  so implementing the row would mean inventing its format as well as its meaning. Every other item
+  in that row is defined and already served here, which is what makes this about one name rather
+  than about the row.
+  [`SecsCatalogStream14Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream14Tests.cs)
+  pins it.
 - **An `OBJSPEC` parser.** E39 gives the object specifier a syntax - a type and an identifier, and
   a path when objects nest - and everything here treats it as an opaque string, which is what the
   catalogue's `OBJSPEC|A|` licenses and no more. A fab whose hierarchy needs parsing does it in its

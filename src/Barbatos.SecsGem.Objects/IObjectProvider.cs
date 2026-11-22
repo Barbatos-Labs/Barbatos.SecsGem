@@ -96,6 +96,52 @@ public interface IObjectProvider
         CancellationToken cancellationToken)
         => ValueTask.FromResult<IReadOnlyList<ObjectActionResult>>([]);
 
+    /// <summary>Finds the objects of a type whose attribute stands in a relation - S14F11.</summary>
+    /// <param name="request">The query.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The <c>OBJSPEC</c> of every object that matched, in whatever order the provider keeps them.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The default answers the query out of the three members above</strong>, so every
+    /// provider already written gets this for nothing: it lists the instances of the type, reads
+    /// the attribute from each, and compares. A provider with an index over its attributes - a
+    /// database, most likely - overrides it and does the work where the work is cheap.
+    /// </para>
+    /// <para>
+    /// <strong>How the comparison works is this library's decision and not the reference's</strong>,
+    /// because <c>ATTRDATA</c> has no format of its own: two numeric items are compared as numbers
+    /// whatever their widths, two text items ordinally, and anything else is compared only for
+    /// equality - a list is equal to a list that encodes the same way and stands in no ordering at
+    /// all. A provider that means something else by "less than" overrides this.
+    /// </para>
+    /// </remarks>
+    ValueTask<IReadOnlyList<string>> FindAsync(
+        ObjectRelationRequest request,
+        CancellationToken cancellationToken)
+        => ObjectRelations.FindAsync(this, request, cancellationToken);
+
+    /// <summary>Says what is wrong with an object - S14F25.</summary>
+    /// <param name="objectSpecification">Which object - <c>OBJSPEC</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The error, or <see langword="null"/> when there is none.</returns>
+    /// <remarks>
+    /// <para>
+    /// The default reports none, which is the honest answer from a provider that keeps no errors:
+    /// an object this provider holds and has nothing to say about is an object with nothing wrong
+    /// with it. <c>ObjectServices</c> turns an object the provider does not have at all into an
+    /// error of its own, so a provider never has to check that.
+    /// </para>
+    /// <para>
+    /// <c>ERRCODE</c> and <c>ERRTEXT</c> are untabled in the reference, so what a code means is
+    /// between the two ends and nothing here interprets one. The same pair S1F20 carries, read the
+    /// same way - which is why one type serves both.
+    /// </para>
+    /// </remarks>
+    ValueTask<ObjectAttributeError?> GetErrorAsync(
+        string objectSpecification,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult<ObjectAttributeError?>(null);
+
     /// <summary>Makes an object - S14F5.</summary>
     /// <param name="request">What kind, and what it should start out as.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
