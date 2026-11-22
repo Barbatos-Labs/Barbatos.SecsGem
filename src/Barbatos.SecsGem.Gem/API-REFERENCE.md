@@ -1049,9 +1049,17 @@ eyes, and the item's table is the only second pair there is.
 across would read a machine's reserved 3 as a refusal it never made.
 
 **Two acknowledgements are read without that fold, and deliberately.** `COMMACK` names both its
-codes and reserves nothing. `TRACK` has no table of values at all - so
-`GemTraceAcknowledgement`'s six members come from E30's prose rather than from the dictionary, and
-there is no reserved range to fold.
+codes and reserves nothing. S2F24's `TIAACK` names two, accepted and denied, and reserves nothing
+either - so `GemTraceAcknowledgement`'s six members are a **disagreement** with the dictionary
+rather than a gap in it, taken from E30's prose, and there is no reserved range to fold. A machine
+built to the dictionary answers 1 for every denial, which this package would report as
+`TooManyVariables`: the six names are trustworthy only from a machine built to E30, and what is
+safe either way is that non-zero means denied.
+
+That paragraph used to name `TRACK`, which is a different item - an `A[n]` in streams 4 and 17,
+where it is a *transfer* acknowledgement. Everything the paragraph said was true of `TRACK` and
+none of it was about S2F24, and the test asserting it passed for four chapters because the wrong
+item exists. The stream 4 sweep found it by asking which streams name `TRACK`.
 
 Both halves are tested: one file compares each enum's boundary with its item's table, and another
 makes a machine answer 40 and drives every reader that can meet one. The comparison alone would

@@ -1154,13 +1154,25 @@ internal static class Program
             !equipmentRouter.TryGetHandler(3, 5, out _),
             "the equipment claimed S3F5, which is a message it is the one that sends");
 
-        // Stream 4's handoff, which is neither end of anything: the same nine primaries are
-        // declared wherever AddMaterialHandoff is called, and this end also sends all nine.
+        // Stream 4's handoff, which is neither end of anything: the same seventeen primaries are
+        // declared wherever AddMaterialHandoff is called, and this end also sends all seventeen.
+        // Two protocols in one type - the interlocked handshake's nine and the handoff protocol's
+        // eight - with disjoint function numbers.
         _ = equipmentProvider.GetRequiredService<MaterialHandoff>();
 
         Assert(
-            MaterialHandoff.HandledMessages.Count == 9,
-            $"the packed handoff declares {MaterialHandoff.HandledMessages.Count} primaries, not all nine of stream 4");
+            MaterialHandoff.HandledMessages.Count == 17,
+            $"the packed handoff declares {MaterialHandoff.HandledMessages.Count} primaries, not all seventeen of stream 4");
+
+        Assert(
+            MaterialHandoff.HandledMessages.Contains(((byte)4, (byte)27))
+                && MaterialHandoff.HandledMessages.Contains(((byte)4, (byte)41)),
+            "the packed handoff is missing the handoff protocol, so only the interlocked handshake came out of the package");
+
+        Assert(
+            !MaterialHandoff.HandledMessages.Contains(((byte)4, (byte)19))
+                && !MaterialHandoff.HandledMessages.Contains(((byte)4, (byte)25)),
+            "the packed handoff declares a transfer job row, which stays out on TRACK");
 
         foreach (var (stream, function) in MaterialHandoff.HandledMessages)
         {

@@ -78,22 +78,36 @@ waiting on. A host that subscribes to nothing still answers every report with `A
 
 ### `MaterialHandoff`
 
-`public sealed class`. Stream 4's interlocked handoff, S4F1 to S4F18. **Not an end of anything**:
-the catalogue marks all eleven rows as travelling either way, because the two parties are a sender
-and a receiver of material rather than a host and a machine. Both ends of a link construct one and
-declare the same nine primaries.
+`public sealed class`. Stream 4's two protocols: the interlocked handoff of S4F1 to S4F18 and the
+handoff protocol of S4F27 to S4F41. **Not an end of anything**: the catalogue marks every row of
+both as travelling either way, because the two parties are a sender and a receiver of material
+rather than a host and a machine. Both ends of a link construct one and declare the same seventeen
+primaries.
 
 | Member | Signature | Notes |
 | --- | --- | --- |
 | constructor | `MaterialHandoff(HsmsConnection, ILogger<MaterialHandoff>? = null)` | |
-| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)>` | Nine: S4F1, F3, F5, F7, F9, F11, F13, F15, F17. The only list here that is both what a type sends and what it answers. |
+| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)>` | Seventeen: the handshake's S4F1, F3, F5, F7, F9, F11, F13, F15, F17 and the protocol's S4F27, F29, F31, F33, F35, F37, F39, F41. Disjoint function numbers, so the two protocols cannot be confused for each other. The only list here that is both what a type sends and what it answers. |
 | `HandoffReported` | `event EventHandler<MaterialHandoffEventArgs>?` | Every step this end is told about, including the two it answers. Raised **before** `AnswerOffer` or `AnswerRequest` is consulted, and a test pins that order - so it carries what arrived, not what this end did about it. A handler that wants both records them in the answer delegate, the one place both exist at once. |
 | `AnswerOffer` | `Func<byte, string, MaterialSendAcknowledgement> { get; set; }` | What S4F2 says. Accepts by default. A delegate rather than a member on `IMaterialSource`, which would break every implementation of it - and an offer is not a question about what material this machine holds. |
 | `AnswerRequest` | `Func<byte, string, MaterialReceiveAcknowledgement> { get; set; }` | What S4F18 says. Grants by default. |
 | `OfferAsync` | `ValueTask<MaterialSendAcknowledgement> OfferAsync(byte portId, string materialId, CancellationToken = default)` | S4F1, answered by S4F2. Throws `SecsException` when the reply carries no `RSACK`. |
 | `RequestMaterialAsync` | `ValueTask<MaterialReceiveAcknowledgement> RequestMaterialAsync(byte portId, string materialId, CancellationToken = default)` | S4F17, answered by S4F18. |
 | `ReportAsync` | `ValueTask ReportAsync(MaterialHandoffStep step, byte portId, string materialId, CancellationToken = default)` | The other seven, **posted**: E5 gives them no secondary. `ArgumentOutOfRangeException` for the two that are answered. |
+| `HandoffLinkAnnounced` | `event EventHandler<MaterialHandoffAnnouncementEventArgs>?` | S4F27. Its own event because it is the one row of the eight that carries a descriptor rather than acting on a link already named. A descriptor with no `TRLINK` is dropped with a logged reason rather than raised under an empty name. |
+| `HandoffLinkReported` | `event EventHandler<MaterialHandoffLinkEventArgs>?` | S4F29 to S4F41. Seven rows and four shapes, so which members are populated depends on `Notice` - that type lists which. No acknowledgement to set: none of the seven is answered. |
+| `AnnounceLinkAsync` | `ValueTask AnnounceLinkAsync(MaterialHandoffLink, CancellationToken = default)` | S4F27, **posted**. Where a `TRLINK` comes from. `ArgumentException` when the link names nothing. |
+| `SendCommandAsync` | `ValueTask SendCommandAsync(string link, uint index, string command, IReadOnlyList<(string, string)> parameters, CancellationToken = default)` | S4F29, posted. No command set is defined here: `HOCMDNAME` is tabled nowhere, so what a handoff understands is between the two ends. |
+| `ReportCommandCompleteAsync` | `ValueTask ReportCommandCompleteAsync(string link, uint index, MaterialHandoffAcknowledgement, CancellationToken = default)` | S4F31, posted. Carries the index back. |
+| `ReportVerifiedAsync` | `ValueTask ReportVerifiedAsync(string link, MaterialHandoffAcknowledgement, uint errorCode = 0, string errorText = "", CancellationToken = default)` | S4F33, posted. The one row that can say why, since `HOACK` cannot. |
+| `RequestCancelAsync` | `ValueTask RequestCancelAsync(string link, CancellationToken = default)` | S4F35, posted. Answered by the other end's `AcknowledgeCancelAsync`. |
+| `AcknowledgeCancelAsync` | `ValueTask AcknowledgeCancelAsync(string link, MaterialHandoffAcknowledgement, CancellationToken = default)` | S4F37, posted - a primary of its own, because S4F35 has no secondary. |
+| `RequestHaltAsync` | `ValueTask RequestHaltAsync(string link, CancellationToken = default)` | S4F39, posted. The reference gives this stream two ways to stop, names them differently and says nothing about the difference, so both are carried and neither is defined. |
+| `AcknowledgeHaltAsync` | `ValueTask AcknowledgeHaltAsync(string link, MaterialHandoffAcknowledgement, CancellationToken = default)` | S4F41, posted. |
 | `HandleAsync` | `ValueTask HandleAsync(SecsTransaction, CancellationToken = default)` | |
+
+Every one of the eight new methods throws `ArgumentException` for an empty link: the link is the
+whole of the identity in all of them, so a message without it could never be followed up.
 
 ## The inventory
 
@@ -197,6 +211,54 @@ no reason, as most of this stream's do.
 `MaterialId` (`string`, empty when the sender named none), and `ToString()` -
 `ReadyToSend port 1 (LOT-7)`.
 
+### `MaterialHandoffRole`
+
+`enum` - `TRROLE`, and the two names are the table's own: `Other = 0`, `Source = 1`,
+`Destination = 2`. The item is an `A` that arrives **with** a table, so the wire carries the word
+SOURCE or DESTINATION and this package compares it ordinally. `Other` is first so that a descriptor
+nobody set a role on reads as unknown: which end is holding the material is not something to
+default.
+
+### `MaterialHandoffAcknowledgement`
+
+`enum : byte` - `Accepted = 0`, `Refused = 1`. **One enum for three items** - `HOACK`,
+`HOCANCELACK` and `HOHALTACK` - which are `B[1]` with no table of values between them, so there is
+nothing for three enums to disagree about. Zero is read off this stream's own `RSACK` and `RRACK`;
+every non-zero code is a refusal the reference names no reason for, and the arriving code is logged.
+Not called `Other`, as this package's catch-alls are: those sit above a table's named codes and
+this sits above nothing.
+
+### `MaterialHandoffNotice`
+
+`enum` - which step of the handoff protocol, valued by its own function number: `Command = 29`,
+`CommandComplete = 31`, `Verified = 33`, `CancelReady = 35`, `CancelReadyAcknowledge = 37`,
+`Halt = 39`, `HaltAcknowledge = 41`. S4F27 is not here and has an event of its own. Disjoint from
+`MaterialHandoffStep` by construction, and a test says so.
+
+### `MaterialHandoffLink`
+
+`sealed class`. The nine items S4F27 carries: `Link` (`required string`, the `TRLINK` every later
+message addresses), `EquipmentName`, `ObjectName`, `ObjectType`, `Port`, `Role`
+(`MaterialHandoffRole`), `PartnerName`, `PartnerPort`, `Location`, and `ToString()` -
+`LINK-1 Source EQ1:LP1 -> AGV3:ARM`.
+
+`Port` is text where the interlocked handshake's `PTN` is a `U1`. The two halves of stream 4 name a
+port differently and this package does not reconcile them, because the reference does not: a
+`TRPORT` of "LP1" has no `PTN`.
+
+### `MaterialHandoffAnnouncementEventArgs`
+
+`sealed class : EventArgs`. `Link` (`required MaterialHandoffLink`) and `ToString()`.
+
+### `MaterialHandoffLinkEventArgs`
+
+`sealed class : EventArgs`. `Notice` (`required MaterialHandoffNotice`), `Link`
+(`required string`, always set), and then whichever of `Index`, `CommandName`, `Parameters`,
+`Acknowledgement`, `ErrorCode` and `ErrorText` the row carries - the type's own documentation lists
+which per notice. `Parameters` is `IReadOnlyList<(string Name, string Value)>` and **outlives the
+handler**, unlike GEM's remote command parameters: `CPVAL` is an `A` here, so there is no format to
+preserve and nothing borrowed from the arriving message.
+
 ### `MaterialLocationEventArgs`
 
 `sealed class : EventArgs`. `Material` (`required MaterialLocation`) and `Acknowledgement`
@@ -222,7 +284,7 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBui
 | `AddMaterialEquipment()` | `MaterialEquipment`, `MaterialInMemorySource` as `IMaterialSource`, and handlers for S3F1, F3, F9, F11, F15. |
 | `AddMaterialEquipment<TSource>()` | The same with an inventory of your own. `TryAdd`, so an `IMaterialSource` already registered wins. |
 | `AddMaterialHost()` | `MaterialHost` and handlers for S3F5, F7, F13, F35. |
-| `AddMaterialHandoff()` | `MaterialHandoff` and handlers for all nine of S4F1 to S4F17. **Both ends call this one**, and it composes with either of the two above - stream 3 and stream 4 share no declaration. |
+| `AddMaterialHandoff()` | `MaterialHandoff` and handlers for all seventeen - S4F1 to S4F17 and S4F27 to S4F41. **Both ends call this one**, and it composes with either of the two above: stream 3 and stream 4 share no declaration. |
 
 Either called twice is harmless: the messages go in through the builder's `DeclareOnce`, which
 declares a capability's set once however many times it is asked for.

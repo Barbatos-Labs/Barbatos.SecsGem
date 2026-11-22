@@ -1694,7 +1694,7 @@ public sealed class GemHost : IAsyncDisposable
     /// </para>
     /// <para>
     /// <c>COMMACK</c> is the one acknowledgement here with no reserved range, so it is read without
-    /// this. <c>TRACK</c> has no table of values at all, which is a different problem and is
+    /// this. <c>TIAACK</c> names two codes where this package has six, which is a different problem and is
     /// documented where that enum is.
     /// </para>
     /// </remarks>

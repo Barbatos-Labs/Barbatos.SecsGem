@@ -485,4 +485,242 @@ internal static class MaterialCodec
             return candidate >= 0;
         }
     }
+
+    // ----------------------------------------------------------------- the handoff protocol
+
+    /// <summary>Writes S4F27's body: the nine items that describe a link.</summary>
+    /// <remarks>
+    /// Positional, like every other body in this stream, because the reference gives the row an
+    /// item list and no names on the wire. <c>TRROLE</c> goes out as the table's own word rather
+    /// than as a number - it is an <c>A</c>, and SOURCE and DESTINATION are what the table says.
+    /// </remarks>
+    internal static SecsItem HandoffLinkBody(MaterialHandoffLink link) => SecsItem.L(
+        SecsItem.A(link.EquipmentName).Named("EQNAME"),
+        SecsItem.A(link.Link).Named("TRLINK"),
+        SecsItem.A(link.ObjectName).Named("TROBJNAME"),
+        SecsItem.A(link.ObjectType).Named("TROBJTYPE"),
+        SecsItem.A(link.Port).Named("TRPORT"),
+        SecsItem.A(RoleWord(link.Role)).Named("TRROLE"),
+        SecsItem.A(link.PartnerName).Named("TRPTNR"),
+        SecsItem.A(link.PartnerPort).Named("TRPTPORT"),
+        SecsItem.A(link.Location).Named("TRLOCATION"));
+
+    /// <summary>Reads S4F27's body.</summary>
+    /// <param name="body">The item.</param>
+    /// <param name="link">The link.</param>
+    /// <returns><see langword="false"/> when the body is not nine items, or names no link.</returns>
+    /// <remarks>
+    /// A link with no <c>TRLINK</c> is refused rather than kept under an empty name: every later
+    /// message in the protocol addresses a link by that string, so one without it could never be
+    /// acted on and keeping it would put an unusable entry in an application's table.
+    /// </remarks>
+    internal static bool TryReadHandoffLink(SecsItem? body, out MaterialHandoffLink? link)
+    {
+        link = null;
+
+        if (body is not { IsList: true, Count: 9 })
+        {
+            return false;
+        }
+
+        var name = Text(body[1]);
+
+        if (name.Length == 0)
+        {
+            return false;
+        }
+
+        link = new MaterialHandoffLink
+        {
+            Link = name,
+            EquipmentName = Text(body[0]),
+            ObjectName = Text(body[2]),
+            ObjectType = Text(body[3]),
+            Port = Text(body[4]),
+            Role = ReadRole(Text(body[5])),
+            PartnerName = Text(body[6]),
+            PartnerPort = Text(body[7]),
+            Location = Text(body[8]),
+        };
+
+        return true;
+    }
+
+    /// <summary>Writes S4F29's body: a link, an index, a command name and its parameters.</summary>
+    internal static SecsItem HandoffCommandBody(
+        string link,
+        uint index,
+        string command,
+        IReadOnlyList<(string Name, string Value)> parameters)
+    {
+        var pairs = new SecsItem[parameters.Count];
+
+        for (var i = 0; i < parameters.Count; i++)
+        {
+            pairs[i] = SecsItem.L(
+                SecsItem.A(parameters[i].Name).Named("CPNAME"),
+                SecsItem.A(parameters[i].Value).Named("CPVAL"));
+        }
+
+        return SecsItem.L(
+            SecsItem.A(link).Named("TRLINK"),
+            SecsItem.U4(index).Named("MCINDEX"),
+            SecsItem.A(command).Named("HOCMDNAME"),
+            SecsItem.L(pairs));
+    }
+
+    /// <summary>Writes the body of S4F31: a link, an index and an acknowledgement.</summary>
+    internal static SecsItem HandoffCompleteBody(string link, uint index, byte code) => SecsItem.L(
+        SecsItem.A(link).Named("TRLINK"),
+        SecsItem.U4(index).Named("MCINDEX"),
+        SecsItem.B(code).Named("HOACK"));
+
+    /// <summary>Writes the body of S4F33: a link, an acknowledgement and a reason.</summary>
+    internal static SecsItem HandoffVerifiedBody(string link, byte code, uint errorCode, string errorText)
+        => SecsItem.L(
+            SecsItem.A(link).Named("TRLINK"),
+            SecsItem.B(code).Named("HOACK"),
+            SecsItem.U4(errorCode).Named("ERRCODE"),
+            SecsItem.A(errorText).Named("ERRTEXT"));
+
+    /// <summary>Writes the body of S4F35 and S4F39: a link alone.</summary>
+    /// <remarks>
+    /// A one-item list rather than the bare <c>TRLINK</c>, which is a choice and worth saying: the
+    /// reference gives these rows an item list of one, and every other row in the protocol is a
+    /// list. A reader here accepts either, because a machine sending the bare item is doing the
+    /// sensible thing with an ambiguous row.
+    /// </remarks>
+    internal static SecsItem HandoffLinkOnlyBody(string link)
+        => SecsItem.L(SecsItem.A(link).Named("TRLINK"));
+
+    /// <summary>Writes the body of S4F37 and S4F41: a link and an acknowledgement.</summary>
+    internal static SecsItem HandoffAnswerBody(string link, byte code, string item) => SecsItem.L(
+        SecsItem.A(link).Named("TRLINK"),
+        SecsItem.B(code).Named(item));
+
+    /// <summary>Reads whichever of the seven per-link bodies arrived.</summary>
+    /// <param name="notice">Which row it is, which decides the shape expected.</param>
+    /// <param name="body">The item.</param>
+    /// <param name="link">The link name.</param>
+    /// <param name="index">MCINDEX, or zero.</param>
+    /// <param name="command">HOCMDNAME, or empty.</param>
+    /// <param name="parameters">The CPNAME and CPVAL pairs, or empty.</param>
+    /// <param name="code">The acknowledgement byte, or zero.</param>
+    /// <param name="errorCode">ERRCODE, or zero.</param>
+    /// <param name="errorText">ERRTEXT, or empty.</param>
+    /// <returns><see langword="false"/> when the body names no link.</returns>
+    /// <remarks>
+    /// One reader for four shapes, switching on the function the way the writers are switched by
+    /// the caller. The link is the only field whose absence is fatal: a message addressed to no
+    /// link cannot be acted on, where a missing index or a missing reason leaves a step that still
+    /// says which link it is about and which step it is.
+    /// </remarks>
+    internal static bool TryReadHandoffNotice(
+        MaterialHandoffNotice notice,
+        SecsItem? body,
+        out string link,
+        out uint index,
+        out string command,
+        out List<(string Name, string Value)> parameters,
+        out byte code,
+        out uint errorCode,
+        out string errorText)
+    {
+        link = string.Empty;
+        index = 0;
+        command = string.Empty;
+        parameters = [];
+        code = 0;
+        errorCode = 0;
+        errorText = string.Empty;
+
+        if (body is null)
+        {
+            return false;
+        }
+
+        // S4F35 and S4F39 carry one item, so a machine that sent the bare TRLINK rather than a
+        // list of one is read rather than refused: the row is a list of one and the two encodings
+        // are indistinguishable in intent.
+        var items = body.IsList ? body : SecsItem.L(body);
+
+        if (items.Count == 0)
+        {
+            return false;
+        }
+
+        link = Text(items[0]);
+
+        if (link.Length == 0)
+        {
+            return false;
+        }
+
+        switch (notice)
+        {
+            case MaterialHandoffNotice.Command when items.Count >= 3:
+                index = UInt32(items[1]);
+                command = Text(items[2]);
+
+                if (items.Count >= 4 && items[3].IsList)
+                {
+                    foreach (var pair in items[3].Items)
+                    {
+                        if (pair is { IsList: true, Count: 2 })
+                        {
+                            parameters.Add((Text(pair[0]), Text(pair[1])));
+                        }
+                    }
+                }
+
+                break;
+
+            case MaterialHandoffNotice.CommandComplete when items.Count >= 3:
+                index = UInt32(items[1]);
+                code = ReadCode(items[2]) ?? 0;
+                break;
+
+            case MaterialHandoffNotice.Verified when items.Count >= 2:
+                code = ReadCode(items[1]) ?? 0;
+                errorCode = items.Count >= 3 ? UInt32(items[2]) : 0;
+                errorText = items.Count >= 4 ? Text(items[3]) : string.Empty;
+                break;
+
+            case MaterialHandoffNotice.CancelReadyAcknowledge or MaterialHandoffNotice.HaltAcknowledge
+                when items.Count >= 2:
+                code = ReadCode(items[1]) ?? 0;
+                break;
+
+            default:
+                break;
+        }
+
+        return true;
+    }
+
+    /// <summary>The word <c>TRROLE</c> carries for a role.</summary>
+    /// <remarks>
+    /// <see cref="MaterialHandoffRole.Other"/> goes out as an empty string rather than as the word
+    /// "Other", which no table names: a role this end cannot name is a role it does not state.
+    /// </remarks>
+    private static string RoleWord(MaterialHandoffRole role) => role switch
+    {
+        MaterialHandoffRole.Source => "SOURCE",
+        MaterialHandoffRole.Destination => "DESTINATION",
+        _ => string.Empty,
+    };
+
+    /// <summary>Reads <c>TRROLE</c>, ordinal and case-sensitive.</summary>
+    /// <remarks>
+    /// Ordinal because the table's words are identifiers on a wire, which is the comparison this
+    /// repository uses everywhere but for a stream's prose name. A machine sending "source" in
+    /// lower case is not sending the word the table names, and reading it anyway would be deciding
+    /// which side is holding the material on the strength of a guess.
+    /// </remarks>
+    private static MaterialHandoffRole ReadRole(string word) => word switch
+    {
+        "SOURCE" => MaterialHandoffRole.Source,
+        "DESTINATION" => MaterialHandoffRole.Destination,
+        _ => MaterialHandoffRole.Other,
+    };
 }

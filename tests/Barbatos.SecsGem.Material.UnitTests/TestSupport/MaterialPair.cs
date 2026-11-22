@@ -5,6 +5,7 @@
 
 using System.Collections.Concurrent;
 using Barbatos.SecsGem.Hsms;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Barbatos.SecsGem.Material.UnitTests;
@@ -115,7 +116,8 @@ internal sealed class MaterialPair : IAsyncDisposable
     public static MaterialPair Start(
         MaterialInMemorySource? source = null,
         Func<SecsTransaction, SecsMessage?>? equipmentAnswer = null,
-        Func<SecsTransaction, SecsMessage?>? hostAnswer = null)
+        Func<SecsTransaction, SecsMessage?>? hostAnswer = null,
+        ILogger<MaterialHandoff>? receiverLogger = null)
     {
         var options = new SecsGemOptions
         {
@@ -188,7 +190,7 @@ internal sealed class MaterialPair : IAsyncDisposable
         pendingEquipment = new MaterialEquipment(inventory, equipmentLink);
         pendingHost = new MaterialHost(hostLink);
         pendingSender = new MaterialHandoff(hostLink);
-        pendingReceiver = new MaterialHandoff(equipmentLink);
+        pendingReceiver = new MaterialHandoff(equipmentLink, receiverLogger);
 
         return new MaterialPair(
             active,
@@ -215,7 +217,11 @@ internal sealed class MaterialPair : IAsyncDisposable
     /// <returns>A task that completes when the condition holds.</returns>
     public static async Task WaitUntilAsync(Func<bool> condition, string what)
     {
-        for (var attempt = 0; attempt < 5_000; attempt++)
+        // 400 and not 5,000, for the reason the Gem harnesses give: Task.Delay(1) waits about
+        // 15.6 ms on Windows, so the old bound was 78 seconds per wait that never comes - free
+        // when a test passes and ruinous when one does not. This suite was spending 77 seconds on
+        // three failures and reporting nothing the whole time.
+        for (var attempt = 0; attempt < 400; attempt++)
         {
             if (condition())
             {

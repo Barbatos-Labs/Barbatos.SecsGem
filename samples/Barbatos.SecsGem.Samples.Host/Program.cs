@@ -1747,6 +1747,92 @@ internal static class Program
                 "the handshake to finish");
 
             Console.WriteLine($"   S4F5  -> {heard}");
+
+            // And stream 4's other protocol, which is about a handoff rather than about a piece of
+            // material: two ends name a link, run commands on it and verify it, and either side
+            // may cancel or halt. Eight primaries, none answered, every one travelling either way -
+            // the same design one stream further on, so the same type serves it.
+            MaterialHandoffLink? announced = null;
+            MaterialHandoffLinkEventArgs? step = null;
+
+            receivingEnd.HandoffLinkAnnounced += (_, args) => announced = args.Link;
+            receivingEnd.HandoffLinkReported += (_, args) => step = args;
+
+            // S4F27 is where a TRLINK comes from. This package's README used to say only S4F19,
+            // the transfer job create, could mint one - and the item dictionary says otherwise:
+            // this row carries the same descriptor and travels either way, where the job is the
+            // host's alone. Two ends can agree a handoff between themselves.
+            await sendingEnd.AnnounceLinkAsync(
+                new MaterialHandoffLink
+                {
+                    Link = "LINK-1",
+                    EquipmentName = "BRBTOS-1",
+                    ObjectName = "CAR-001",
+                    ObjectType = "Carrier",
+                    Port = "LP1",
+                    Role = MaterialHandoffRole.Source,
+                    PartnerName = "AGV3",
+                    PartnerPort = "ARM",
+                    Location = "BAY-4",
+                },
+                cancellationToken);
+
+            await WaitUntilAsync(() => announced is not null, "the link to reach the other end");
+
+            Console.WriteLine($"   S4F27 -> {announced}");
+            ok &= announced!.Role == MaterialHandoffRole.Source;
+
+            await sendingEnd.SendCommandAsync("LINK-1", 1, "LOAD", [("SLOT", "7")], cancellationToken);
+            await WaitUntilAsync(
+                () => step?.Notice == MaterialHandoffNotice.Command,
+                "the handoff command to arrive");
+
+            Console.WriteLine($"   S4F29 -> {step}, {step!.Parameters[0].Name}={step.Parameters[0].Value}");
+
+            await receivingEnd.ReportCommandCompleteAsync(
+                "LINK-1",
+                1,
+                MaterialHandoffAcknowledgement.Accepted,
+                cancellationToken);
+
+            // HOACK has no table at all, so zero is read off this stream's own RSACK and RRACK and
+            // everything else is a refusal with no reason. S4F33 is the one row that can say why,
+            // in an ERRCODE and ERRTEXT beside the code - neither tabled either, so both pass
+            // through untouched.
+            await sendingEnd.ReportVerifiedAsync(
+                "LINK-1",
+                MaterialHandoffAcknowledgement.Refused,
+                errorCode: 42,
+                errorText: "arm did not reach the port",
+                cancellationToken);
+
+            await WaitUntilAsync(
+                () => step?.Notice == MaterialHandoffNotice.Verified,
+                "the verification to arrive");
+
+            Console.WriteLine($"   S4F33 -> {step}, ERRCODE={step!.ErrorCode} \"{step.ErrorText}\"");
+            ok &= step.Acknowledgement == MaterialHandoffAcknowledgement.Refused && step.ErrorCode == 42;
+
+            // Two ways to stop, named differently, and the reference says nothing about the
+            // difference - so both are carried and neither is defined here.
+            await sendingEnd.RequestCancelAsync("LINK-1", cancellationToken);
+            await WaitUntilAsync(
+                () => step?.Notice == MaterialHandoffNotice.CancelReady,
+                "the cancel to arrive");
+
+            await receivingEnd.AcknowledgeCancelAsync(
+                "LINK-1",
+                MaterialHandoffAcknowledgement.Accepted,
+                cancellationToken);
+
+            Console.WriteLine("   S4F35 -> cancel asked and answered on S4F37, a primary of its own");
+
+            // S4F19 to S4F26 are still not here, and the reason is TRACK: an A with no table of
+            // values, which is the whole of the outcome in S4F20 and S4F22, so a host cannot tell
+            // whether its transfer job was created.
+            Console.WriteLine(
+                $"   stream 4: {MaterialHandoff.HandledMessages.Count} primaries at both ends, "
+                    + "and S4F19-S4F26 refused on TRACK");
             ok &= heard?.MaterialId == StartedLot;
         }
 

@@ -243,18 +243,84 @@ seconds, but `MaterialCompletion.TimeToCompletion` is a `uint` rather than a `Ti
 property typed as a duration would be this library asserting the unit - and a machine that counts
 in minutes would be read wrong by a factor of sixty with nothing on screen to show it.
 
+## The handoff protocol, stream 4's other half
+
+S4F1 to S4F18 interlock a *piece of material* across a port. S4F27 to S4F41 agree a **handoff**:
+two ends name a link between them, run commands on it, verify it, and either side may cancel or
+halt. Eight primaries, none of them answered, every one travelling either way - the same design one
+stream further on, so the same type serves it.
+
+```csharp
+await handoff.AnnounceLinkAsync(new MaterialHandoffLink
+{
+    Link = "LINK-1",                          // what every later message addresses
+    EquipmentName = "EQ1",
+    ObjectName = "CAR-001", ObjectType = "Carrier",
+    Port = "LP1", Role = MaterialHandoffRole.Source,
+    PartnerName = "AGV3", PartnerPort = "ARM",
+    Location = "BAY-4",
+});
+
+await handoff.SendCommandAsync("LINK-1", 1, "LOAD", [("SLOT", "7")]);   // S4F29
+await handoff.ReportVerifiedAsync("LINK-1", MaterialHandoffAcknowledgement.Accepted);
+```
+
+| Message | What it says | Carries |
+| --- | --- | --- |
+| S4F27 | here is a link | the nine descriptor items |
+| S4F29 | run this on it | `TRLINK`, `MCINDEX`, `HOCMDNAME`, `CPNAME`/`CPVAL` |
+| S4F31 | that command finished | `TRLINK`, `MCINDEX`, `HOACK` |
+| S4F33 | the handoff is verified, or is not | `TRLINK`, `HOACK`, `ERRCODE`, `ERRTEXT` |
+| S4F35 / S4F37 | cancel, and the answer | `TRLINK`, and `HOCANCELACK` |
+| S4F39 / S4F41 | halt, and the answer | `TRLINK`, and `HOHALTACK` |
+
+**S4F27 is where a link comes from**, and that is the finding that let this half in at all. This
+README used to say a `TRLINK` was minted by S4F19, the transfer job create, and that the handoff
+rows therefore could not be served before the job rows. The item dictionary says otherwise: S4F27
+carries the same descriptor the job does, it travels either way where the job is the host's alone,
+and nothing in the reference reserves link naming to a job. Two ends can agree a handoff between
+themselves - and a stream whose every row travels either way is the shape that says so.
+
+**`TRROLE` is a text item that arrives with its table**: SOURCE and DESTINATION, spelled out. So
+the wire carries the word, this package compares it ordinally, and a word the table does not name
+reads as `MaterialHandoffRole.Other` rather than as a guess at which end is holding the material.
+That one item also carries the argument for the refusal below, because it proves the source does
+write values down for a text item when it knows them.
+
+**`HOACK`, `HOCANCELACK` and `HOHALTACK` have no tables at all** - three `B[1]` items with nothing
+in them. So one enum serves all three and zero is the favourable answer, read off this stream's own
+`RSACK` and `RRACK` rather than invented; the same reading
+[`Barbatos.SecsGem.ControlPrograms`](../Barbatos.SecsGem.ControlPrograms/README.md) gives `ACKC8`.
+Every non-zero code is a refusal the reference gives no reason for, and the arriving code is
+logged. S4F33 is the one row that *can* say why, in `ERRCODE` and `ERRTEXT` beside the code -
+neither tabled either, so both pass through untouched.
+
+**The order is documented and not enforced**, as it is for the handshake above and for stream 3:
+nothing here tracks which commands are outstanding or which links are open. A link is an agreement
+between two ends and this type is one end of it, not a registry.
+
 ## What is not here yet
 
 - **S3F17 to S3F34**, the carrier and storage half of that stream. See above: that is E87's.
-- **S4F19 to S4F26**, stream 4's transfer *jobs* - and this one is a model rather than a format.
-  Every item is defined, so the bodies are encodable; what is missing is the behaviour. The two
-  job standards in this stack, E94 and E40, each own a state machine their standard defines, and a
-  transfer job has none anywhere in this reference. Its command is also the `CPNAME`/`CPVAL` shape
-  that [`Barbatos.SecsGem.Objects`](../Barbatos.SecsGem.Objects/README.md) already carries for
-  S2F49, so a second route to it would be two ways to say one thing.
-- **S4F27 to S4F41**, the handoff commands - and they *depend* on the transfer jobs above:
-  every one of them is addressed by a `TRLINK`, which is created by S4F19. Without the job there
-  is nothing for a link to name, so this half cannot go in before the other one.
+- **S4F19 to S4F22**, stream 4's transfer *jobs* - and the reason here is `TRACK`. Those two rows
+  are the only answers to a job create and a job command, and `TRACK` is the whole of the outcome
+  in both: an `A` with **no table of values**, beside an `ERRCODE` that is a `U4` with none either.
+  So a host cannot tell whether its job was created. That the silence is meaningful rather than a
+  habit is what `TRROLE` settles - an `A` in the same stream that does arrive with its table.
+  S4F23, the alert, is out with them: it reports a job's state and there are no jobs.
+  <br/>This entry used to give a different reason - that "a transfer job has no state machine
+  anywhere in this reference", against E94's and E40's. That is true of the message rows and false
+  of the dictionary: `TRJOBMS` names six states, Queued through Cancelled, and S4F23 carries it.
+  Six state names are not a transition model, which is a reason not to *enforce* a sequence - a
+  choice this package had already made for stream 4 - and not a reason to leave the messages
+  unserved. The measurements are in
+  [`SecsCatalogStream4Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream4Tests.cs).
+- **S4F25 and S4F26**, the multi-block inquire, and its format is not the reason: `DATAID` and
+  `DATALENGTH` are defined and `GRANT` is a tabled item three packages here already read. It is the
+  handshake in front of a message too large for one block, and the only row in this stream large
+  enough to need one is the job create that stays out - and it is the host's alone, where this
+  package's stream 4 type is one type for both ends by design. Reopenable the moment the job half
+  is, and not before.
 - A source that outlives the process. `MaterialInMemorySource` is in memory, as it says; the
   interface is five methods and a database behind it is an afternoon.
 - `QUA` has no code table in the catalogue, so a quantity is a byte and nothing here interprets it.

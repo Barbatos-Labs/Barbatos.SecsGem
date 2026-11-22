@@ -215,7 +215,23 @@ rename and the copy are not among them. `Provenance.DetailedUnusedDefinitions` i
 is not a veto: check the stream against the item dictionary and against its standard's subject
 matter, and record which check it passed. Stream 17 is the one that failed both. And provenance
 alone is not a verdict either - stream 15 was swept into stream 19's refusal on a shared figure and
-the dictionary overturned it, which is the one refusal here that has been reopened.
+the dictionary overturned it, and two more refusals have been reopened since.
+
+**The pair of measures that has actually decided it is gaps and own anchors.** Measured across all
+twenty streams they never disagree: seven streams have no gaps of either kind, six have no
+vocabulary of their own, and **no stream is both rootless and whole**. Every stream refused here is
+in the second list - 15, 17, 19, 20 - and streams 4 and 7 are in the first, which is why both had
+refusals overturned once somebody asked. So the question to ask of a stream is not how much of it
+the reference documents; it is whether its gaps and its anchors agree, and `SecsCatalogStream4Tests`
+and `SecsCatalogStream7Tests` assert the whole partition so a later chapter cannot drift from it.
+
+**A refusal's stated reason is part of the API and goes stale like the rest of it.** Both stream 4
+refusals were argued from the message rows when the answer was in the item dictionary: one said a
+transfer job has no state model anywhere in the reference, where `TRJOBMS` names six states; the
+other said only S4F19 can mint a `TRLINK`, where S4F27 carries one and travels either way. So when
+a chapter reopens a stream, re-read every reason that stream's packages give for leaving something
+out, and replace the wrong ones rather than deleting them - the job half of stream 4 is still
+refused, on `TRACK`, and saying so is what stops the next chapter re-deriving it.
 
 **Where a package states a vocabulary the reference also states, make them meet** - against the
 reference's own table, never against another package's enum, because that is what makes the

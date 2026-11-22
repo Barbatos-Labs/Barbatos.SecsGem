@@ -247,9 +247,15 @@ public class MaterialHandoffTests
             [MaterialHandoffStep.ReadyToSend, MaterialHandoffStep.SendMaterial],
             atSender.Select(step => step.Step));
 
-        // And both ends declared the same list, which is what makes that possible.
-        Assert.Equal(9, MaterialHandoff.HandledMessages.Count);
+        // And both ends declared the same list, which is what makes that possible. Seventeen now:
+        // the interlocked handshake's nine and the handoff protocol's eight, which is the same
+        // design one stream further on - every row travelling either way, none of them answered.
+        Assert.Equal(17, MaterialHandoff.HandledMessages.Count);
         Assert.All(MaterialHandoff.HandledMessages, message => Assert.Equal(4, message.Stream));
+        Assert.All(MaterialHandoff.HandledMessages, message => Assert.True(message.Function % 2 == 1));
+        Assert.Equal(
+            MaterialHandoff.HandledMessages.Count,
+            MaterialHandoff.HandledMessages.Distinct().Count());
     }
 
     [Fact]
@@ -271,9 +277,41 @@ public class MaterialHandoffTests
             await pair.Sender.ReportAsync(step, 1, Lot, MaterialPair.Token);
         }
 
+        // And the handoff protocol's eight, each with its own method because the four shapes have
+        // nothing in common but the link. The claim this covers is the same one GemHostTests makes
+        // about stream 7: there is no message this end declares that an application using this
+        // library has to hand-write.
+        await pair.Sender.AnnounceLinkAsync(
+            new MaterialHandoffLink { Link = "LINK-1", Role = MaterialHandoffRole.Source },
+            MaterialPair.Token);
+
+        await pair.Sender.SendCommandAsync("LINK-1", 1, "LOAD", [], MaterialPair.Token);
+        await pair.Sender.ReportCommandCompleteAsync(
+            "LINK-1",
+            1,
+            MaterialHandoffAcknowledgement.Accepted,
+            MaterialPair.Token);
+
+        await pair.Sender.ReportVerifiedAsync(
+            "LINK-1",
+            MaterialHandoffAcknowledgement.Accepted,
+            cancellationToken: MaterialPair.Token);
+
+        await pair.Sender.RequestCancelAsync("LINK-1", MaterialPair.Token);
+        await pair.Sender.AcknowledgeCancelAsync(
+            "LINK-1",
+            MaterialHandoffAcknowledgement.Accepted,
+            MaterialPair.Token);
+
+        await pair.Sender.RequestHaltAsync("LINK-1", MaterialPair.Token);
+        await pair.Sender.AcknowledgeHaltAsync(
+            "LINK-1",
+            MaterialHandoffAcknowledgement.Accepted,
+            MaterialPair.Token);
+
         await MaterialPair.WaitUntilAsync(
             () => MaterialHandoff.HandledMessages.All(message => pair.AskedOfEquipment.Contains(message)),
-            "all nine handoff primaries to arrive");
+            "all seventeen handoff primaries to arrive");
 
         // And stream 3's two lists share nothing with stream 4's, so a machine may register all
         // three without a duplicate declaration.

@@ -39,10 +39,8 @@ namespace Barbatos.SecsGem.Gem.UnitTests;
 /// </para>
 /// <para>
 /// The two exceptions are the interesting part. <c>COMMACK</c> names both its codes and reserves
-/// nothing, so there is no range to fold and no member to add. <c>TRACK</c> has <strong>no table
-/// of values at all</strong>, so this package's six trace codes come from E30's prose rather than
-/// from the dictionary - a different kind of gap, and one this test deliberately does not pretend
-/// to check.
+/// nothing, so there is no range to fold and no member to add. And S2F24's, which this file used to
+/// check against the wrong item entirely - see below.
 /// </para>
 /// </remarks>
 public class GemAcknowledgementsAgreeWithTheReferenceTests
@@ -100,12 +98,36 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.DoesNotContain(commack.Codes, code => code.Value.Contains('-', StringComparison.Ordinal));
         Assert.Equal(2, Enum.GetValues<GemCommunicationAcknowledgement>().Length);
 
-        // TRACK is defined and carries no code values at all, so there is nothing here to agree
-        // with. The six members of GemTraceAcknowledgement are E30's, not the dictionary's, and
-        // that is said here rather than left for somebody to discover.
+        // And the trace acknowledgement, which is where this test was wrong for four chapters.
+        //
+        // It used to assert against TRACK, on the ground that TRACK "has no table of values at
+        // all, so this package's six trace codes come from E30's prose". Every word of that is
+        // true of TRACK and none of it is relevant: the item S2F24 carries is TIAACK, and TRACK is
+        // a different item altogether - an A[n] named by streams 4 and 17, where it is a
+        // *transfer* acknowledgement. The stream 4 sweep found it by asking which streams name
+        // TRACK and getting an answer that did not include stream 2.
         Assert.True(SecsCatalog.TryGetDataItem("TRACK", out var track));
-        Assert.Empty(track!.Codes);
-        Assert.False(track.IsNamedByNoMessage);
+        Assert.Equal<byte[]>([4, 17], [.. track!.Streams]);
+        Assert.Empty(track.Codes);
+
+        // TIAACK does have a table, and it names two codes: accepted and denied, with no reserved
+        // range. So GemTraceAcknowledgement's six members are not a gap in the dictionary being
+        // filled from E30's prose - they are a disagreement with the dictionary, and that is a
+        // materially different claim from the one this file used to make.
+        Assert.True(SecsCatalog.TryGetDataItem("TIAACK", out var tiaack));
+        Assert.Equal<byte[]>([2], [.. tiaack!.Streams]);
+        Assert.Equal(2, tiaack.Codes.Count);
+        Assert.Equal("Accepted", tiaack.MeaningOf("0"));
+        Assert.Equal("Denied", tiaack.MeaningOf("1"));
+        Assert.DoesNotContain(tiaack.Codes, code => code.Value.Contains('-', StringComparison.Ordinal));
+
+        // Which has a consequence worth stating, because it is the interoperability half: a
+        // machine built to the dictionary answers 1 for *every* denial, and this package would
+        // report that as TooManyVariables. The six names are only trustworthy from a machine built
+        // to E30's prose. What is safe either way is that non-zero means denied.
+        Assert.Equal(6, Enum.GetValues<GemTraceAcknowledgement>().Length);
+        Assert.Equal((byte)1, (byte)GemTraceAcknowledgement.TooManyVariables);
+        Assert.Equal((byte)0, (byte)GemTraceAcknowledgement.Accepted);
     }
 
     [Fact]

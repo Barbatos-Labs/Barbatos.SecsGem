@@ -197,7 +197,7 @@ public class MaterialHostingTests
             Assert.True(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
         }
 
-        Assert.Equal(9, MaterialHandoff.HandledMessages.Count);
+        Assert.Equal(17, MaterialHandoff.HandledMessages.Count);
         Assert.All(MaterialHandoff.HandledMessages, pair => Assert.True(pair.Function % 2 == 1, $"S4F{pair.Function} is not a primary"));
 
         // The handoff is a singleton like the other two, so an application can hold the one whose
