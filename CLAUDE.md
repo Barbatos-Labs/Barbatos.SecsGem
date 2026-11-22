@@ -89,6 +89,13 @@ Core  <-  Hsms  <-  Gem
                                                  all three deliberately not on Gem, so the
                                                  enhanced commands' control-state gate is the
                                                  application's and says so)
+                                 ^-- (Objects also serves stream 1's ONE E39 row, S1F19/F20, whose
+                                     items are stream 14's - so it is E39's and not GEM's, and Gem
+                                     must not depend on this package. Worth serving beside S14F1
+                                     rather than refusing as a duplicate because S1F20 carries
+                                     ERRCODE and ERRTEXT where S14F2 carries no acknowledgement at
+                                     all: it is the only attribute get in the reference that can
+                                     say why it failed.)
                                  ^-- Carriers, Substrates, ControlJobs, ProcessJobs
                                      (E87, E90, E94, E40, on Objects: their attributes are
                                      stream 14; E90 and E94 have no messages of their own -
@@ -222,8 +229,17 @@ twenty streams they never disagree: seven streams have no gaps of either kind, s
 vocabulary of their own, and **no stream is both rootless and whole**. Every stream refused here is
 in the second list - 15, 17, 19, 20 - and streams 4 and 7 are in the first, which is why both had
 refusals overturned once somebody asked. So the question to ask of a stream is not how much of it
-the reference documents; it is whether its gaps and its anchors agree, and `SecsCatalogStream4Tests`
-and `SecsCatalogStream7Tests` assert the whole partition so a later chapter cannot drift from it.
+the reference documents; it is whether its gaps and its anchors agree, and `SecsCatalogGaplessTests`
+asserts the whole partition so a later chapter cannot drift from it.
+
+**All seven gapless streams are now finished**, which makes the measure's job done rather than
+ongoing: streams 1, 4, 5, 7, 9, 10 and 12 have every row served that anything here is going to
+serve. One row of the seven stayed out and it is worth knowing which, because it is the shape of
+every refusal left - S1F9/F10, whose two items are text with no tables named by stream 1 alone, so
+there is no sibling anywhere to read a reading off. Everything still unimplemented is in a stream
+with gaps, which means **the group measure is spent and what is left needs measuring row by row**.
+Stream 2 has seven gaps and stream 6 four; neither can be done as a batch the way the gapless
+streams could.
 
 **A refusal's stated reason is part of the API and goes stale like the rest of it.** Both stream 4
 refusals were argued from the message rows when the answer was in the item dictionary: one said a

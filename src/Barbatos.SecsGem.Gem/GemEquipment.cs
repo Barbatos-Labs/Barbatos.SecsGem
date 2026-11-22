@@ -162,6 +162,8 @@ public sealed class GemEquipment : IAsyncDisposable
     [
         (1, 1),    // Are You There
         (1, 3),    // Selected Equipment Status Request
+        (1, 5),    // Formatted Status Request
+        (1, 7),    // Fixed Form Request
         (1, 11),   // Status Variable Namelist Request
         (1, 21),   // Data Variable Namelist Request
         (1, 23),   // Collection Event Namelist Request
@@ -182,6 +184,7 @@ public sealed class GemEquipment : IAsyncDisposable
         (5, 3),    // Enable/Disable Alarm Send
         (5, 5),    // List Alarms Request
         (5, 7),    // List Enabled Alarm Request
+        (5, 17),   // Exception Recover Abort Request
         (6, 15),   // Event Report Request
         (6, 19),   // Individual Report Request
     ];
@@ -691,6 +694,175 @@ public sealed class GemEquipment : IAsyncDisposable
     /// only place that can be logged.
     /// </para>
     /// </remarks>
+    /// <summary>Gets or sets what this machine answers a request to abort a recovery with - S5F18.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A delegate rather than a member on the model</strong>, and the reason is the one
+    /// <c>PostExceptionAsync</c> gives: the documented half of stream 5 has no exception table for
+    /// an identifier to point into, so there is nothing in the model for an abort to be declared
+    /// against. It is a decision about a condition the machine is in right now, which is exactly
+    /// what a delegate is for.
+    /// </para>
+    /// <para>
+    /// <strong>Refuses by default</strong>, which is the opposite way round from
+    /// <c>Barbatos.SecsGem.Material</c>'s answer delegates and deliberate. Those accept because a
+    /// link that works before it is configured is useful and an offer of material costs nothing to
+    /// take. This one stops something the machine is in the middle of doing: a machine that has
+    /// not been told how to abort a recovery cannot abort one, and answering TRUE would tell a
+    /// host the recovery had stopped when nothing stopped it. The refusal carries a reason saying
+    /// so.
+    /// </para>
+    /// </remarks>
+    public Func<string, GemExceptionAbortResult> AnswerExceptionAbort { get; set; }
+        = static _ => GemExceptionAbortResult.Refuse(
+            errorText: "this equipment has no handler for aborting an exception recovery");
+
+    /// <summary>Says a posted exception has gone - S5F11, answered by S5F12.</summary>
+    /// <param name="exceptionId">EXID, the identifier the post used.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns><see langword="true"/> when it went out over a live link.</returns>
+    /// <remarks>
+    /// The second of an exception's four stages, and the shortest body in the family: a
+    /// <c>TIMESTAMP</c> and the <c>EXID</c>, with nothing to add. Spooled like the post, for the
+    /// reason the post is - a host that was away wants to know a condition cleared as much as it
+    /// wants to know it arrived, and nothing in stream 5 will tell it a second time.
+    /// </remarks>
+    public ValueTask<bool> ClearExceptionAsync(
+        string exceptionId,
+        CancellationToken cancellationToken = default)
+        => NotifyExceptionAsync(GemExceptionStage.Cleared, exceptionId, string.Empty, cancellationToken);
+
+    /// <summary>Says recovery from an exception has started - S5F13, answered by S5F14.</summary>
+    /// <param name="exceptionId">EXID.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns><see langword="true"/> when it went out over a live link.</returns>
+    /// <remarks>
+    /// The stage a host may interrupt: S5F17 is the only message in stream 5 a host sends about an
+    /// exception, and what it asks is that this recovery stop. See
+    /// <see cref="AnswerExceptionAbort"/>.
+    /// </remarks>
+    public ValueTask<bool> NotifyExceptionRecoveringAsync(
+        string exceptionId,
+        CancellationToken cancellationToken = default)
+        => NotifyExceptionAsync(GemExceptionStage.Recovering, exceptionId, string.Empty, cancellationToken);
+
+    /// <summary>Says recovery from an exception has finished - S5F15, answered by S5F16.</summary>
+    /// <param name="exceptionId">EXID.</param>
+    /// <param name="message">EXMESSAGE - how it finished, for a person to read.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns><see langword="true"/> when it went out over a live link.</returns>
+    /// <remarks>
+    /// The one recovery stage that carries an <c>EXMESSAGE</c>, which is the only place the
+    /// outcome can be said: <c>ACKC5</c> on the reply says whether the host took the notice, not
+    /// whether the recovery worked. A machine that recovered by giving up should say so here.
+    /// </remarks>
+    public ValueTask<bool> NotifyExceptionRecoveredAsync(
+        string exceptionId,
+        string message,
+        CancellationToken cancellationToken = default)
+        => NotifyExceptionAsync(GemExceptionStage.Recovered, exceptionId, message, cancellationToken);
+
+    private async ValueTask<bool> NotifyExceptionAsync(
+        GemExceptionStage stage,
+        string exceptionId,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(exceptionId);
+        ArgumentNullException.ThrowIfNull(message);
+
+        if (!IsCommunicating && !IsSpooling)
+        {
+            return false;
+        }
+
+        var delivered = IsCommunicating;
+        var timestamp = SecsItem.A(Now.ToString("yyyyMMddHHmmssff", CultureInfo.InvariantCulture)).Named("TIMESTAMP");
+        var id = SecsItem.A(exceptionId).Named("EXID");
+
+        using var notice = new SecsMessage(5, (byte)stage, replyExpected: _options.ExceptionPostsExpectReply)
+        {
+            Name = stage switch
+            {
+                GemExceptionStage.Cleared => "ExceptionClearNotify",
+                GemExceptionStage.Recovering => "ExceptionRecoverNotify",
+                _ => "ExceptionRecoverCompleteNotify",
+            },
+
+            // Three items for the recovery and two for the other two, which is what the reference
+            // gives them - so the body is built by stage rather than by always sending three and
+            // leaving one empty. An EXMESSAGE nobody asked for is a field a reader has to ignore.
+            Item = stage == GemExceptionStage.Recovered
+                ? SecsItem.L(timestamp, id, SecsItem.A(message).Named("EXMESSAGE"))
+                : SecsItem.L(timestamp, id),
+        };
+
+        if (delivered)
+        {
+            await SendReportAsync(notice, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await SpoolAsync(notice, cancellationToken).ConfigureAwait(false);
+        }
+
+        return delivered;
+    }
+
+    /// <summary>Says a terminal cannot be reached - S10F7, which has no reply.</summary>
+    /// <param name="terminalId">TID.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns><see langword="true"/> when it went out.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Not <c>ACKC10</c> 2 by another route</strong>, which is the reason this row used to
+    /// be left out and does not survive reading it. <c>ACKC10</c> 2 answers a display request: a
+    /// host asked, and the machine says that terminal is not available. S10F7 is a <em>primary</em>
+    /// with no reply at all, travelling either way - somebody volunteering that a terminal has gone
+    /// before anybody tries it. A host that stops sending to terminal 2 on the strength of this
+    /// never has to make the failing request.
+    /// </para>
+    /// <para>
+    /// <strong>Not spooled</strong>, for the reason <see cref="SendTerminalRequestAsync"/> is not:
+    /// stream 10 is about a person standing at a machine, and which terminals were unreachable an
+    /// hour ago is not news anybody can act on. Reports and alarms are spooled because a host reads
+    /// those as history.
+    /// </para>
+    /// <para>
+    /// Needs no <c>IGemTerminal</c>, as the terminal request does not: this is the machine saying
+    /// something about its own hardware, not answering for a screen.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<bool> ReportTerminalNotAccessibleAsync(
+        byte terminalId = 0,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!IsCommunicating)
+        {
+            return false;
+        }
+
+        using var message = new SecsMessage(10, 7, replyExpected: false)
+        {
+            Name = "TerminalNotAccessible",
+            Item = SecsItem.B(terminalId).Named("TID"),
+        };
+
+        try
+        {
+            await _connection.PostAsync(message, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (SecsException ex)
+        {
+            _logger.LogWarning(ex, "S10F7 could not be delivered.");
+            return false;
+        }
+    }
+
     public ValueTask<GemProcessProgramAcknowledgement?> NotifyProgramChangedAsync(
         string programId,
         CancellationToken cancellationToken = default)
@@ -1019,6 +1191,8 @@ public sealed class GemEquipment : IAsyncDisposable
         {
             (1, 1) => OnAreYouThere(),
             (1, 3) => OnStatusRequest(transaction.Message),
+            (1, 5) => OnStatusForm(transaction.Message, 6),
+            (1, 7) => OnStatusForm(transaction.Message, 8),
             (1, 11) => OnStatusNamelist(transaction.Message),
             (1, 21) => OnDataVariableNamelist(transaction.Message),
             (1, 23) => OnCollectionEventNamelist(transaction.Message),
@@ -1038,6 +1212,7 @@ public sealed class GemEquipment : IAsyncDisposable
             (2, 35) => OnLinkEventReport(transaction.Message),
             (2, 37) => OnEnableEvent(transaction.Message),
             (5, 3) => OnEnableAlarm(transaction.Message),
+            (5, 17) => OnExceptionAbort(transaction.Message),
             (5, 5) => OnListAlarms(transaction.Message),
             (5, 7) => OnListEnabledAlarms(),
             (6, 15) => OnEventReportRequest(transaction.Message),
@@ -3029,6 +3204,102 @@ public sealed class GemEquipment : IAsyncDisposable
         {
             Name = "RemoteCommandAcknowledge",
             Item = SecsItem.B((byte)cmda).Named("CMDA"),
+        };
+    }
+
+    /// <summary>Answers S5F17, the one message a host sends about an exception.</summary>
+    /// <remarks>
+    /// <para>
+    /// The body is a bare <c>EXID</c> rather than a list, which is the only row in this family
+    /// shaped that way - so a machine that sent it wrapped in a list of one is read too, for the
+    /// reason stream 4's link-only rows are: the two encodings are indistinguishable in intent.
+    /// </para>
+    /// <para>
+    /// An identifier this end cannot read is refused rather than passed to the delegate as an empty
+    /// string: a handler asked to abort the recovery of "" would have to guess which recovery was
+    /// meant, and S5F18 has an <c>ERRTEXT</c> to say so in instead.
+    /// </para>
+    /// </remarks>
+    private SecsMessage OnExceptionAbort(SecsMessage request)
+    {
+        var item = request.Item is { IsList: true, Count: 1 } wrapped ? wrapped[0] : request.Item;
+        var id = item is not null ? GemItems.ReadText(item) : string.Empty;
+
+        var result = id.Length == 0
+            ? GemExceptionAbortResult.Refuse(errorText: "S5F17 named no exception")
+            : Answer(id);
+
+        return new SecsMessage(5, 18, replyExpected: false)
+        {
+            Name = "ExceptionRecoverAbortAcknowledge",
+            Item = SecsItem.L(
+                SecsItem.A(id).Named("EXID"),
+                SecsItem.Boolean(result.Accepted).Named("ACKA"),
+                SecsItem.U4(result.ErrorCode).Named("ERRCODE"),
+                SecsItem.A(result.ErrorText).Named("ERRTEXT")),
+        };
+
+        GemExceptionAbortResult Answer(string exceptionId)
+        {
+            try
+            {
+                return AnswerExceptionAbort(exceptionId);
+            }
+            catch (Exception ex)
+            {
+                // The same position every other application callback in this type is in: a handler
+                // that throws has not decided anything, and refusing is the answer that leaves the
+                // recovery where it was.
+                _logger.LogError(ex, "The handler for aborting exception '{Exception}' threw.", exceptionId);
+
+                return GemExceptionAbortResult.Refuse(errorText: "the handler for this abort threw");
+            }
+        }
+    }
+
+    /// <summary>Answers S1F5 and S1F7 - status in one of this machine's predefined forms.</summary>
+    /// <param name="request">The primary, carrying an <c>SFCD</c>.</param>
+    /// <param name="replyFunction">6 for values alone, 8 for names with them.</param>
+    /// <returns>The reply.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The two rows differ by one item and that is the whole difference.</strong> S1F6
+    /// carries <c>SV</c> and S1F8 carries <c>SVNAME</c> and <c>SV</c>, so the same form answers
+    /// both - one with names and one without. A host that knows the form sends S1F5 and saves the
+    /// names; one meeting a machine for the first time sends S1F7.
+    /// </para>
+    /// <para>
+    /// <strong>A form this machine has not got is a zero-length list</strong>, which is the refusal
+    /// these rows have: neither carries an acknowledgement code, exactly as S7F6 and S7F26 do not.
+    /// So does a body that is not an <c>SFCD</c> at all - there is nothing else to answer with, and
+    /// an empty list is at least true.
+    /// </para>
+    /// </remarks>
+    private SecsMessage OnStatusForm(SecsMessage request, byte replyFunction)
+    {
+        var values = new List<SecsItem>();
+
+        if (GemItems.TryReadCode(request.Item, out var code)
+            && Model.StatusForms.TryGetValue(code, out var variableIds))
+        {
+            foreach (var variableId in variableIds)
+            {
+                // Build is what guarantees these exist and are status variables, so there is no
+                // unknown-identifier case to answer here - unlike S1F3, which takes identifiers
+                // from the host and has to cope with whatever arrives.
+                var variable = Model.Variables[variableId];
+                var value = variable.Read().Named(variable.Name);
+
+                values.Add(replyFunction == 8
+                    ? SecsItem.L(SecsItem.A(variable.Name).Named("SVNAME"), value)
+                    : value);
+            }
+        }
+
+        return new SecsMessage(1, replyFunction, replyExpected: false)
+        {
+            Name = replyFunction == 6 ? "FormattedStatusData" : "FixedFormData",
+            Item = SecsItem.L(values),
         };
     }
 

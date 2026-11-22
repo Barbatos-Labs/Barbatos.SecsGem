@@ -97,6 +97,9 @@ public class GemHostTests
         await host.EstablishCommunicationsAsync(token);
         (await host.ReadStatusAsync([2], token)).Dispose();
         await host.ReadStatusNamelistAsync([2], token);
+        (await host.ReadFormattedStatusAsync(1, token)).Dispose();
+        (await host.ReadFixedFormAsync(1, token)).Dispose();
+        await host.AbortExceptionRecoveryAsync("E-1", token);
         await host.RequestOfflineAsync(token);
         await host.RequestOnlineAsync(token);
         (await host.ReadConstantsAsync([100], token)).Dispose();

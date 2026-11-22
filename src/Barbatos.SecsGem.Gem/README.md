@@ -141,6 +141,8 @@ on a machine nobody wrote it for:
 
 | Message | The host is asking | Answered with |
 | --- | --- | --- |
+| S1F5 | Give me status in form *n* | S1F6 - SV, in form order |
+| S1F7 | ... and tell me what they are called | S1F8 - SVNAME beside every SV |
 | S1F11 | What status variables are there? | S1F12 - SVID, SVNAME, UNITS |
 | S1F21 | What data variables are there? | S1F22 - VID, DVVALNAME, UNITS |
 | S1F23 | What collection events are there, and what is each about? | S1F24 - CEID, CENAME, VID |
@@ -169,6 +171,21 @@ variable list is declared where the event is:
 
 An event with no variables is a legitimate answer and not a refusal: S1F24 has no way to say "I
 decline to tell you", and a machine may well have an event that is simply an occurrence.
+
+**A form is the machine's, where a report is the host's.** S1F5 and S1F7 ask for status "in form
+*n*", and `SFCD` is that *n*: a `B[1]` with **no table of values**, so which form a code selects is
+the machine's to document and this library carries the byte - exactly as it carries an
+`HOCMDNAME`. So the model declares them:
+
+```csharp
+.AddStatusForm(1, ControlStateVariable, PressureVariable)   // what form 1 means here
+.AddStatusForm(9, PressureVariable)
+```
+
+A host cannot define one with S2F33, a re-establish does not clear them, and a form naming a
+variable the machine has not got - or a *data* variable, where the row asks for status - is caught
+at `Build()` rather than answered short a value. A form the machine does not have is the
+zero-length list those rows use as a refusal, since neither carries an acknowledgement code.
 
 Three of the namelists carry a decision worth knowing about:
 
@@ -779,6 +796,11 @@ rather than an illustration, and each was added by the sweep that closed the las
 | Message | What it is for | Answered with |
 | --- | --- | --- |
 | S5F9 | An exception the machine wants on the record | S5F10 (ACKC5) |
+| S5F11 | ... and it has gone | S5F12 (ACKC5) |
+| S5F13 | ... and the machine is recovering | S5F14 (ACKC5) |
+| S5F15 | ... and the recovery finished, with a message | S5F16 (ACKC5) |
+| S5F17 | A host asking that a recovery stop | S5F18 (ACKA, with a reason) |
+| S10F7 | A terminal nobody can reach | nothing - the row has no reply |
 | S6F3 | An event happened; no values attached | S6F4 (ACKC6) |
 | S6F5 | May I send something too big for one block? | S6F6 (GRANT6) |
 | S2F21 | A remote command with no parameters | S2F22 (CMDA) |
@@ -803,6 +825,59 @@ instead of an identifier into a table, there is nothing to enable, and `EXTYPE` 
 has no code table, and inventing a set of type names would be the kind of guess that is hardest to
 take back. The post is spooled, like a report, for exactly the reason that nothing else will
 repeat it.
+
+**An exception has four stages and one event.** The coverage chapter served the post; the gapless
+sweep served the other three, which are rows the reference illustrates rather than defines and
+which name nothing S5F9 and S5F10 already carry:
+
+```csharp
+await equipment.PostExceptionAsync("PRESSURE-HIGH", "ALARM", "above limit");   // S5F9
+await equipment.NotifyExceptionRecoveringAsync("PRESSURE-HIGH");               // S5F13
+await equipment.NotifyExceptionRecoveredAsync("PRESSURE-HIGH", "pumped down"); // S5F15
+await equipment.ClearExceptionAsync("PRESSURE-HIGH");                          // S5F11
+```
+
+All four arrive on `ExceptionReceived`, with `GemExceptionStage` saying which - because an
+application watching an exception wants its life rather than four unrelated notifications, and the
+bodies are nearly the same body. The post is the only stage with an `EXTYPE`; the post and the
+recovery are the only ones with an `EXMESSAGE`. All four are spooled, for the reason the post is:
+nothing in stream 5 will tell an absent host any of this twice.
+
+**S5F17 is the only message a host sends about an exception**, and it asks that a recovery stop.
+The machine answers through a delegate that **refuses by default**, which is the opposite way round
+from this stack's other answer delegates and deliberate: those accept because the thing being asked
+costs nothing to take, and this one stops something the machine is in the middle of. A machine
+nobody told how to abort a recovery cannot abort one, and saying TRUE would tell a host the
+recovery had stopped when nothing stopped it.
+
+```csharp
+equipment.AnswerExceptionAbort = id => _recoveries.TryStop(id)
+    ? GemExceptionAbortResult.Accept()
+    : GemExceptionAbortResult.Refuse(42, "that recovery already finished");
+```
+
+`ACKA` is a `BOOLEAN` that arrives **with** a table - TRUE accepted, FALSE not - so that reading is
+quoted rather than inferred, and S5F18 carries an `ERRCODE` and `ERRTEXT` beside it. Neither is
+tabled, so both pass through untouched; a refusal with no reason at all would be throwing away the
+one field the row has for one.
+
+**S10F7 is not `ACKC10` 2 by another route**, which is the reason this row used to be left out and
+does not survive reading it. That code answers a display request: a host asked, and the machine
+says the terminal is not available. S10F7 is a primary with no reply at all, volunteered before
+anybody tries - so a host that stops sending to terminal 2 on the strength of it never makes the
+failing request. It needs no `IGemTerminal`, because it is the machine talking about its own
+hardware, and it is **not spooled**: which terminals were unreachable an hour ago is not news
+anybody can act on.
+
+```csharp
+await equipment.ReportTerminalNotAccessibleAsync(terminalId: 2);
+host.TerminalNotAccessible += (_, e) => Console.WriteLine(e);   // terminal 2 is not accessible
+```
+
+The machine sends it and does not answer it. The reference marks the row as travelling either way,
+and there is no host method here to send it: a host telling a machine that one of the *host's*
+terminals had gone would be a message nothing in this library answers, which is the one thing this
+README says a host method must not be.
 
 **S6F3 carries DATAID and CEID and nothing else**, which is what this reference's row names. E5 as
 it is usually quoted has the discrete variable data send carrying values, nested under `DSID`,
@@ -925,7 +1000,8 @@ not a wall in front of it.
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
 | Six pairs of stream 7 | Sixteen of its twenty-two primaries are here now, and the six that are not were each refused on evidence rather than on provenance. **The matrix family**, S7F11 through S7F16: no item in the reference is named for a matrix, and the only matrix word anywhere is `ACKC7` 3, "Matrix overflow" - a capability's failure mode is not its definition, so what these rows transfer is a vocabulary the source never wrote down. **S7F21/F22**, whose name is the whole of what the reference says about it: a one-item body answered with an `ACKC7` could be made to mean anything, and "reference" is not a transaction. **S7F35/F36**, a directory reply that carries bodies - either the reference abbreviated and it is `PPID` alone, like S7F8 and S7F20, or a directory request returns every formatted program whole, which is not a directory; the two readings put different bytes on the wire. **S7F43/F44**, cancelling a command sent earlier, which needs a register of commands in flight that neither this library nor the reference has. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) |
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
-| The rest of streams 1, 2, 5 and 6 | Nothing, now, of what the reference *documents*: every primary in those four streams that it defines rather than illustrates is implemented here, the last seven of them in one sweep - S1F21, S1F23, S2F21, S2F25, S5F9, S6F3 and S6F5. What is left in them is representative rows, and `s.Provenance` on [`Barbatos.SecsGem.Catalog`](../Barbatos.SecsGem.Catalog/README.md) says which: a starting point for reading E5, not a table to copy. S5F11-S5F18, the exception recovery flow, is the largest single group |
+| S1F9/F10, the material transfer status | The one row of streams 1, 5 and 10 that the gapless sweep left out, and the only thing missing from those three streams now. Its two items, `TSIP` and `TSOP`, are `A[n]` with no tables and named by stream 1 alone - so there is no sibling anywhere to read a reading off, which is the test the other eight rows passed. And what it reports is material transfer, a subject this repository serves properly in stream 3 and in E87: a pass-through of two string lists whose meaning nobody states would be an API with nothing behind it, beside two packages that have something. [`SecsCatalogGaplessTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogGaplessTests.cs) pins both reasons |
+| The rest of streams 2 and 6 | Every primary those two streams *document* is implemented. What is left is representative rows in streams that are **not** gapless - stream 2 has seven gaps and stream 6 four - so each needs measuring on its own rather than as a group, which is what the gapless streams could be done as |
 | A trace that outlives a reconnect | Deliberate, and the only part of tracing with no test of its own. Every trace is cancelled where the host's report definitions are reset, on a re-establish - and an in-memory transport pair cannot re-select after a deselect, because the select is driven by the connection's own state machine and nothing public asks it to. The test covers the other side: that a second S1F13 on a live conversation resets nothing |
 | Streams this library does not implement at either end | Stream 3 material status, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |
 

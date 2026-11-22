@@ -53,11 +53,11 @@ public class GemExceptionAndBlockTests
         GemExceptionPost? seen = null;
         pair.Host.ExceptionReceived += (_, e) => seen = e.Exception;
 
-        Assert.True(await pair.Equipment.PostExceptionAsync(
+        Assert.True(await GemPair.SentAsync(pair.Equipment.PostExceptionAsync(
             "PRESSURE-HIGH",
             "ALARM",
             "Chamber pressure above limit",
-            GemPair.Token));
+            GemPair.Token)));
 
         await GemPair.WaitUntilAsync(() => seen is not null, "the exception to reach the host");
 
@@ -84,7 +84,7 @@ public class GemExceptionAndBlockTests
 
         // An empty EXMESSAGE along the way: a legitimate post, since a machine whose exception
         // type says everything has nothing to add.
-        Assert.True(await pair.Equipment.PostExceptionAsync("E-1", "WARNING", "", GemPair.Token));
+        Assert.True(await GemPair.SentAsync(pair.Equipment.PostExceptionAsync("E-1", "WARNING", "", GemPair.Token)));
         await GemPair.WaitUntilAsync(() => seen is not null, "the exception to reach the host");
 
         // Both are stream 5 and both answer with ACKC5, which is exactly why this is worth
@@ -124,7 +124,7 @@ public class GemExceptionAndBlockTests
                 SecsItem.A("ALARM").Named("EXTYPE")),
         };
 
-        using var reply = await pair.EquipmentLink.SendAsync(primary, GemPair.Token);
+        using var reply = await pair.AskEquipmentAsync(primary);
 
         // ACKC5 1. An alarm handler can afford to accept a malformed body because S5F6 will serve
         // the condition again; nothing in stream 5 will ever repeat an exception post.
@@ -158,7 +158,7 @@ public class GemExceptionAndBlockTests
                 SecsItem.A("still worth hearing").Named("EXMESSAGE")),
         };
 
-        using var reply = await pair.EquipmentLink.SendAsync(primary, GemPair.Token);
+        using var reply = await pair.AskEquipmentAsync(primary);
 
         // Accepted: the four items are there, so the body read. What the machine could not say is
         // when, and that is a null rather than a refusal - the exception is the news.
@@ -265,7 +265,7 @@ public class GemExceptionAndBlockTests
             Item = SecsItem.U4(1_000).Named("CEID"),
         };
 
-        using var reply = await pair.EquipmentLink.SendAsync(primary, GemPair.Token);
+        using var reply = await pair.AskEquipmentAsync(primary);
 
         Assert.Equal(4, reply.F);
         Assert.Equal((byte)GemReportAcknowledgement.Error, reply.Item!.FirstValueOrDefault<byte>());
@@ -408,7 +408,7 @@ public class GemExceptionAndBlockTests
             Item = SecsItem.U4(1).Named("DATAID"),
         };
 
-        using var reply = await pair.EquipmentLink.SendAsync(primary, GemPair.Token);
+        using var reply = await pair.AskEquipmentAsync(primary);
 
         // NoSpace, not Busy: Busy invites the machine to ask again, and the second attempt would
         // be exactly as unreadable as the first. The host still raises, so an application can see

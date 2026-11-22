@@ -452,13 +452,116 @@ public sealed class GemExceptionPost
         : $"{Type} {Id} {Message}";
 }
 
-/// <summary>An exception the equipment posted - S5F9.</summary>
+/// <summary>
+/// Which stage of an exception's life a stream 5 notice reports, valued by its function number.
+/// </summary>
+/// <remarks>
+/// <para>
+/// E5 gives an exception four stages and a message for each, and the coverage chapter that served
+/// S5F9 served only the first. The other three are rows the reference illustrates rather than
+/// defines - and stream 5 is one of seven gapless streams, with six names of its own, so every
+/// item the three carry is one S5F9 and S5F10 already carry.
+/// </para>
+/// <para>
+/// One enum and one event for the four, because an application watching an exception wants its
+/// life rather than four unrelated notifications - and because the bodies are nearly the same
+/// body: a timestamp, an identifier, and whatever else the stage has to add.
+/// </para>
+/// </remarks>
+public enum GemExceptionStage
+{
+    /// <summary>S5F9 - the machine has an exception. The only stage that carries <c>EXTYPE</c>.</summary>
+    Posted = 9,
+
+    /// <summary>S5F11 - the condition has gone. A timestamp and an identifier, and nothing to add.</summary>
+    Cleared = 11,
+
+    /// <summary>S5F13 - recovery has started.</summary>
+    Recovering = 13,
+
+    /// <summary>S5F15 - recovery finished, with a message saying how.</summary>
+    Recovered = 15,
+}
+
+/// <summary>What a machine answers a request to abort an exception recovery with - S5F18.</summary>
+/// <remarks>
+/// <para>
+/// <strong><c>ACKA</c> is a <c>BOOLEAN</c> with a table</strong>, which is unusual twice over: most
+/// of this stack's acknowledgements are a <c>B[1]</c>, and most boolean items in the reference
+/// arrive with no table at all. This one says TRUE is accepted and FALSE is not, so the reading is
+/// quoted rather than inferred - and <see cref="Accepted"/> is a <see langword="bool"/> for that
+/// reason, where an enum would be dressing two documented values up as something richer.
+/// </para>
+/// <para>
+/// <strong>And S5F18 can say why</strong>, in an <c>ERRCODE</c> and an <c>ERRTEXT</c> beside the
+/// boolean. Neither is tabled, so the code crosses as a number and the text as a string and
+/// nothing here interprets either - but a refusal that carries no reason at all would be throwing
+/// away the one field the row has for it. That is why this is a type rather than a
+/// <see langword="bool"/> return.
+/// </para>
+/// </remarks>
+public sealed class GemExceptionAbortResult
+{
+    private GemExceptionAbortResult(bool accepted, uint errorCode, string errorText)
+    {
+        Accepted = accepted;
+        ErrorCode = errorCode;
+        ErrorText = errorText;
+    }
+
+    /// <summary>Gets <c>ACKA</c>: whether the abort was accepted.</summary>
+    public bool Accepted { get; }
+
+    /// <summary>Gets <c>ERRCODE</c>. Zero for none, and zero is what an acceptance carries.</summary>
+    public uint ErrorCode { get; }
+
+    /// <summary>Gets <c>ERRTEXT</c>. Empty for none.</summary>
+    public string ErrorText { get; }
+
+    /// <summary>The abort was accepted.</summary>
+    /// <returns>An accepted result, with no reason - an acceptance needs none.</returns>
+    public static GemExceptionAbortResult Accept() => new(true, 0, string.Empty);
+
+    /// <summary>The abort was refused, with a reason.</summary>
+    /// <param name="errorCode">ERRCODE, in whatever numbering this machine and its host have agreed.</param>
+    /// <param name="errorText">ERRTEXT, for a person to read.</param>
+    /// <returns>A refusal.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="errorText"/> is <see langword="null"/>.</exception>
+    public static GemExceptionAbortResult Refuse(uint errorCode = 0, string errorText = "")
+    {
+        ArgumentNullException.ThrowIfNull(errorText);
+
+        return new GemExceptionAbortResult(false, errorCode, errorText);
+    }
+
+    /// <summary>Returns whether it was accepted, and the reason when there is one.</summary>
+    /// <returns>For example <c>refused: 42 recovery already finished</c>.</returns>
+    public override string ToString() => Accepted
+        ? "accepted"
+        : ErrorText.Length == 0 ? $"refused: {ErrorCode}" : $"refused: {ErrorCode} {ErrorText}";
+}
+
+/// <summary>An exception notice the equipment sent - S5F9, S5F11, S5F13 or S5F15.</summary>
 public sealed class GemHostExceptionEventArgs : EventArgs
 {
-    internal GemHostExceptionEventArgs(GemExceptionPost exception) => Exception = exception;
+    internal GemHostExceptionEventArgs(GemExceptionPost exception, GemExceptionStage stage)
+    {
+        Exception = exception;
+        Stage = stage;
+    }
 
     /// <summary>Gets the exception.</summary>
     public GemExceptionPost Exception { get; }
+
+    /// <summary>Gets which stage of the exception's life this notice reports.</summary>
+    /// <remarks>
+    /// The bodies differ only in what each stage has to add - <c>EXTYPE</c> for a post, an
+    /// <c>EXMESSAGE</c> for a post and a recovery - so this is what tells a handler which notice it
+    /// has. <see cref="GemExceptionPost.Type"/> is empty for every stage but
+    /// <see cref="GemExceptionStage.Posted"/>, and <see cref="GemExceptionPost.Message"/> for every
+    /// one but that and <see cref="GemExceptionStage.Recovered"/>.
+    /// </remarks>
+    public GemExceptionStage Stage { get; }
 
     /// <summary>Gets or sets the ACKC5 to answer with, when the equipment asked for a reply.</summary>
     /// <remarks>
@@ -467,6 +570,24 @@ public sealed class GemHostExceptionEventArgs : EventArgs
     /// wants to accept such a post anyway has to say so, rather than the other way round.
     /// </remarks>
     public GemAlarmAcknowledgement Acknowledgement { get; set; } = GemAlarmAcknowledgement.Accepted;
+}
+
+/// <summary>A terminal the equipment says it cannot reach - S10F7.</summary>
+/// <remarks>
+/// No acknowledgement to set, because E5 gives this row no reply: it is one of two messages in
+/// this library that cross with nothing coming back, the other family being stream 9's error
+/// reports. So a handler cannot refuse it - it can only act on it, which is the point.
+/// </remarks>
+public sealed class GemTerminalUnavailableEventArgs : EventArgs
+{
+    internal GemTerminalUnavailableEventArgs(byte terminalId) => TerminalId = terminalId;
+
+    /// <summary>Gets TID - which terminal. Zero is the machine's only or default one.</summary>
+    public byte TerminalId { get; }
+
+    /// <summary>Returns which terminal.</summary>
+    /// <returns>For example <c>terminal 2 is not accessible</c>.</returns>
+    public override string ToString() => $"terminal {TerminalId} is not accessible";
 }
 
 /// <summary>A process program notice the equipment sent - S7F29 or S7F39.</summary>

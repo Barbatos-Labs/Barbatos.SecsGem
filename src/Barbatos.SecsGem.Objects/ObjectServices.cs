@@ -68,6 +68,10 @@ public sealed class ObjectServices
     /// </remarks>
     public static IReadOnlyList<(byte Stream, byte Function)> HandledMessages { get; } =
     [
+        // Stream 1's one E39 row, which belongs here rather than in Barbatos.SecsGem.Gem for the
+        // reason the enhanced half of stream 2 does: its vocabulary is E39's - OBJTYPE, OBJID,
+        // ATTRID, ATTRDATA - and Gem must not depend on this package.
+        (1, 19),    // Get Attribute
         (14, 1),    // GetAttr Request
         (14, 3),    // SetAttr Request
         (14, 5),    // Create Object Request
@@ -120,9 +124,13 @@ public sealed class ObjectServices
             return;
         }
 
-        var reply = transaction.S == 14
-            ? await BuildReplyAsync(transaction, _provider, cancellationToken).ConfigureAwait(false)
-            : null;
+        var reply = transaction.S switch
+        {
+            14 => await BuildReplyAsync(transaction, _provider, cancellationToken).ConfigureAwait(false),
+            1 when transaction.F == 19 =>
+                await BuildAttributeReplyAsync(transaction, _provider, cancellationToken).ConfigureAwait(false),
+            _ => null,
+        };
 
         if (reply is null)
         {
@@ -220,6 +228,98 @@ public sealed class ObjectServices
         }
 
         return names;
+    }
+
+    // ------------------------------------------------------- stream 1's one E39 row
+
+    /// <summary>Reads attributes of one object by identifier - S1F19, answered by S1F20.</summary>
+    /// <param name="objectType">OBJTYPE.</param>
+    /// <param name="objectId">OBJID.</param>
+    /// <param name="attributes">Which attributes - ATTRID. An empty list asks for all of them.</param>
+    /// <param name="read">Called with the attributes while the reply is alive. Copy anything kept past it.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The error the other end reported, or <see langword="null"/> when it reported none.</returns>
+    /// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply was not attribute data.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>Not a second way to say S14F1, and the difference is the one that matters: S1F20 can
+    /// say why.</strong> S14F2 has no acknowledgement at all, so an object the other end does not
+    /// have comes back as an empty list and a caller cannot tell "no such object" from "no such
+    /// attribute" from "I will not tell you". This row carries an <c>ERRCODE</c> and an
+    /// <c>ERRTEXT</c> beside the data, which makes it the only attribute get in the reference with
+    /// a reason in it. That is why it is served rather than refused as a duplicate.
+    /// </para>
+    /// <para>
+    /// It names its object with an <c>OBJID</c> where S14F1 uses an <c>OBJSPEC</c>, and asks about
+    /// one object where S14F19 asks about several. Neither item is tabled and this package does not
+    /// reconcile them: an identifier and a specification are what the two rows call the thing, and
+    /// a provider sees whichever string arrived.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<ObjectAttributeError?> GetAttributeAsync(
+        string objectType,
+        string objectId,
+        IReadOnlyList<string> attributes,
+        Action<ObjectAttributeValues> read,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(objectType);
+        ArgumentNullException.ThrowIfNull(objectId);
+        ArgumentNullException.ThrowIfNull(attributes);
+        ArgumentNullException.ThrowIfNull(read);
+
+        var identifiers = new SecsItem[attributes.Count];
+
+        for (var i = 0; i < attributes.Count; i++)
+        {
+            identifiers[i] = SecsItem.A(attributes[i]).Named("ATTRID");
+        }
+
+        using var reply = await RequestAsync(
+            new SecsMessage(1, 19, replyExpected: true)
+            {
+                Name = "GetAttribute",
+                Item = SecsItem.L(
+                    SecsItem.A(objectType).Named("OBJTYPE"),
+                    SecsItem.A(objectId).Named("OBJID"),
+                    SecsItem.L(identifiers)),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (reply.Item is not { IsList: true, Count: >= 1 } body
+            || !ObjectCodec.TryReadAttributeList(body[0], out var values))
+        {
+            throw new SecsException("S1F20 did not carry attribute data.");
+        }
+
+        read(new ObjectAttributeValues
+        {
+            ObjectSpecification = objectId,
+            Attributes = values,
+        });
+
+        if (body.Count < 2)
+        {
+            return null;
+        }
+
+        // U4 on the wire, and tolerant of a narrower width - the tolerance every numeric reader
+        // in this repository has, because a machine that encoded the right value in the wrong
+        // width has still answered.
+        var code = body[1].Format switch
+        {
+            SecsFormat.U1 => body[1].FirstValueOrDefault<byte>(),
+            SecsFormat.U2 => body[1].FirstValueOrDefault<ushort>(),
+            SecsFormat.U4 => body[1].FirstValueOrDefault<uint>(),
+            _ => 0u,
+        };
+        var text = body.Count >= 3 ? ObjectCodec.TryReadText(body[2]) ?? string.Empty : string.Empty;
+
+        // Zero with no text is "no error", which is what an answer that worked carries. A code of
+        // zero *with* text is still reported, because a machine that bothered to write a reason
+        // meant something by it.
+        return code == 0 && text.Length == 0 ? null : new ObjectAttributeError(code, text);
     }
 
     // -------------------------------------------------------------------- gets
@@ -560,6 +660,47 @@ public sealed class ObjectServices
     }
 
     // --------------------------------------------------------------- the pieces
+
+    /// <summary>Answers S1F19 out of the provider.</summary>
+    /// <remarks>
+    /// The one row here that can report a reason, so it does: an object the provider does not have
+    /// comes back with an empty attribute list <em>and</em> an <c>ERRCODE</c> of 1 with text saying
+    /// so, where S14F2 can only send the empty list. The code is this library's choice - the item
+    /// is untabled - and it is 1 rather than 0 because 0 is what an answer that worked carries.
+    /// </remarks>
+    private static async ValueTask<SecsMessage?> BuildAttributeReplyAsync(
+        SecsTransaction transaction,
+        IObjectProvider provider,
+        CancellationToken cancellationToken)
+    {
+        if (transaction.Message.Item is not { IsList: true, Count: >= 2 } body)
+        {
+            return AttributeReply([], 1, "S1F19 did not carry an object type and an identifier");
+        }
+
+        var request = new ObjectAttributeRequest
+        {
+            Objects = [ObjectCodec.TryReadText(body[1]) ?? string.Empty],
+            ObjectType = ObjectCodec.TryReadText(body[0]) ?? string.Empty,
+            Attributes = body.Count >= 3 && ObjectCodec.TryReadNameList(body[2], out var names) ? names : [],
+        };
+
+        var values = await provider.GetAttributesAsync(request, cancellationToken).ConfigureAwait(false);
+
+        return values.Count == 0
+            ? AttributeReply([], 1, "no such object")
+            : AttributeReply(values[0].Attributes, 0, string.Empty);
+
+        static SecsMessage AttributeReply(
+            IReadOnlyList<ObjectAttribute> attributes,
+            uint errorCode,
+            string errorText)
+            => new(1, 20, replyExpected: false)
+            {
+                Name = "AttributeData",
+                Item = ObjectCodec.AttributeDataBody(attributes, errorCode, errorText),
+            };
+    }
 
     private async ValueTask<SecsMessage?> BuildReplyAsync(
         SecsTransaction transaction,

@@ -172,7 +172,7 @@ public class EnhancedHostingTests
                 $"S{stream}F{function} should have a handler");
         }
 
-        Assert.Equal(19, EnhancedServicesEquipment.HandledMessages.Count + ObjectServices.HandledMessages.Count);
+        Assert.Equal(20, EnhancedServicesEquipment.HandledMessages.Count + ObjectServices.HandledMessages.Count);
         Assert.NotNull(provider.GetRequiredService<ObjectServices>());
         Assert.NotNull(provider.GetRequiredService<EnhancedServicesEquipment>());
     }

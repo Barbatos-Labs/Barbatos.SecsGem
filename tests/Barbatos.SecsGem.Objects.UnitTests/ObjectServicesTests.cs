@@ -430,6 +430,10 @@ public class ObjectServicesTests
         await pair.Asker.GetAttributesAsync("CAR-001", "Carrier", ["LotId"], _ => { }, ObjectPair.Token);
         await pair.Asker.GetAttributesAsync(["CAR-001"], ["LotId"], _ => { }, ObjectPair.Token);
 
+        // And stream 1's one E39 row, which is the only attribute get in the reference that can
+        // say why it failed.
+        await pair.Asker.GetAttributeAsync("Carrier", "CAR-001", ["LotId"], _ => { }, ObjectPair.Token);
+
         await pair.Asker.SetAttributesAsync(
             "CAR-001",
             "Carrier",

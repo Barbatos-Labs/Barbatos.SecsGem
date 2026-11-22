@@ -112,7 +112,12 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `TriggerEventAsync` | `ValueTask<bool> TriggerEventAsync(uint eventId, CancellationToken cancellationToken = default)` | Reports a collection event. `false` when the event is unknown, disabled, or there is nobody to tell. |
 | `SetAlarmAsync` | `ValueTask<bool> SetAlarmAsync(ulong alarmId, CancellationToken cancellationToken = default)` | S5F1 with ALCD bit 7 set, then the linked set event. |
 | `ClearAlarmAsync` | `ValueTask<bool> ClearAlarmAsync(ulong alarmId, CancellationToken cancellationToken = default)` | The same with the bit clear, then the linked clear event. |
-| `PostExceptionAsync` | `ValueTask<bool> PostExceptionAsync(string exceptionId, string type, string message, CancellationToken cancellationToken = default)` | S5F9: EXID, EXTYPE and EXMESSAGE, timestamped from `Now`. Three strings rather than an identifier into a table, because the documented half of stream 5 has no exception namelist, no enable message and no way to ask what is outstanding. Spooled like a report - nothing will repeat it. `false` means nothing reached the host, kept or not; `SpoolCountActual` separates the two. |
+| `PostExceptionAsync` | `ValueTask<bool> PostExceptionAsync(string exceptionId, string type, string message, CancellationToken cancellationToken = default)` | S5F9: EXID, EXTYPE and EXMESSAGE, timestamped from `Now`. Three strings rather than an identifier into a table, because stream 5 has no exception namelist, no enable message and no way to ask what is outstanding. Spooled like a report - nothing will repeat it. `false` means nothing reached the host, kept or not; `SpoolCountActual` separates the two. |
+| `ClearExceptionAsync` | `ValueTask<bool> ClearExceptionAsync(string exceptionId, CancellationToken cancellationToken = default)` | S5F11: a `TIMESTAMP` and the `EXID`, the shortest body in the family. Spooled. |
+| `NotifyExceptionRecoveringAsync` | `ValueTask<bool> NotifyExceptionRecoveringAsync(string exceptionId, CancellationToken cancellationToken = default)` | S5F13. The stage a host may interrupt with S5F17. Spooled. |
+| `NotifyExceptionRecoveredAsync` | `ValueTask<bool> NotifyExceptionRecoveredAsync(string exceptionId, string message, CancellationToken cancellationToken = default)` | S5F15. The one recovery stage with an `EXMESSAGE`, which is the only place the outcome can be said - `ACKC5` on the reply says whether the host took the notice, not whether the recovery worked. Spooled. |
+| `AnswerExceptionAbort` | `Func<string, GemExceptionAbortResult> { get; set; }` | What S5F18 says. **Refuses by default**, which is the opposite way round from this stack's other answer delegates: this one stops something the machine is in the middle of, so a machine nobody told how to abort a recovery cannot abort one. A delegate rather than a model member, because stream 5 has no exception table for one to be declared against. |
+| `ReportTerminalNotAccessibleAsync` | `ValueTask<bool> ReportTerminalNotAccessibleAsync(byte terminalId = 0, CancellationToken cancellationToken = default)` | S10F7, which has no reply at all. **Not `ACKC10` 2 by another route**: that code answers a display request, where this is volunteered before anybody asks. Needs no `IGemTerminal`, and is **not spooled** - which terminals were unreachable an hour ago is not news anybody can act on. |
 | `SendDiscreteVariableDataAsync` | `ValueTask<bool> SendDiscreteVariableDataAsync(uint eventId, CancellationToken cancellationToken = default)` | S6F3: DATAID and CEID, which is all this reference's row names - **no values**, since the items that would carry them, `DVNAME` and `DVVAL`, are named by none of its 524 rows. Gated on the same two conditions as `TriggerEventAsync`, because S2F37 disables a CEID and this message names one. |
 | `InquireMultiBlockAsync` | `ValueTask<GemMultiBlockGrant> InquireMultiBlockAsync(uint length, CancellationToken cancellationToken = default)` | S6F5, answered by S6F6's `GRANT6`. **Never spooled**: a question, not news. With no link it answers `NoSpace`, the table having no code for "nobody was listening" and `Busy` inviting a pointless retry. Sends nothing afterwards and measures nothing - how much fits in a block is the link's business and whether a report is worth the round trip is the application's. `DATALENGTH` is passed through as given; the reference records no units for it. |
 | `NotifyProgramChangedAsync` | `ValueTask<GemProcessProgramAcknowledgement?> NotifyProgramChangedAsync(string programId, CancellationToken cancellationToken = default)` | S7F29 - one of only two things a machine says first in stream 7. Returns the host's ACKC7, or `null` when there was nobody to tell. **Not spooled**: a held notice would reach a host that can get something fresher by asking S7F7, so a stale prompt is worse than none. |
@@ -129,6 +134,8 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | --- | --- | --- |
 | S1F1 | Are You There | S1F2 - identity, or a zero-length list while off-line |
 | S1F3 | Selected Equipment Status Request | S1F4 |
+| S1F5 | Formatted Status Request | S1F6 - the form's `SV` values, or a zero-length list for no such form |
+| S1F7 | Fixed Form Request | S1F8 - an `SVNAME` beside every `SV`, nested per entry |
 | S1F11 | Status Variable Namelist Request | S1F12 - SVID, SVNAME, UNITS |
 | S1F13 | Establish Communications Request | S1F14 (COMMACK) |
 | S1F15 | Request Off-Line | S1F16 (OFLACK) |
@@ -149,6 +156,7 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | S5F3 | Enable/Disable Alarm Send | S5F4 (ACKC5) |
 | S5F5 | List Alarms Request | S5F6 - ALCD, ALID, ALTX |
 | S5F7 | List Enabled Alarm Request | S5F8 - the enabled subset, same shape as S5F6 |
+| S5F17 | Exception Recover Abort Request | S5F18 - `EXID`, `ACKA`, `ERRCODE`, `ERRTEXT`. The one message a host sends about an exception, answered through `AnswerExceptionAbort`, which **refuses by default** |
 | S6F15 | Event Report Request | S6F16 - the event's reports, **even when the event is disabled** |
 | S6F19 | Individual Report Request | S6F20 - one report's values |
 
@@ -284,6 +292,7 @@ because a host told DRACK 4 is entitled to assume its definition was rejected in
 | `AddConstant` | `GemEquipmentModelBuilder AddConstant(GemEquipmentConstant constant)` | |
 | `AddEvent` | `GemEquipmentModelBuilder AddEvent(uint id, string name, bool enabledByDefault = true)` | |
 | `AddEvent` | `GemEquipmentModelBuilder AddEvent(uint id, string name, IReadOnlyList<uint> variableIds, bool enabledByDefault = true)` | The same, declaring what the event is *about* - answered by S1F24. Not the same thing as the reports a host links to it with S2F35: this is the machine's description and does not change when the host changes its subscription. The two-argument form is this one with an empty list, which S1F24 reports as an event about nothing in particular rather than as a refusal. |
+| `AddStatusForm` | `GemEquipmentModelBuilder AddStatusForm(byte code, params uint[] variableIds)` | What an `SFCD` selects in S1F5 and S1F7. **Not a report**: a form is the machine's own, a host cannot define one with S2F33, and a re-establish does not clear it. `Build()` refuses a form naming a variable that does not exist or one that is a *data* variable, since those rows ask for status. A code of zero is allowed, unlike the identifiers elsewhere here - `SFCD` has no table, so nothing in the reference reserves it. |
 | `AddReport` | `GemEquipmentModelBuilder AddReport(uint id, params uint[] variableIds)` | A default a host may replace with S2F33. |
 | `AddAlarm` | `GemEquipmentModelBuilder AddAlarm(GemAlarm alarm)` | Refuses identifier zero, which S5F3 reserves for "every alarm". |
 | `AddRemoteCommand` | `GemEquipmentModelBuilder AddRemoteCommand(string name, GemRemoteCommandHandler handler, bool requiresRemoteControl = true)` | |
@@ -334,6 +343,37 @@ Range *checking* belongs inside `Write`, and the three bounds exist for the name
 nothing else. They are not an alternative authority: a setpoint may be limited by what the chamber
 is doing right now, which no static minimum can express, so `Write` always has the last word on
 whether a value is accepted.
+
+### `GemStatusForm`
+
+`public sealed class GemStatusForm`
+
+`Code` (`required byte`, the `SFCD` that selects it) and `VariableIds`
+(`required IReadOnlyList<uint>`, in form order).
+
+**Not a report.** A `GemReport` is the host's: defined with S2F33, replaced at will, reset on a
+re-establish. A form is the machine's own and never changes, which is why forms live beside the
+variables rather than in the state a host can edit - and why a host cannot define one. `SFCD` has
+no table in the reference, so which form a code selects is the machine's to document and this
+library carries the byte.
+
+---
+
+### `GemExceptionAbortResult`
+
+`public sealed class GemExceptionAbortResult`
+
+What S5F18 answers: `Accepted` (`bool`, from `ACKA`), `ErrorCode` (`uint`) and `ErrorText`
+(`string`), built with `Accept()` or `Refuse(errorCode, errorText)`.
+
+`ACKA` is a `BOOLEAN` that arrives **with** a table - TRUE accepted, FALSE not - which is unusual
+twice over: most of this stack's acknowledgements are a `B[1]`, and most boolean items in the
+reference carry no table at all. So `Accepted` is a `bool` rather than an enum dressing two
+documented values up as something richer. The reason beside it is a type rather than a bare
+`bool` return because S5F18 is the only row in stream 5 that can carry one, and throwing it away
+would lose the one field the row has for it.
+
+---
 
 ### `GemCollectionEvent`
 
@@ -1086,7 +1126,8 @@ established.
 | `HandleAsync` | `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken cancellationToken = default)` | Handles one inbound primary. Wired to every pair in `HandledMessages`. |
 | `EventReportReceived` | `event EventHandler<GemEventReportEventArgs>?` | S6F11, S6F13 **and S6F3**, before the acknowledgement. `GemEventReportEventArgs.Function` says which, since an S6F3 and an S6F11 for an event with no linked reports both arrive carrying nothing. |
 | `AlarmReceived` | `event EventHandler<GemHostAlarmEventArgs>?` | S5F1, before the acknowledgement. |
-| `ExceptionReceived` | `event EventHandler<GemHostExceptionEventArgs>?` | S5F9, before the acknowledgement. Separate from `AlarmReceived` although both are stream 5 and both answer with `ACKC5`: an alarm is a condition with an identifier and a state a host can read back, and an exception post is an occurrence named by free text that nothing will mention again. Arrives already set to `Error` when the body did not read. |
+| `ExceptionReceived` | `event EventHandler<GemHostExceptionEventArgs>?` | S5F9, S5F11, S5F13 and S5F15 - an exception's four stages, with `GemExceptionStage` saying which. Separate from `AlarmReceived` although both are stream 5 and both answer with `ACKC5`: an alarm is a condition with an identifier and a state a host can read back, and an exception is an occurrence named by free text that nothing will mention again. Arrives already set to `Error` when the body did not read, and the arity guard is per stage - a clear shaped like a post is a body this end did not understand. |
+| `TerminalNotAccessible` | `event EventHandler<GemTerminalUnavailableEventArgs>?` | S10F7. No acknowledgement to set, because the row has no reply - the same position stream 9 is in. The machine sends it and does not answer it, so there is no host method to match. |
 | `MultiBlockInquired` | `event EventHandler<GemMultiBlockInquiryEventArgs>?` | S6F5, before the grant. **Grants by default**, so a host with no handler says yes - a handshake whose only purpose is to let a host refuse should not refuse by silence. |
 | `ProcessProgramNoticeReceived` | `event EventHandler<GemProcessProgramNoticeEventArgs>?` | S7F29 and S7F39, the only two things a machine says first in stream 7, with `Function` saying which. Neither is spooled by the machine, so a host that was away asks `ReadProcessProgramDirectoryAsync` instead - treat the event as a prompt to look, not as a log. |
 | `TraceDataReceived` | `event EventHandler<GemTraceDataEventArgs>?` | S6F1. The samples are a view into the arriving message and die with the handler. |
@@ -1102,6 +1143,8 @@ table claiming it.
 | `AreYouThereAsync` | S1F1 | `GemEquipmentIdentity?` - `null` for the zero-length list off-line equipment answers with |
 | `EstablishCommunicationsAsync` | S1F13 | `GemCommunicationAcknowledgement`; sets `IsCommunicating` when accepted |
 | `ReadStatusAsync(svids)` | S1F3 | `SecsMessage` - **the caller disposes it**. Empty list asks for every status variable |
+| `ReadFormattedStatusAsync(formCode)` | S1F5 | `SecsMessage` - **the caller disposes it**. A zero-length body means no such form. Which form a code selects is the machine's to document; `SFCD` has no table |
+| `ReadFixedFormAsync(formCode)` | S1F7 | `SecsMessage` - **the caller disposes it**. S1F5's twin with an `SVNAME` beside every value, for a host meeting a machine for the first time |
 | `ReadStatusNamelistAsync(svids)` | S1F11 | `IReadOnlyList<GemVariableDescription>` |
 | `ReadDataVariableNamelistAsync(vids)` | S1F21 | `IReadOnlyList<GemVariableDescription>` - data variables only. A status variable asked for here comes back with `Exists` false, like an identifier the machine has not got, which is what lets a host read the two lists side by side |
 | `ReadCollectionEventNamelistAsync(ceids)` | S1F23 | `IReadOnlyList<GemEventDescription>` - the name and the variables each event is about. The machine's own account, not the reports the host has linked |
@@ -1123,6 +1166,7 @@ table claiming it.
 | `EnableAlarmAsync(enable, alarmId)` | S5F3 | `GemAlarmAcknowledgement`. Zero as the identifier means all of them. ALED is sent as E5 defines it: a `B[1]` whose top bit is the choice |
 | `ListAlarmsAsync(alarmIds)` | S5F5 | `IReadOnlyList<GemAlarmReport>` - which alarms are *in alarm* |
 | `ListEnabledAlarmsAsync` | S5F7 | `IReadOnlyList<GemAlarmReport>` - which the host has asked to hear about. A different question |
+| `AbortExceptionRecoveryAsync(exceptionId)` | S5F17 | `GemExceptionAbortResult`. The only message a host sends about an exception. Throws `SecsException` when the reply carried no `ACKA` |
 | `RequestEventReportAsync(ceid)` | S6F15 | `SecsMessage` - **the caller disposes it**. A zero-length body means no such event |
 | `RequestReportAsync(rptid)` | S6F19 | `SecsMessage` - **the caller disposes it** |
 | `RequestSpooledDataAsync(request)` | S6F23 | `GemSpooledDataAcknowledgement`. Accepted means the equipment agreed, not that the messages have arrived |
@@ -1223,6 +1267,8 @@ that message is disposed as soon as the event returns. Read what you need, or co
 | `GemHostExceptionEventArgs` | `Exception` - a `GemExceptionPost` of `PostedAt` (null when TIMESTAMP would not parse), `Id`, `Type` and `Message` | `Acknowledgement` (ACKC5), arriving as `Error` when the body did not read |
 | `GemMultiBlockInquiryEventArgs` | `DataId`, `Length` - DATALENGTH as the machine sent it, in whatever it and the host have agreed it counts; the reference records no units | `Grant` (GRANT6), **defaulting to `Ok`** |
 | `GemProcessProgramNoticeEventArgs` | `ProgramId`, `Function` - 29 for a change and 39 for a selection, the bodies being identical - and `IsChange` | `Acknowledgement` (ACKC7), arriving as `NotFound` when the machine named no program |
+| `GemHostExceptionEventArgs` | `Exception` and `Stage` (`GemExceptionStage`: `Posted` 9, `Cleared` 11, `Recovering` 13, `Recovered` 15). `Type` is empty for every stage but the post; `Message` for every one but the post and the recovery | `Acknowledgement` (ACKC5) |
+| `GemTerminalUnavailableEventArgs` | `TerminalId` | - the row has no reply |
 | `GemTraceDataEventArgs` | `TraceId`, `SampleNumber` and `SampledAt` (both describing the **last** sample in the group), `Samples` - each a live view, valid only inside the handler | `Acknowledgement` (ACKC6) |
 | `GemTerminalRequestEventArgs` | `TerminalId`, `Text` (not trimmed - TEXT is variable-length, so its spaces are somebody's) | `Acknowledgement` (ACKC10) |
 | `GemHostErrorEventArgs` | `Function`, `OffendingHeader` (ten bytes, copied; empty for S9F13), `Description` (S9F13's MEXP and EDID, else empty) | - |

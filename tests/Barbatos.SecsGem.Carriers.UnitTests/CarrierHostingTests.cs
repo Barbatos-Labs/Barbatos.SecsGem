@@ -82,7 +82,7 @@ public class CarrierHostingTests
         }
 
         Assert.Equal(9, CarrierEquipment.HandledMessages.Count);
-        Assert.Equal(11, ObjectServices.HandledMessages.Count);
+        Assert.Equal(12, ObjectServices.HandledMessages.Count);
     }
 
     [Fact]

@@ -127,6 +127,41 @@ public sealed class ObjectAttributeValues
     public required IReadOnlyList<ObjectAttribute> Attributes { get; init; }
 }
 
+/// <summary>The reason S1F20 gives when an attribute get did not work.</summary>
+/// <remarks>
+/// <para>
+/// <strong>The only attribute get in the reference that can say why.</strong> S14F2 carries no
+/// acknowledgement at all, so an object the other end does not have comes back as an empty list
+/// and a caller cannot tell "no such object" from "no such attribute" from "I will not tell you".
+/// S1F19's reply carries an <c>ERRCODE</c> and an <c>ERRTEXT</c> beside the data, which is what
+/// makes that row worth serving rather than refusing as a second way to say one thing.
+/// </para>
+/// <para>
+/// Neither item is tabled, so neither is interpreted here: the code is a number this end passes
+/// through and the text is whatever the other end wrote. Equipment written to this library answers
+/// 1 with "no such object", which is its own choice and not a reading - 0 being what an answer
+/// that worked carries.
+/// </para>
+/// </remarks>
+public sealed class ObjectAttributeError
+{
+    internal ObjectAttributeError(uint code, string text)
+    {
+        Code = code;
+        Text = text;
+    }
+
+    /// <summary>Gets ERRCODE, in whatever numbering the two ends have agreed.</summary>
+    public uint Code { get; }
+
+    /// <summary>Gets ERRTEXT, for a person to read. May be empty.</summary>
+    public string Text { get; }
+
+    /// <summary>Returns the code and the text.</summary>
+    /// <returns>For example <c>1 no such object</c>.</returns>
+    public override string ToString() => Text.Length == 0 ? $"{Code}" : $"{Code} {Text}";
+}
+
 /// <summary>What happened to one object in a set - S14F22.</summary>
 public sealed class ObjectSetResult
 {

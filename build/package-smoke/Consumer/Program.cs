@@ -1277,9 +1277,19 @@ internal static class Program
 
         var router = objectProvider.GetRequiredService<ISecsMessageRouter>();
 
-        // Eleven since E94: the seven reading primaries plus create, delete and the two actions,
-        // which the control job package is the first standard here to need.
-        Assert(ObjectServices.HandledMessages.Count == 11, $"the stream declares {ObjectServices.HandledMessages.Count} primaries, not eleven");
+        // Twelve since the gapless sweep: eleven of stream 14 - the seven reading primaries plus
+        // create, delete and the two actions - and S1F19, stream 1's one E39 row. That row is here
+        // rather than in the GEM package because its items are stream 14's, and it is served rather
+        // than refused as a duplicate of S14F1 because its reply can say why it failed.
+        Assert(ObjectServices.HandledMessages.Count == 12, $"the stream declares {ObjectServices.HandledMessages.Count} primaries, not twelve");
+
+        Assert(
+            ObjectServices.HandledMessages.Contains(((byte)1, (byte)19)),
+            "the packed object services lost S1F19, so stream 1's E39 row did not come out of the package");
+
+        Assert(
+            !askRouter.TryGetHandler(1, 19, out _),
+            "an end with no objects declared S1F19, so it will answer an attribute get instead of S9F5");
 
         foreach (var (stream, function) in ObjectServices.HandledMessages)
         {

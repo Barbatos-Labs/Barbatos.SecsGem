@@ -971,6 +971,9 @@ internal static class Program
             // What each event is about, which is S1F24's answer and not the same thing as the
             // reports a host links to it with S2F35. The machine describes its own events; the
             // host chooses what it wants told. Relink the event and this list does not move.
+            // What an SFCD selects. A form is the machine's own, where a report is the host's: no
+            // S2F33 defines one and a re-establish does not clear it.
+            .AddStatusForm(1, ControlStateVariable, PressureVariable)
             .AddEvent(ProcessEndEvent, "ProcessEnd", [PressureVariable, LotIdVariable])
             .AddEvent(PressureLimitEvent, "PressureLimitCrossed", [PressureVariable])
             .AddRemoteCommand("START", (context, _) =>
@@ -1211,6 +1214,29 @@ internal static class Program
         Console.WriteLine($"   S1F21 -> {string.Join("; ", data.Select(v => v.Exists ? v.ToString() : $"{v.Id} is not a data variable"))}");
         ok &= data.Count == 2 && data[0].Exists && !data[1].Exists;
 
+        // Status in one of the machine's own forms. SFCD has no table, so which form code 1 means
+        // is the machine's to document - this library carries the byte and nothing more.
+        using (var form = await host.ReadFormattedStatusAsync(1, cancellationToken))
+        {
+            Console.WriteLine($"   S1F5  -> form 1 carries {form.Item!.Count} value(s)");
+            ok &= form.Item.Count == 2;
+        }
+
+        // Its twin, with the names beside the values, for a host that does not know the form.
+        using (var named = await host.ReadFixedFormAsync(1, cancellationToken))
+        {
+            Console.WriteLine($"   S1F7  -> {named.Item![0][0].GetString()}, {named.Item[1][0].GetString()}");
+            ok &= named.Item.Count == 2;
+        }
+
+        // A form nobody declared is the zero-length list those rows use as a refusal: neither
+        // carries an acknowledgement code.
+        using (var missing = await host.ReadFormattedStatusAsync(200, cancellationToken))
+        {
+            Console.WriteLine($"   S1F5  -> form 200 is not one of mine: {missing.Item!.Count} value(s)");
+            ok &= missing.Item.Count == 0;
+        }
+
         // And S1F23 asks what collection events there are and what each one is about. The variable
         // list is the machine's description, declared beside the event in the model.
         var events = await host.ReadCollectionEventNamelistAsync([], cancellationToken);
@@ -1413,6 +1439,28 @@ internal static class Program
 
             Console.WriteLine(
                 $"   S7F39 -> ACKC7={await equipment.NotifyProgramSelectedAsync("RECIPE-7", cancellationToken)}");
+
+            // An exception's other three stages, which arrive on the same event as the post with a
+            // GemExceptionStage saying which - because an application watching an exception wants
+            // its life rather than four unrelated notifications.
+            await equipment.NotifyExceptionRecoveringAsync("PRESSURE-EXCURSION", cancellationToken);
+            await equipment.NotifyExceptionRecoveredAsync(
+                "PRESSURE-EXCURSION",
+                "pumped down again",
+                cancellationToken);
+
+            await equipment.ClearExceptionAsync("PRESSURE-EXCURSION", cancellationToken);
+
+            // And a terminal nobody can reach, which is not ACKC10 2 by another route: that code
+            // answers a display request, where this is volunteered before anybody asks.
+            await equipment.ReportTerminalNotAccessibleAsync(2, cancellationToken);
+
+            await WaitUntilAsync(() => !Reports.IsEmpty, "the stream 5 and 10 notices to arrive");
+
+            while (Reports.TryDequeue(out var report))
+            {
+                Console.WriteLine($"   {report}");
+            }
 
             await WaitUntilAsync(() => !Reports.IsEmpty, "the program notices to arrive at the host");
 
@@ -2273,6 +2321,27 @@ internal static class Program
                 cancellationToken);
 
             Console.WriteLine($"   S14F1  -> {before}");
+
+            // Stream 1's one E39 row, and the only attribute get in the reference that can say why
+            // it failed: S14F2 carries no acknowledgement at all, so a missing object comes back as
+            // an empty list with nothing to read. S1F20 carries an ERRCODE and an ERRTEXT.
+            var reason = await objects.GetAttributeAsync(
+                ChamberType,
+                "CHAMBER-NONE",
+                ["Setpoint"],
+                _ => { },
+                cancellationToken);
+
+            Console.WriteLine($"   S1F19  -> {reason?.ToString() ?? "no error"}");
+            ok &= reason is not null;
+
+            // The same question on S14F1, which can only say false.
+            ok &= !await objects.GetAttributesAsync(
+                "CHAMBER-NONE",
+                ChamberType,
+                ["Setpoint"],
+                _ => { },
+                cancellationToken);
 
             var acknowledgement = await objects.SetAttributesAsync(
                 ChamberObject,
@@ -3425,12 +3494,17 @@ internal static class Program
         // Its own event, not AlarmReceived, although both are stream 5 and both answer with
         // ACKC5. Merging them would hand an application one notification whose two halves it has
         // to tell apart itself.
-        host.ExceptionReceived += (_, e) => Reports.Enqueue($"S5F9 arrived: {e.Exception}");
+        host.ExceptionReceived += (_, e) =>
+            Reports.Enqueue($"S5F{(byte)e.Stage} arrived ({e.Stage}): {e.Exception}");
 
         // One event for S7F29 and S7F39, because the bodies are identical - e.Function is the only
         // thing that separates a recipe changing from a recipe being selected.
         host.ProcessProgramNoticeReceived += (_, e) =>
             Reports.Enqueue($"{e} arrived: {(e.IsChange ? "changed" : "selected")}");
+
+        // S10F7 has no reply at all, so these arguments carry no code to set - the same position
+        // stream 9 is in. A host acts on it or it does not.
+        host.TerminalNotAccessible += (_, e) => Reports.Enqueue($"S10F7 arrived: {e}");
 
         // S6F5 grants by default, so this handler is here to show where a host would refuse -
         // a handshake whose only purpose is to let a host say no should not say no by silence.

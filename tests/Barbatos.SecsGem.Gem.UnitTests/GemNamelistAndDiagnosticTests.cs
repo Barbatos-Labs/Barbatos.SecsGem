@@ -276,7 +276,7 @@ public class GemNamelistAndDiagnosticTests
             Item = SecsItem.B(1, 2, 3).Named("ABS"),
         };
 
-        using var reply = await pair.EquipmentLink.SendAsync(primary, GemPair.Token);
+        using var reply = await pair.AskEquipmentAsync(primary);
 
         Assert.Equal(26, reply.F);
         Assert.Equal<byte[]>([1, 2, 3], [.. reply.Item!.GetMemory<byte>().Span]);

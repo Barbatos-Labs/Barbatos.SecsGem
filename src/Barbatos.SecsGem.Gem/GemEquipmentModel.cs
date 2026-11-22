@@ -42,13 +42,15 @@ public sealed class GemEquipmentModel
         FrozenDictionary<uint, GemCollectionEvent> events,
         FrozenDictionary<ulong, GemAlarm> alarms,
         FrozenDictionary<string, GemRemoteCommand> remoteCommands,
-        IReadOnlyList<GemReport> reports)
+        IReadOnlyList<GemReport> reports,
+        FrozenDictionary<byte, uint[]> statusForms)
     {
         Variables = variables;
         Constants = constants;
         Events = events;
         Alarms = alarms;
         RemoteCommands = remoteCommands;
+        StatusForms = statusForms;
 
         _initial = new LinkState(
             reports.ToFrozenDictionary(report => report.Id, report => report.VariableIds.ToArray()),
@@ -429,6 +431,14 @@ public sealed class GemEquipmentModel
     public IReadOnlyList<GemVariableLimit> LimitsFor(uint variableId)
         => Current.Limits.TryGetValue(variableId, out var limits) ? limits : [];
 
+    /// <summary>Gets the predefined status forms, keyed by <c>SFCD</c>.</summary>
+    /// <remarks>
+    /// The machine's own, so they are here rather than in the state a host can edit: a form is not
+    /// a report, and S2F33 cannot define one. Empty when the equipment declares none, which is how
+    /// S1F6 and S1F8 come to answer with the zero-length list that means "no such form".
+    /// </remarks>
+    public FrozenDictionary<byte, uint[]> StatusForms { get; }
+
     private LinkState Current => Volatile.Read(ref _state);
 
     private void Publish(LinkState state) => Volatile.Write(ref _state, state);
@@ -456,6 +466,7 @@ public sealed class GemEquipmentModelBuilder
     private readonly Dictionary<ulong, GemAlarm> _alarms = [];
     private readonly Dictionary<string, GemRemoteCommand> _commands = new(StringComparer.Ordinal);
     private readonly List<GemReport> _reports = [];
+    private readonly Dictionary<byte, uint[]> _statusForms = [];
 
     /// <summary>Adds a status variable the host can read with S1F3.</summary>
     /// <param name="id">The SVID.</param>
@@ -606,6 +617,37 @@ public sealed class GemEquipmentModelBuilder
         return this;
     }
 
+    /// <summary>Adds a predefined status form - what an <c>SFCD</c> selects in S1F5 and S1F7.</summary>
+    /// <param name="code">The SFCD.</param>
+    /// <param name="variableIds">The status variables it reports, in form order.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="variableIds"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The code is already used.</exception>
+    /// <remarks>
+    /// <para>
+    /// Not a report, and not replaceable by a host: see <see cref="GemStatusForm"/>. Equipment that
+    /// declares no forms answers both messages with the zero-length list that means "no such
+    /// form", which is the refusal those rows have - neither carries an acknowledgement code.
+    /// </para>
+    /// <para>
+    /// A code of zero is allowed, unlike the identifiers elsewhere in this builder. <c>SFCD</c> has
+    /// no table, so nothing in the reference reserves zero for anything - and refusing it would be
+    /// this library inventing a rule about a byte it does not interpret.
+    /// </para>
+    /// </remarks>
+    public GemEquipmentModelBuilder AddStatusForm(byte code, params uint[] variableIds)
+    {
+        ArgumentNullException.ThrowIfNull(variableIds);
+
+        if (_statusForms.ContainsKey(code))
+        {
+            throw new ArgumentException($"Status form {code} is already defined.", nameof(code));
+        }
+
+        _statusForms[code] = variableIds;
+        return this;
+    }
+
     /// <summary>Adds an alarm.</summary>
     /// <param name="alarm">The alarm.</param>
     /// <returns>This builder, for chaining.</returns>
@@ -677,12 +719,35 @@ public sealed class GemEquipmentModelBuilder
             }
         }
 
+        // The same check the reports get, for the same reason: a form naming a variable that does
+        // not exist would answer S1F6 silently short a value, and a typo in a form is as easy to
+        // make as a typo in a report. Status variables only, because S1F5 and S1F7 ask for status -
+        // a data variable there would be the mistake S1F21 exists to keep apart from S1F11.
+        foreach (var (code, variableIds) in _statusForms)
+        {
+            foreach (var variableId in variableIds)
+            {
+                if (!_variables.TryGetValue(variableId, out var variable))
+                {
+                    throw new InvalidOperationException(
+                        $"Status form {code} names variable {variableId}, which is not defined.");
+                }
+
+                if (variable.Kind != GemVariableKind.Status)
+                {
+                    throw new InvalidOperationException(
+                        $"Status form {code} names variable {variableId}, which is a data variable rather than a status variable.");
+                }
+            }
+        }
+
         return new GemEquipmentModel(
             _variables.ToFrozenDictionary(),
             _constants.ToFrozenDictionary(),
             _events.ToFrozenDictionary(),
             _alarms.ToFrozenDictionary(),
             _commands.ToFrozenDictionary(StringComparer.Ordinal),
-            _reports);
+            _reports,
+            _statusForms.ToFrozenDictionary());
     }
 }

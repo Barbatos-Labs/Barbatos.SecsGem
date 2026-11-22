@@ -383,6 +383,38 @@ item doing the same job, which the codec says out loud:
 `CPACK` is defined, but only from 1 upwards - E5 expects that list to carry the parameters that
 *failed* - so nought and four are this library's, named as the E40 package named the same item.
 
+## Stream 1's one E39 row
+
+S1F19 and S1F20 are in stream 1 and are not GEM's: every item they name - `OBJTYPE`, `OBJID`,
+`ATTRID`, `ATTRDATA` - is shared with stream 14, so the vocabulary is E39's and the row belongs
+here. `Barbatos.SecsGem.Gem` must not depend on this package, and this one already reaches into
+stream 2 for the enhanced services on the same reasoning.
+
+```csharp
+var error = await objects.GetAttributeAsync(
+    "Carrier",
+    "CAR-001",
+    ["LotId"],
+    values => Console.WriteLine(values.Attributes[0].Value.GetString()));
+
+if (error is not null)
+{
+    Console.WriteLine(error);      // 1 no such object
+}
+```
+
+**It is not a second way to say S14F1, and the difference is the one that matters: S1F20 can say
+why.** S14F2 has no acknowledgement item at all, so an object the other end does not have comes
+back as an empty list - and a caller cannot tell that from an object with no attributes or from a
+provider that declined. This reply carries an `ERRCODE` and an `ERRTEXT` beside the data, which
+makes it the only attribute get in the reference with a reason in it. Equipment written to this
+library answers 1 with "no such object"; the code is this library's choice, since the item is
+untabled, and 0 is what an answer that worked carries.
+
+One provider method serves all three gets, because what they ask for is the same thing. What
+differs is how the row names its object - an `OBJID` here, an `OBJSPEC` on stream 14 - and this
+package does not reconcile them: a provider sees whichever string arrived.
+
 ## What is not here yet
 
 - **S14F11 and S14F12** (attribute relations) and **S14F23 to S14F26** (attribute enable, object

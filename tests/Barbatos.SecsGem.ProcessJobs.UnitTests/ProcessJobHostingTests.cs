@@ -102,7 +102,7 @@ public class ProcessJobHostingTests
         }
 
         Assert.Equal(12, ProcessJobEquipment.HandledMessages.Count);
-        Assert.Equal(11, ObjectServices.HandledMessages.Count);
+        Assert.Equal(12, ObjectServices.HandledMessages.Count);
 
         // And not the two the equipment sends: an end that answered its own primaries would be
         // talking to itself.

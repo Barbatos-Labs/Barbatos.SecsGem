@@ -207,6 +207,44 @@ internal sealed class GemPair : IAsyncDisposable
         return new GemPair(active, passive, hostLink, equipmentLink, pendingHost, pendingEquipment, clock, asked);
     }
 
+    /// <summary>Sends a hand-written primary to the equipment and waits, bounded, for its reply.</summary>
+    /// <param name="primary">The primary. The caller owns it.</param>
+    /// <returns>The reply. The caller disposes it.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The bound is the whole point of this method.</strong> A hand-written primary is how
+    /// a test reaches a handler that a real GemHost cannot produce - a malformed body, a reserved
+    /// code - and a handler that throws or answers on the wrong function leaves this end waiting on
+    /// a T3 the FakeTimeProvider never advances. The run then dies on its own timeout with no
+    /// summary, which is the worst way for a negative control to report: it says nothing about
+    /// which rule broke.
+    /// </para>
+    /// <para>
+    /// The timeout is on the real clock deliberately, which is the one place in this suite that is
+    /// true. Everything the library does runs on the fake clock; this is the harness noticing that
+    /// the library has stopped.
+    /// </para>
+    /// </remarks>
+    public async Task<SecsMessage> AskEquipmentAsync(SecsMessage primary)
+        => await EquipmentLink
+            .SendAsync(primary, Token)
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5), Token)
+            .ConfigureAwait(false);
+
+    /// <summary>Waits, bounded, for something the equipment is sending to finish.</summary>
+    /// <param name="sending">The send in flight.</param>
+    /// <returns>Whatever it answered.</returns>
+    /// <remarks>
+    /// <see cref="AskEquipmentAsync"/>'s mirror, and earned by the same class of control. A report
+    /// the equipment sends with the W bit set waits for the host's acknowledgement under T3, and a
+    /// host that answers on the wrong function leaves that wait unmatched - on a clock this suite
+    /// never advances. Use this wherever a test awaits an equipment send that a broken handler
+    /// could leave hanging; a send to an absent host needs no bound, because nothing is awaited.
+    /// </remarks>
+    public static Task<T> SentAsync<T>(ValueTask<T> sending)
+        => sending.AsTask().WaitAsync(TimeSpan.FromSeconds(5), Token);
+
     /// <summary>Waits for the link to select and for both ends to be communicating.</summary>
     /// <returns>A task that completes once they are.</returns>
     /// <remarks>

@@ -107,7 +107,12 @@ public sealed class GemHost : IAsyncDisposable
         // that refused it would be the thing under suspicion refusing to be measured.
         (2, 25),   // Loopback Diagnostic Request
         (5, 1),    // Alarm Report Send
+
+        // An exception's four stages, which E5 gives four messages and nearly one body.
         (5, 9),    // Exception Post Notify
+        (5, 11),   // Exception Clear Notify
+        (5, 13),   // Exception Recover Notify
+        (5, 15),   // Exception Recover Complete Notify
         (6, 1),    // Trace Data Send
         (6, 3),    // Discrete Variable Data Send
         (6, 5),    // Multi-block Data Send Inquire
@@ -120,6 +125,7 @@ public sealed class GemHost : IAsyncDisposable
         (7, 29),   // Process Program Change Notify
         (7, 39),   // Process Program Selected Notify
         (10, 1),   // Terminal Request
+        (10, 7),   // Terminal Not Accessible
         (9, 1),    // Unrecognized Device ID
         (9, 3),    // Unrecognized Stream Type
         (9, 5),    // Unrecognized Function Type
@@ -148,6 +154,29 @@ public sealed class GemHost : IAsyncDisposable
     /// time. Merging them would hand a host one event whose two halves it has to tell apart.
     /// </remarks>
     public event EventHandler<GemHostExceptionEventArgs>? ExceptionReceived;
+
+    /// <summary>Raised when the equipment says one of its terminals cannot be reached - S10F7.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Not <c>ACKC10</c> 2 by another route.</strong> That code answers a display request -
+    /// a host asked, and the machine says the terminal is not available. This is a primary with no
+    /// reply, volunteered before anybody tries: a host that stops sending to terminal 2 on the
+    /// strength of it never has to make the failing request. The two were conflated in the reason
+    /// this row used to be left out.
+    /// </para>
+    /// <para>
+    /// <strong>The machine sends it and does not answer it.</strong> The reference marks the row as
+    /// travelling either way, and there is no method here to send it: a host telling a machine that
+    /// one of the host's terminals has gone would be a message nothing in this library answers, and
+    /// that is the one thing the Gem README says a host method must not be. The event exists
+    /// because this direction is the useful one.
+    /// </para>
+    /// <para>
+    /// Nothing to acknowledge, so these arguments carry no settable code - the row has no reply at
+    /// all, which is the same position stream 9 is in.
+    /// </para>
+    /// </remarks>
+    public event EventHandler<GemTerminalUnavailableEventArgs>? TerminalNotAccessible;
 
     /// <summary>Raised when the equipment says a process program changed - S7F29, or was selected - S7F39.</summary>
     /// <remarks>
@@ -231,7 +260,10 @@ public sealed class GemHost : IAsyncDisposable
             (1, 13) => OnEstablishCommunications(),
             (2, 25) => OnLoopback(transaction.Message),
             (5, 1) => OnAlarmReport(transaction.Message),
-            (5, 9) => OnExceptionPost(transaction.Message),
+            (5, 9) => OnExceptionNotice(transaction.Message, GemExceptionStage.Posted),
+            (5, 11) => OnExceptionNotice(transaction.Message, GemExceptionStage.Cleared),
+            (5, 13) => OnExceptionNotice(transaction.Message, GemExceptionStage.Recovering),
+            (5, 15) => OnExceptionNotice(transaction.Message, GemExceptionStage.Recovered),
             (6, 1) => OnTraceData(transaction.Message),
             (6, 3) => OnDiscreteVariableData(transaction.Message),
             (6, 5) => OnMultiBlockInquire(transaction.Message),
@@ -240,6 +272,7 @@ public sealed class GemHost : IAsyncDisposable
             (7, 29) => OnProgramNotice(transaction.Message, 30),
             (7, 39) => OnProgramNotice(transaction.Message, 40),
             (10, 1) => OnTerminalRequest(transaction.Message),
+            (10, 7) => OnTerminalNotAccessible(transaction.Message),
             _ => null,
         };
 
@@ -1243,6 +1276,113 @@ public sealed class GemHost : IAsyncDisposable
         return (GemProcessProgramGrant)ReadNamedCode(reply, 6, "PPGNT");
     }
 
+    /// <summary>Asks for status in one of the machine's predefined forms - S1F5, answered by S1F6.</summary>
+    /// <param name="formCode">SFCD - which form.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The reply, which <strong>the caller disposes</strong>. A zero-length body means no such form.</returns>
+    /// <remarks>
+    /// <para>
+    /// Returns the message for the reason <see cref="ReadStatusAsync"/> does: the body is whatever
+    /// this machine calls a value, and a typed wrapper over that would be a guess with an API
+    /// attached. The values are a view into the reply and die with it.
+    /// </para>
+    /// <para>
+    /// <strong>Which form a code selects is the machine's to document.</strong> <c>SFCD</c> has no
+    /// table in the reference, so nothing here can tell you what form 1 is - and a host that does
+    /// not know sends <see cref="ReadFixedFormAsync"/> instead, which answers with the names.
+    /// </para>
+    /// </remarks>
+    public ValueTask<SecsMessage> ReadFormattedStatusAsync(
+        byte formCode,
+        CancellationToken cancellationToken = default)
+        => RequestAsync(
+            new SecsMessage(1, 5, replyExpected: true)
+            {
+                Name = "FormattedStatusRequest",
+                Item = SecsItem.B(formCode).Named("SFCD"),
+            },
+            cancellationToken);
+
+    /// <summary>Asks for a form with the variables named - S1F7, answered by S1F8.</summary>
+    /// <param name="formCode">SFCD - which form.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The reply, which <strong>the caller disposes</strong>. A zero-length body means no such form.</returns>
+    /// <remarks>
+    /// S1F5's twin with one item more: S1F8 carries an <c>SVNAME</c> beside every <c>SV</c>, so a
+    /// host meeting a machine for the first time can learn what a form contains without a
+    /// namelist. Equipment written to this library nests them per entry -
+    /// <c>L{ L,2{ SVNAME, SV } }</c> - which is how S1F12 and S2F30 carry a name beside a value,
+    /// and the reference gives the row an item list rather than a shape.
+    /// </remarks>
+    public ValueTask<SecsMessage> ReadFixedFormAsync(
+        byte formCode,
+        CancellationToken cancellationToken = default)
+        => RequestAsync(
+            new SecsMessage(1, 7, replyExpected: true)
+            {
+                Name = "FixedFormRequest",
+                Item = SecsItem.B(formCode).Named("SFCD"),
+            },
+            cancellationToken);
+
+    /// <summary>Asks the machine to stop recovering from an exception - S5F17, answered by S5F18.</summary>
+    /// <param name="exceptionId">EXID - which exception.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether the machine accepted, and its reason when it did not.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="exceptionId"/> is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no <c>ACKA</c>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>The only message in stream 5 a host sends about an exception</strong>, and the only
+    /// one of the four recovery rows that is the host's. The other three are the machine telling a
+    /// host what became of a condition it posted; this is a host saying stop.
+    /// </para>
+    /// <para>
+    /// <c>ACKA</c> is a <c>BOOLEAN</c> with a table - TRUE accepted, FALSE not - so the answer is
+    /// read rather than inferred, and the reason beside it is passed through untouched. See
+    /// <see cref="GemExceptionAbortResult"/>.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemExceptionAbortResult> AbortExceptionRecoveryAsync(
+        string exceptionId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(exceptionId);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(5, 17, replyExpected: true)
+            {
+                Name = "ExceptionRecoverAbortRequest",
+                Item = SecsItem.A(exceptionId).Named("EXID"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (reply.Item is not { IsList: true, Count: >= 2 } body)
+        {
+            throw new SecsException("S5F18 did not carry an EXID and an ACKA.");
+        }
+
+        // BOOLEAN on the wire, and tolerant of a machine that sent a B[1] or a U1 instead - the
+        // same tolerance every other acknowledgement reader here has, for the same reason: a
+        // machine that encoded the right value in the wrong width has still answered.
+        var accepted = body[1].Format == SecsFormat.Boolean
+            ? body[1].FirstValueOrDefault<bool>()
+            : GemItems.TryReadCode(body[1], out var code) && code != 0;
+
+        if (accepted)
+        {
+            return GemExceptionAbortResult.Accept();
+        }
+
+        var errorCode = body.Count >= 3 && GemItems.TryReadId(body[2], out var number)
+            ? (uint)Math.Min(number, uint.MaxValue)
+            : 0u;
+
+        return GemExceptionAbortResult.Refuse(
+            errorCode,
+            body.Count >= 4 ? GemItems.ReadText(body[3]) : string.Empty);
+    }
+
     /// <summary>Asks whether a body is the one the machine holds - S7F9, answered by S7F10.</summary>
     /// <param name="id">PPID.</param>
     /// <param name="body">PPBODY, the bytes to compare against.</param>
@@ -1842,46 +1982,90 @@ public sealed class GemHost : IAsyncDisposable
         };
     }
 
-    private SecsMessage OnExceptionPost(SecsMessage request)
+    /// <summary>Answers S5F9, S5F11, S5F13 and S5F15 - an exception's four stages.</summary>
+    /// <param name="request">The primary.</param>
+    /// <param name="stage">Which stage, which decides how many items the body should carry.</param>
+    /// <returns>The acknowledgement, on the function one above the primary's.</returns>
+    /// <remarks>
+    /// <para>
+    /// One handler, because the four bodies are nearly one body: a <c>TIMESTAMP</c> and an
+    /// <c>EXID</c> in every one, an <c>EXTYPE</c> in the post alone, and an <c>EXMESSAGE</c> in the
+    /// post and the recovery. Four handlers would be four copies of the timestamp decision below.
+    /// </para>
+    /// <para>
+    /// <strong>Error until the body reads</strong>, which is the stricter of the two patterns in
+    /// this file and the right one for all four. An alarm that arrives malformed still names a
+    /// condition the host can ask about again; nothing in stream 5 will repeat any of these, so
+    /// acknowledging one this end could not read would lose it quietly. S5F6 is why the alarm
+    /// handler can afford to be generous and this one cannot.
+    /// </para>
+    /// </remarks>
+    private SecsMessage OnExceptionNotice(SecsMessage request, GemExceptionStage stage)
     {
-        // Error until the body reads, which is the stricter of the two patterns in this file and
-        // the right one here. An alarm that arrives malformed still names a condition the host can
-        // ask about again; an exception post that arrives malformed is the only time the machine
-        // was ever going to mention it, so acknowledging one this end could not read would lose it
-        // quietly. S5F6 is why the alarm handler can afford to be generous and this one cannot.
+        // How many items the stage carries. The guard is per stage rather than "two or more",
+        // because a body of the wrong arity is a body this end did not understand - and a clear
+        // that arrived with four items is not a clear.
+        var expected = stage switch
+        {
+            GemExceptionStage.Posted => 4,
+            GemExceptionStage.Recovered => 3,
+            _ => 2,
+        };
+
         var acknowledgement = GemAlarmAcknowledgement.Error;
         var postedAt = default(DateTime?);
         var id = string.Empty;
         var type = string.Empty;
         var text = string.Empty;
 
-        if (request.Item is { IsList: true, Count: 4 } body)
+        if (request.Item is { IsList: true } body && body.Count == expected)
         {
             acknowledgement = GemAlarmAcknowledgement.Accepted;
 
             // A timestamp that will not parse leaves the instant unknown rather than failing the
-            // post: TIMESTAMP is when the machine says it happened, and the exception is the news.
+            // notice: TIMESTAMP is when the machine says it happened, and the exception is the news.
             if (GemItems.TryParseTimestamp(GemItems.ReadText(body[0]), out var instant))
             {
                 postedAt = instant;
             }
 
             id = GemItems.ReadText(body[1]);
-            type = GemItems.ReadText(body[2]);
-            text = GemItems.ReadText(body[3]);
+
+            // The post carries both extra items and the recovery carries only the message, so the
+            // position of EXMESSAGE differs between them - which is the whole reason this reads by
+            // stage rather than by position.
+            if (stage == GemExceptionStage.Posted)
+            {
+                type = GemItems.ReadText(body[2]);
+                text = GemItems.ReadText(body[3]);
+            }
+            else if (stage == GemExceptionStage.Recovered)
+            {
+                text = GemItems.ReadText(body[2]);
+            }
         }
 
-        var args = new GemHostExceptionEventArgs(new GemExceptionPost(postedAt, id, type, text))
+        var args = new GemHostExceptionEventArgs(new GemExceptionPost(postedAt, id, type, text), stage)
         {
             Acknowledgement = acknowledgement,
         };
 
-        _logger.LogInformation("Exception {Exception} posted by the equipment.", args.Exception);
+        _logger.LogInformation(
+            "Exception {Exception} from the equipment: {Stage}.",
+            args.Exception,
+            stage);
+
         ExceptionReceived?.Invoke(this, args);
 
-        return new SecsMessage(5, 10, replyExpected: false)
+        return new SecsMessage(5, (byte)((byte)stage + 1), replyExpected: false)
         {
-            Name = "ExceptionPostAcknowledge",
+            Name = stage switch
+            {
+                GemExceptionStage.Posted => "ExceptionPostAcknowledge",
+                GemExceptionStage.Cleared => "ExceptionClearAcknowledge",
+                GemExceptionStage.Recovering => "ExceptionRecoverAcknowledge",
+                _ => "ExceptionRecoverCompleteAcknowledge",
+            },
             Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC5"),
         };
     }
@@ -1920,6 +2104,23 @@ public sealed class GemHost : IAsyncDisposable
             Name = "DiscreteVariableDataAcknowledge",
             Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC6"),
         };
+    }
+
+    /// <summary>Reads S10F7 and raises it. There is no reply, so this answers nothing.</summary>
+    /// <remarks>
+    /// Returns a message because the dispatch switch is built that way and every other arm has one
+    /// to give, and the connection never sends it: <c>transaction.ReplyExpected</c> is false for a
+    /// row E5 gives no secondary, so the reply is disposed unsent. The alternative was a second
+    /// shape of arm for one message.
+    /// </remarks>
+    private SecsMessage OnTerminalNotAccessible(SecsMessage request)
+    {
+        var id = GemItems.TryReadCode(request.Item, out var code) ? code : (byte)0;
+
+        _logger.LogWarning("The equipment says terminal {Terminal} cannot be reached.", id);
+        TerminalNotAccessible?.Invoke(this, new GemTerminalUnavailableEventArgs(id));
+
+        return new SecsMessage(10, 8, replyExpected: false) { Name = "TerminalNotAccessibleIgnored" };
     }
 
     private SecsMessage OnProgramNotice(SecsMessage request, byte replyFunction)

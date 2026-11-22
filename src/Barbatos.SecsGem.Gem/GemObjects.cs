@@ -165,6 +165,32 @@ public sealed class GemReport
     public required IReadOnlyList<uint> VariableIds { get; init; }
 }
 
+/// <summary>One predefined status form the equipment offers - what an <c>SFCD</c> selects.</summary>
+/// <remarks>
+/// <para>
+/// S1F5 and S1F7 ask for status "in form <em>n</em>", and <c>SFCD</c> is that <em>n</em>: a
+/// <c>B[1]</c> with <strong>no table of values</strong> in the reference, which is the whole of
+/// why this is a model concept rather than a code this library interprets. Which form a code
+/// selects is the machine's to document, exactly as <c>HOCMDNAME</c>'s commands are in
+/// <c>Barbatos.SecsGem.Material</c> - so the equipment declares its forms and the library carries
+/// the byte.
+/// </para>
+/// <para>
+/// <strong>Not a report.</strong> A <see cref="GemReport"/> is the host's: it is defined with
+/// S2F33, replaced at will, and reset on a re-establish. A form is the machine's own and never
+/// changes, which is why these live beside the variables rather than in the state a host can
+/// edit - and why a host cannot define one.
+/// </para>
+/// </remarks>
+public sealed class GemStatusForm
+{
+    /// <summary>Gets the SFCD that selects this form.</summary>
+    public required byte Code { get; init; }
+
+    /// <summary>Gets the status variables it reports, in form order.</summary>
+    public required IReadOnlyList<uint> VariableIds { get; init; }
+}
+
 /// <summary>One alarm the equipment can raise.</summary>
 public sealed class GemAlarm
 {

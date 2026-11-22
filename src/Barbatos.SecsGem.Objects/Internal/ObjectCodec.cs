@@ -837,6 +837,26 @@ internal static class ObjectCodec
         return SecsItem.L(entries);
     }
 
+    /// <summary>S1F20 - Attribute Data, with the reason S14F2 has nowhere to put.</summary>
+    /// <param name="attributes">The attributes, or an empty list.</param>
+    /// <param name="errorCode">ERRCODE. Zero for none.</param>
+    /// <param name="errorText">ERRTEXT. Empty for none.</param>
+    /// <returns>The body.</returns>
+    /// <remarks>
+    /// Three items where S14F2 has two, and the third pair is the whole reason stream 1's one E39
+    /// row is served at all: this is the only attribute get in the reference that can say why it
+    /// failed. Neither <c>ERRCODE</c> nor <c>ERRTEXT</c> is tabled, so both cross as the caller
+    /// gave them.
+    /// </remarks>
+    internal static SecsItem AttributeDataBody(
+        IReadOnlyList<ObjectAttribute> attributes,
+        uint errorCode,
+        string errorText)
+        => SecsItem.L(
+            AttributeListBody(attributes),
+            SecsItem.U4(errorCode).Named("ERRCODE"),
+            SecsItem.A(errorText).Named("ERRTEXT"));
+
     /// <summary>Writes the attribute list a set reply echoes back, with the values copied.</summary>
     /// <remarks>
     /// <para>

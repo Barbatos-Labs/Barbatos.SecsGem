@@ -69,14 +69,21 @@ public class ControlJobHostingTests
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
         // E94 has no messages of its own, so object services is the only thing it can declare -
-        // and all eleven of them, because a host that could read a job but not create one would be
+        // and all twelve of them, because a host that could read a job but not create one would be
         // half of E94.
         foreach (var (stream, function) in ObjectServices.HandledMessages)
         {
             Assert.True(router.TryGetHandler(stream, function, out _), $"S{stream}F{function} should have a handler");
         }
 
-        Assert.Equal(11, ObjectServices.HandledMessages.Count);
+        // Twelve, and one of them is in stream 1: S1F19 is E39's attribute get and it lives with
+        // the other E39 rows, so a package that registers object services declares it. The test
+        // used to say "the stream 14 primaries and nothing else", which was true of eleven rows
+        // and never of the enhanced half of stream 2 this package also serves - the claim that
+        // matters is the one below, that nothing here reaches into another standard's stream.
+        Assert.Equal(12, ObjectServices.HandledMessages.Count);
+        Assert.Single(ObjectServices.HandledMessages, message => message.Stream == 1);
+        Assert.Equal(11, ObjectServices.HandledMessages.Count(message => message.Stream == 14));
         Assert.False(router.TryGetHandler(3, 17, out _));
         Assert.IsType<ControlJobObjectProvider>(provider.GetRequiredService<IObjectProvider>());
     }
