@@ -112,15 +112,16 @@ public class RecipeHostingTests
     }
 
     [Fact]
-    public async Task Nothing_in_this_package_claims_stream_19()
+    public async Task Nothing_in_this_package_claims_stream_19_or_stream_20()
     {
         await using var equipment = BuildEquipment();
         await using var host = BuildHost();
 
-        // The clash chapter 42 refused stream 19 for, turned into a routing fact. Streams 15 and
-        // 19 share a name and all twenty of stream 19's function numbers while meaning different
-        // transactions - S15F11 verifies where S19F11 deletes - so a package that served stream 15
-        // and quietly answered stream 19 as well would be the exact hazard that refusal named.
+        // The clash chapter 42 refused stream 19 for, turned into a routing fact. Three streams
+        // are called Recipe Management - 15, 19 and 20 - and they use the same function numbers
+        // for different transactions: S15F11 verifies, S19F11 deletes, S20F11 sends. A package
+        // that served stream 15 and quietly answered either of the others would be the exact
+        // hazard that refusal named.
         foreach (var provider in new[] { equipment, host })
         {
             var router = provider.GetRequiredService<ISecsMessageRouter>();
@@ -130,6 +131,18 @@ public class RecipeHostingTests
                 Assert.False(
                     router.TryGetHandler(19, function, out _),
                     $"S19F{function} is another standard's message and must not be routed here.");
+            }
+
+            // Stream 20 was added to this guard when it was re-read. It is the sharper half: two
+            // of its rows, S20F17 and S20F33, have every item defined and are item for item the
+            // S15F13 and S15F15 this package already serves - so they could be routed here
+            // tomorrow, and the reason not to is that declaring two rows of seventeen would turn
+            // an honest S9F3 for the stream into an S9F5 for the other fifteen functions.
+            for (byte function = 1; function <= 34; function++)
+            {
+                Assert.False(
+                    router.TryGetHandler(20, function, out _),
+                    $"S20F{function} is another standard's message and must not be routed here.");
             }
         }
     }

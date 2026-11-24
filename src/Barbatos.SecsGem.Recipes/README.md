@@ -70,6 +70,40 @@ RMACK     B[1]  defined, WITH A TABLE: 0 accepted, 1 rejected, 2-63 reserved
 Every figure on this page is asserted in `SecsCatalogStream15Tests`, so a refresh of the catalogue
 data has to walk past them rather than quietly make the page wrong.
 
+### What stream 20's two pairs turned out to be
+
+The table above has said "stream 20: 2" since this page was written, and nobody had asked **which
+two**. A later chapter did, and the answer is the reason stream 20 is still refused:
+
+| stream 20 | items | the stream 15 row it is | already served |
+| --- | --- | --- | --- |
+| S20F17/F18 Recipe Delete | `RCPSPEC, RCPID` → `RMACK` | S15F13/F14 Recipe Delete | yes |
+| S20F33/F34 Directory Create | `RCPSPEC` → `RMACK` | S15F15/F16 Namespace Create | yes |
+
+**Item for item, in order, with the same names.** They are not two rows this package is missing;
+they are two rows it already has, under different numbers. Which puts stream 20 in exactly the
+position `Barbatos.SecsGem.Subsystems` describes for stream 18 - one capability, two stream
+numbers, **serve one or the other** - and stream 15's is the firmer because it is whole: nine pairs
+here against two of seventeen there.
+
+And there is a second reason, which is about what a routing table says. Declaring two rows of
+stream 20 would make the connection answer **S9F5** for the other fifteen functions - "I do stream
+20, but not that function" - where leaving the stream alone answers **S9F3**, "I do not do stream
+20". The first invites a host to keep asking; the second is true.
+`RecipeHostingTests.Nothing_in_this_package_claims_stream_19_or_stream_20` is that decision as a
+routing fact, and `SecsCatalogRecipeRegionTests` holds the measurement.
+
+### Stream 19's refusal, restated
+
+Refused as *rootless*, which was true and was not the reason. The reason is one name:
+**`RCPNS`, the recipe namespace, which the reference never defines and which nothing else in the
+reference names.** Nine of stream 19's ten primaries carry it; the tenth is S19F1, which has no
+body because it is the request that asks for the *list* of namespaces, and its reply is a list of
+`RCPNS`. So every transaction in the stream is addressed by a field nobody wrote down, in any
+spelling - it has no rival, which is the follow-up question that would otherwise change the answer.
+
+Stream 19 is not a worse-documented stream 15. It is a stream whose addressing is missing.
+
 ### The recipe body needs no inference at all
 
 This has not been true in this repository before. Stream 15 carries its recipe in **`PPBODY`** -
@@ -282,6 +316,11 @@ accepted, so a machine that sent `B,0` said nothing, and nothing is not yes.
   current recipe, S15F37/F38 the existence check, S15F39/F40 the namespace space, S15F41/F42 the
   auto-select, S15F45 to S15F52 the revision compare, history, owner and namespace attributes.**
   Each needs at least one name the dictionary does not define.
+- **The verify, in any of the three streams that offer it.** Worth stating as one line because it
+  is one refusal wearing three names: S15F11 carries `CHECKSUM`, S19F10 carries `CKSUM` and S21F19
+  carries `CHKSUM`, and the reference defines **none of the three**. No spelling is a misspelling
+  of something written down elsewhere - it simply never says what a recipe checksum is - so there
+  is nothing to carry and nothing to compare. `SecsCatalogRecipeRegionTests` asserts all three.
 - A store that outlives the process. Nine methods, and a file behind them is an afternoon.
 
 ## Documentation

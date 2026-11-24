@@ -33,7 +33,14 @@ Core  <-  Hsms  <-  Gem
             ^----  Recipes    (E5 stream 15, and nothing else - NOT stream 19, which is also called
                                "Recipe Management", uses all twenty of the same function numbers
                                and means different transactions: S15F11 verifies where S19F11
-                               deletes. Nothing here declares a stream 19 route and a test says so.
+                               deletes, and S20F11 sends. Nothing here declares a stream 19 OR a
+                               stream 20 route and a test says so - stream 20 being the sharper
+                               half, because two of its rows COULD be routed here: S20F17 and
+                               S20F33 have every item defined and are item for item the S15F13 and
+                               S15F15 this package already serves. Two stream numbers, one
+                               capability, serve one or the other - and declaring two rows of
+                               seventeen would answer S9F5 for the other fifteen functions where
+                               leaving the stream alone answers S9F3.
                                Nine of twenty-seven pairs, the nine whose primary and reply are
                                made entirely of defined items - which is what overturned chapter
                                42's sweep of this stream into stream 19's refusal, since stream 19
@@ -247,6 +254,27 @@ streams were. Both are finished now - stream 6 served four of its last seven pai
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about. What a new chapter does is
 therefore re-read a refusal rather than find a row, and two of those have been overturned already.
+Streams 19 and 20 have had that re-read and neither yielded a row, but **both stated reasons were
+wrong and have been replaced** - which is the normal outcome and still worth the chapter, because a
+refusal argued from the wrong place is the thing that gets re-derived.
+
+**A refusal states a name, not a figure.** Stream 19 was refused as rootless, which was true of it
+and of six other streams. The reason is that `RCPNS` - the recipe namespace - is undefined, has no
+rival spelling anywhere, and addresses every transaction in the stream: nine of its ten primaries
+carry it, and the tenth is the request that asks for the *list* of namespaces, whose reply is a
+list of them. Stream 19 is not a worse-documented stream 15; it is a stream whose addressing is
+missing. Stream 20 was refused on the same figure, and its real reason is that its only two
+gap-free rows are rows this repository already serves under other numbers. So when re-reading a
+refusal, ask which name stops it and whether anything here already does the job - and if the answer
+is a count, keep reading.
+
+**Three streams here are called Recipe Management and one concept can be spelled three ways.** The
+rename is `RCPIDNEW` in stream 15, `NEWRCPID` in stream 20 and `RCPNEWID` in the definition neither
+uses. The verify is `CHECKSUM` in streams 15 and 20, `CKSUM` in stream 19 and `CHKSUM` in stream 21
+- and the reference defines **none** of those three, so unlike the rename there is nothing to be a
+rival of and nothing to correct: it simply never says what a recipe checksum is. All three verify
+rows are refused, consistently, under three names, and `SecsCatalogRecipeRegionTests` is where that
+is said in one breath rather than once per package.
 
 **Stream 2 is where the gap count stopped predicting anything.** It has the most undefined names of
 any stream in the reference and nine of its last ten rows went in, because six carried no gap at all
