@@ -147,6 +147,32 @@ So [`Barbatos.SecsGem.ControlJobs`](../Barbatos.SecsGem.ControlJobs/README.md) d
 stream 14 as object services, which is how E94 says a control job is created, commanded and read -
 and a codec for stream 17 would be this library inventing a wire and calling it E94.
 
+#### And the three rows that are not about control jobs
+
+All of the above is about four of stream 17's seven primaries. The other three are a different
+subject: S17F7 is a data collection plan and S17F9 and S17F13 are **tracing**, which is E5's own
+and which `Barbatos.SecsGem.Gem` already serves. Those two are the only pairs in the stream whose
+every item is defined, so the argument above does not reach them and a re-read was owed.
+
+| row | what decides it |
+| --- | --- |
+| S17F7/F8 | `DCID` is its whole body, undefined, and named by stream 17 alone - the row's address, the way `RCPNS` is stream 19's |
+| S17F9/F10 | the same five items as **S2F23**, in the same order. One capability, two stream numbers, so serve one or the other - and S2F23 is one of the reference's **definitions** where S17F9 is one of its illustrations |
+| S17F13/F14 | stopping a trace is S2F23 asking for no samples, which `GemHost.StopTraceAsync` sends. What this would add is a *reason* - `ACKA` with `ERRCODE` and `ERRTEXT`, where `TIAACK` has two codes and nowhere to put one |
+
+That last one is the S1F19 argument, and it did let that row in: the only attribute get in the
+reference that can say why it failed. What differs is the cost of declaring the stream. S1F19 is one
+row of a stream this library serves almost entirely; this would be one pair of seven in the stream
+argued above. **A routing table is a claim about the stream**, so declaring it would answer S9F5 for
+S17F1 - "I do stream 17, but not that function" - and tell a host to keep asking for rows nothing
+here believes in. Silence answers S9F3, and that is true.
+
+`TRACK`, S17F10's acknowledgement, is also the last loose end of the `TIAACK` correction two
+chapters earlier: GEM documents its trace acknowledgement under that name, S2F24 carries `TIAACK`,
+and `TRACK` is a real `A[n]` with no table that belongs to **streams 4 and 17 and means something
+different in each** - a transfer job acknowledgement twice in stream 4, a trace acknowledgement once
+here. In stream 4 it at least sits beside an `ERRCODE` and an `ERRTEXT`. In S17F10 it is alone.
+
 ### One entry was wrong, and is corrected
 
 Of the 39 messages this repository implements, 38 matched the reference exactly. The exception was

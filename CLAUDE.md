@@ -231,7 +231,11 @@ rename and the copy are not among them. `Provenance.DetailedUnusedDefinitions` i
 
 `IsEntirelyRepresentative` is true for nine streams and three of them are implemented here, so it
 is not a veto: check the stream against the item dictionary and against its standard's subject
-matter, and record which check it passed. Stream 17 is the one that failed both. And provenance
+matter, and record which check it passed. Stream 17 is the one that failed both - **as a stream,
+which is the trap, because stream 17 is not one thing**: four of its seven primaries are the control
+job extrapolation those checks are about, and the other three are a data collection plan and two
+tracing rows whose every item is defined. A verdict about a stream does not reach the rows that are
+not what the stream is about, so re-read it per row. And provenance
 alone is not a verdict either - stream 15 was swept into stream 19's refusal on a shared figure and
 the dictionary overturned it, and two more refusals have been reopened since.
 
@@ -267,6 +271,21 @@ missing. Stream 20 was refused on the same figure, and its real reason is that i
 gap-free rows are rows this repository already serves under other numbers. So when re-reading a
 refusal, ask which name stops it and whether anything here already does the job - and if the answer
 is a count, keep reading.
+
+**A routing table is a claim about the stream, not about the row.** This is what keeps the last
+serveable rows out of streams 17 and 20 once the item measures have run out of objections. S17F13
+would add something real - a trace reset that can say why it refused, where `TIAACK` has two codes
+and nowhere to put a reason - and it is still refused, because declaring it answers S9F5 for stream
+17's other six primaries and tells a host to keep asking for rows this repository documents as
+somebody else's invention. Silence answers S9F3 and is true. The S1F19 row shows the other side of
+the same rule: the same "it can say why" argument let that one in, because it is one row of a stream
+served almost entirely. So weigh the row against what declaring its stream would claim.
+
+**And where two rows do one job, the firmer source wins.** S17F9 carries S2F23's five items in
+S2F23's order, and S2F23 is one of the reference's definitions where S17F9 is one of its
+illustrations - the same tie-break that gave E39's half of stream 2 priority over stream 18's
+re-addressed rows. "It duplicates something we serve" is not the end of the argument; which of the
+two the reference documents better is.
 
 **Three streams here are called Recipe Management and one concept can be spelled three ways.** The
 rename is `RCPIDNEW` in stream 15, `NEWRCPID` in stream 20 and `RCPNEWID` in the definition neither

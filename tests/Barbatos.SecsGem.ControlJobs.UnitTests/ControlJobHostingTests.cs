@@ -86,6 +86,25 @@ public class ControlJobHostingTests
         Assert.Equal(13, ObjectServices.HandledMessages.Count(message => message.Stream == 14));
         Assert.False(router.TryGetHandler(3, 17, out _));
         Assert.IsType<ControlJobObjectProvider>(provider.GetRequiredService<IObjectProvider>());
+
+        // And nothing here claims stream 17, which is the routing fact behind this package driving
+        // E94 over stream 14 instead. The catalogue's stream 17 rows create a control job from a
+        // PJID, where E94 creates one from its material - and three of the names those rows turn
+        // on have no dictionary entry while the two the dictionary *does* define, CTLJOBID and
+        // CTLJOBCMD, are named by no row at all. A codec for them would be this library inventing
+        // a wire and calling it E94.
+        //
+        // Added when stream 17 was re-read. Two of its pairs have every item defined - S17F9 and
+        // S17F13, both tracing rather than control jobs - and both are capabilities
+        // Barbatos.SecsGem.Gem already serves from S2F23, which the reference defines where those
+        // are illustrations. So there is nothing here to route either, and declaring one pair of
+        // seven would answer S9F5 for the four primaries above.
+        for (byte function = 1; function <= 14; function++)
+        {
+            Assert.False(
+                router.TryGetHandler(17, function, out _),
+                $"S17F{function} is an extrapolation and must not be routed here.");
+        }
     }
 
     [Fact]
