@@ -83,7 +83,8 @@ public class GemHostTests
             programs: new GemInMemoryProcessProgramStore(),
             formatted: new GemInMemoryFormattedProcessProgramStore(),
             spool: new GemInMemorySpool(),
-            terminal: new GemInMemoryTerminal());
+            terminal: new GemInMemoryTerminal(),
+            servicePrograms: new GemInMemoryServiceProgramStore());
 
         await pair.OpenAsync();
 
@@ -153,6 +154,18 @@ public class GemHostTests
         await host.DisplayTerminalMessageAsync(["two", "blocks"], 0, token);
         await host.BroadcastAsync("everybody", token);
 
+        // Stream 2's three capabilities the stream 2 chapter added: the service program family,
+        // which has to be inquired before it can be sent, and the three singles.
+        await host.InquireServiceProgramAsync(7, 11, token);
+        await host.SendServiceProgramAsync("PRINT 1", token);
+        await host.RequestServiceProgramAsync(7, token);
+        await host.RunServiceProgramAsync(7, token);
+        await host.ReadServiceProgramResultsAsync(7, token);
+        await host.ListServiceProgramsAsync(token);
+        await host.InitiateProcessingAsync("RECIPE-1", token);
+        await host.InquireMultiBlockAsync(41, 70_000, token);
+        await host.ResetSpoolingAsync([new GemSpoolStreamReset(6, [11])], token);
+
         List<(byte Stream, byte Function)> declared =
         [
             .. GemEquipment.HandledMessages,
@@ -160,6 +173,7 @@ public class GemHostTests
             .. GemEquipment.FormattedProcessProgramMessages,
             .. GemEquipment.SpoolMessages,
             .. GemEquipment.TerminalMessages,
+            .. GemEquipment.ServiceProgramMessages,
         ];
 
         var asked = pair.Asked.ToHashSet();

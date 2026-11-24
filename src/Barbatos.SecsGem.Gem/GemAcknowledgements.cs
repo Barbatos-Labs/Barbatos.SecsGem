@@ -355,3 +355,28 @@ public enum GemVariableKind
     /// <summary>A data variable. Meaningful only in the report of the event it belongs to.</summary>
     Data,
 }
+
+/// <summary><c>PRACK</c> - the answer to a request to start processing, S2F28.</summary>
+/// <remarks>
+/// <para>
+/// <strong><c>PRACK</c> is not in the reference's dictionary</strong>, so this is an inference, and
+/// the siblings it is read off are the two commands this package already serves: <c>CMDA</c> at
+/// S2F22 and <c>HCACK</c> at S2F42, both <c>B[1]</c> whose zero means the command was taken. The
+/// same route <c>ACKC2</c> takes and the same two-member result, because what the siblings agree
+/// on is the zero and nothing else - <c>CMDA</c> names three codes and <c>HCACK</c> names seven.
+/// </para>
+/// <para>
+/// <strong>The gap is in the reply, not in the row.</strong> S2F27 carries a <c>PPID</c>, which is
+/// defined, capped at 120 characters and served at twenty-eight rows of this reference - so what
+/// the message asks is never in doubt. An own gap is carried untouched unless it is the field the
+/// message turns on, and an acknowledgement is not that field.
+/// </para>
+/// </remarks>
+public enum GemInitiateProcessingAcknowledgement : byte
+{
+    /// <summary>The machine will start processing.</summary>
+    Accepted = 0,
+
+    /// <summary>It will not, with no reason the reference can carry.</summary>
+    Error = 1,
+}

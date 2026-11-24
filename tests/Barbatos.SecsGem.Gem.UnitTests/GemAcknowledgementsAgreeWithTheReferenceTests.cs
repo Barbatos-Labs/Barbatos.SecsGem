@@ -68,6 +68,15 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         { "HCACK", 7, 8 },
         { "CMDA", 3, 4 },
         { "GRANT6", 3, 4 },
+        { "GRANT", 4, 5 },
+
+        // Restored by the stream 2 chapter, and the story is worth the two lines. The spool
+        // chapter *removed* an RSPACK row from this table, because the table it was asserting
+        // belonged to S2F44 - a row nothing here served - while the row being read, S6F24, carries
+        // an undefined SPACK. Stream 2 serves S2F44 now, so RSPACK is read at the row that
+        // defines it and belongs here again. STRACK comes with it: same row, same table.
+        { "RSPACK", 1, 2 },
+        { "STRACK", 1, 2 },
     };
 
     [Theory]
@@ -165,6 +174,43 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.Equal(
             Enum.GetValues<GemReportAcknowledgement>().Length,
             Enum.GetValues<GemSpooledDataAcknowledgement>().Length);
+
+        // And the two stream 2 gaps the same chapter served, which are exceptions for the same
+        // reason SPACK is: the reference defines neither, so there is no table to compare against
+        // and no reserved range to report.
+        //
+        // ACKC2 answers S2F4 and S2F8. The inference is ControlPrograms' for ACKC8 - nought is
+        // acceptance, read off the eight ACKCn items the reference does define - and it is only
+        // worth making because those eight agree about the zero. What they disagree about is
+        // everything else, which is why this enum has two members and not seven.
+        Assert.False(SecsCatalog.TryGetDataItem("ACKC2", out _));
+        Assert.Equal<string[]>(["Accepted", "Error"], Enum.GetNames<GemServiceProgramAcknowledgement>());
+
+        foreach (var sibling in (string[])["ACKC3", "ACKC5", "ACKC6", "ACKC7", "ACKC7A", "ACKC10", "ACKC13", "ACKC15"])
+        {
+            Assert.True(SecsCatalog.TryGetDataItem(sibling, out var defined), sibling);
+            Assert.StartsWith("Accepted", defined!.MeaningOf("0"), StringComparison.Ordinal);
+        }
+
+        // PRACK answers S2F28, read off CMDA and HCACK - the two commands this package already
+        // serves, both a B whose zero means the command was taken.
+        Assert.False(SecsCatalog.TryGetDataItem("PRACK", out _));
+        Assert.Equal<string[]>(["Accepted", "Error"], Enum.GetNames<GemInitiateProcessingAcknowledgement>());
+
+        // So three of this package's acknowledgement enums now read an item the reference never
+        // defined - SPACK, ACKC2 and PRACK - and all three say accepted or not and no more.
+        // Written down because the temptation is to fold them into one type, and the reason not
+        // to is that each names a different undefined item: a caller switching on one would be
+        // told it was reading another. The fourth two-member enum here, GemSpoolResetAcknowledgement,
+        // is not one of them: its items are defined and tabled.
+        foreach (var undefined in (string[])["SPACK", "ACKC2", "PRACK"])
+        {
+            Assert.False(SecsCatalog.TryGetDataItem(undefined, out _), undefined);
+        }
+
+        Assert.Equal(2, Enum.GetValues<GemSpooledDataAcknowledgement>().Length);
+        Assert.Equal(2, Enum.GetValues<GemServiceProgramAcknowledgement>().Length);
+        Assert.Equal(2, Enum.GetValues<GemInitiateProcessingAcknowledgement>().Length);
     }
 
     [Fact]
@@ -187,10 +233,12 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.Equal((byte)7, (byte)GemHostCommandAcknowledgement.Other);
         Assert.Equal((byte)3, (byte)GemRemoteCommandAcknowledgement.Other);
         Assert.Equal((byte)3, (byte)GemMultiBlockGrant.Other);
+        Assert.Equal((byte)4, (byte)GemGrant.Other);
 
         Assert.Equal((byte)1, (byte)GemAlarmAcknowledgement.Error);
         Assert.Equal((byte)1, (byte)GemReportAcknowledgement.Error);
         Assert.Equal((byte)1, (byte)GemSpooledDataAcknowledgement.Denied);
+        Assert.Equal((byte)1, (byte)GemSpoolResetAcknowledgement.Error);
     }
 
     [Fact]
@@ -227,11 +275,38 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
 
         // And GRANT6 is not GRANT, which four packages here read: it names one code fewer and
         // reserves from one code lower, so a catch-all copied across would read a machine's
-        // reserved 3 as a refusal it never made.
+        // reserved 3 as a refusal it never made. This package reads *both* now, which is what the
+        // stream 2 chapter changed: GRANT6 at S6F6 and GRANT at S2F2 and S2F40, two enums in one
+        // assembly, so the distinction has stopped being somebody else's problem.
         Assert.True(SecsCatalog.TryGetDataItem("GRANT", out var elder));
         Assert.Equal(5, elder!.Codes.Count);
         Assert.Equal("4-63", elder.Codes[^1].Value);
         Assert.Equal(4, grant.Codes.Count);
+
+        // GRANT's fourth reader, after Material, ControlPrograms and ItemTransfer. Against the
+        // reference's own table, which is what makes the agreement transitive across four
+        // packages rather than a chain of three comparisons.
+        Assert.Equal("OK, will accept", elder.Codes[0].Meaning);
+        Assert.Equal("Busy, try again", elder.Codes[1].Meaning);
+        Assert.Equal("No space available", elder.Codes[2].Meaning);
+        Assert.Equal("Duplicate identifier / invalid", elder.Codes[3].Meaning);
+
+        // And name for name with the other three, which is the half a table cannot settle. These
+        // are MaterialGrant's names exactly.
+        Assert.Equal<string[]>(
+            ["Accepted", "Busy", "NoSpace", "DuplicateOrInvalid", "Other"],
+            Enum.GetNames<GemGrant>());
+
+        // The two items of S2F44, which one enum reads - allowed here because the reference prints
+        // one table twice. Two enums with identical members would differ only in their names.
+        Assert.True(SecsCatalog.TryGetDataItem("RSPACK", out var rspack));
+        Assert.True(SecsCatalog.TryGetDataItem("STRACK", out var strack));
+
+        Assert.Equal(rspack!.Codes.Count, strack!.Codes.Count);
+        Assert.Equal(rspack.Codes[0].Meaning, strack.Codes[0].Meaning);
+        Assert.Equal(rspack.Codes[^1].Value, strack.Codes[^1].Value);
+
+        Assert.Equal<string[]>(["Accepted", "Error"], Enum.GetNames<GemSpoolResetAcknowledgement>());
     }
 
     [Fact]

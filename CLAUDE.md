@@ -242,9 +242,20 @@ serve. One row of the seven stayed out and it is worth knowing which, because it
 every refusal left - S1F9/F10, whose two items are text with no tables named by stream 1 alone, so
 there is no sibling anywhere to read a reading off. Everything still unimplemented is in a stream
 with gaps, which means **the group measure is spent and what is left needs measuring row by row**.
-Stream 2 has seven gaps and stream 6 four; neither can be done as a batch the way the gapless
-streams could. **Stream 6 is now finished** - four of its last seven pairs went in and three did
-not, each on its own measurement.
+Stream 2 had seven gaps and stream 6 four; neither could be done as a batch the way the gapless
+streams were. Both are finished now - stream 6 served four of its last seven pairs, stream 2 nine
+of its last ten - so **every row of every stream has either been served or refused with a reason on
+the record**, and there is nothing left that nobody has argued about. What a new chapter does is
+therefore re-read a refusal rather than find a row, and two of those have been overturned already.
+
+**Stream 2 is where the gap count stopped predicting anything.** It has the most undefined names of
+any stream in the reference and nine of its last ten rows went in, because six carried no gap at all
+and three carried one that was only the acknowledgement. Three of its seven gaps were already being
+carried before the chapter started, by `Barbatos.SecsGem.Objects` on the enhanced half. So the
+number to look at was never the stream's total; it was where each gap sits in its row. The one
+refusal, S2F19/F20, is the clearest in the reference: `RSTC` is the **entire body** of S2F19 and
+`RIACK` is undefined too, the only row in the stream where both halves are gaps - so there is no
+second field to anchor a reading against and the undefined name is the thing the message is for.
 
 **Stream 6 is where an item list stopped being readable as a body.** The catalogue records, per
 row, the names that row's table mentions - and that is not a description of the message. S6F11 is
@@ -255,6 +266,20 @@ not: it is recorded exactly as S6F16 is, so whether a report list follows cannot
 **a body guessed wrong is unparseable rather than merely uninterpretable**. That is the first
 refusal here about a *shape* instead of a field, and it ranks below an item gap and above nothing:
 when the siblings agree, serve the row and say which sibling gave the body - three packages do.
+
+**An undefined item's format is sometimes stated elsewhere and sometimes not, and the difference is
+worth checking before inventing anything.** Stream 8's `CPBODY` has no definition, so
+`Barbatos.SecsGem.ControlPrograms` read its format off `PPBODY`'s slot. Stream 2's `SPD` *is*
+defined - an `A[n]` - which is why a service program is text in this library and a control program
+is bytes, and why nothing had to be inferred for it. Ask the dictionary for the payload item by
+name before reaching for a sibling; the answer is not predictable from the stream.
+
+**A refusal that gets overturned leaves a table row behind it.** The spool chapter removed `RSPACK`
+from `GemAcknowledgementsAgreeWithTheReferenceTests`' guarded table, because the table it asserted
+belonged to S2F44 - a row nothing served - while the row being read carried an undefined `SPACK`.
+The next chapter served S2F44, so `RSPACK` is read at the row that defines it and the entry belongs
+there again. When a chapter serves a row that an earlier one cited as unreachable, grep that row's
+items across the test projects: the citation will be stale in both directions.
 
 **Stream 14 is the worked example of a gap measured per row**, and it is why the rule above is a
 rule rather than a nuisance: it has exactly one undefined name in twenty-eight rows, so two of its
@@ -332,7 +357,7 @@ its siblings are easy to grep for, and `GemReservedAcknowledgementTests` is wher
 a line, and the stream 6 chapter found one that had been undriven since it was written - the spool
 reply's, which no drive had ever covered. The count is in that package's API reference, so a sweep
 can check it: ACKC7 is read at
-four sites and CMDA at three.
+four sites, CMDA at three and GRANT at two.
 
 Older files here are **CRLF** where the newer ones are LF, `GemHost.cs` among them. A multi-line
 mini-patch against one of those matches zero times until the patch text is converted, which has now

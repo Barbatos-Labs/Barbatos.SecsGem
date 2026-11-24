@@ -56,6 +56,16 @@ public sealed class GemEquipment : IAsyncDisposable
     private readonly IGemFormattedProcessProgramStore? _formatted;
     private readonly IGemSpool? _spool;
     private readonly IGemTerminal? _terminal;
+    private readonly IGemServiceProgramStore? _servicePrograms;
+
+    // The SPID of the last accepted S2F1, because S2F3 carries no identifier of its own. A long
+    // rather than a nullable uint so Interlocked can consume it: -1 means nothing is granted.
+    private long _grantedServiceProgram = -1;
+
+    // Which (stream, function) pairs a host has told this machine to stop spooling - S2F43. A set
+    // rather than a list because SpoolAsync consults it on every held message, and empty is the
+    // overwhelmingly common case.
+    private readonly ConcurrentDictionary<(byte Stream, byte Function), bool> _spoolSuppressed = new();
     private readonly Channel<LinkEvent> _events =
         Channel.CreateUnbounded<LinkEvent>(new UnboundedChannelOptions { SingleReader = true });
 
@@ -118,6 +128,10 @@ public sealed class GemEquipment : IAsyncDisposable
     /// equipment has no terminal, and stream 10 is not answered - see
     /// <see cref="TerminalMessages"/>.
     /// </param>
+    /// <param name="servicePrograms">
+    /// Where this equipment keeps its service programs. <see langword="null"/> means it has none,
+    /// and S2F1 to S2F11 are not answered - see <see cref="ServiceProgramMessages"/>.
+    /// </param>
     /// <remarks>
     /// Four optional capabilities now, each appended rather than grouped, because adding a
     /// parameter with a default is source-compatible and rearranging them is not. The next one
@@ -134,7 +148,8 @@ public sealed class GemEquipment : IAsyncDisposable
         IGemProcessProgramStore? processPrograms = null,
         IGemSpool? spool = null,
         IGemFormattedProcessProgramStore? formattedProcessPrograms = null,
-        IGemTerminal? terminal = null)
+        IGemTerminal? terminal = null,
+        IGemServiceProgramStore? servicePrograms = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         Model = model ?? throw new ArgumentNullException(nameof(model));
@@ -145,6 +160,7 @@ public sealed class GemEquipment : IAsyncDisposable
         _formatted = formattedProcessPrograms;
         _spool = spool;
         _terminal = terminal;
+        _servicePrograms = servicePrograms;
 
         _communication = options.CommunicationEnabled
             ? GemCommunicationState.WaitingToRetry
@@ -190,6 +206,36 @@ public sealed class GemEquipment : IAsyncDisposable
         (6, 7),    // Data Transfer Request
         (6, 17),   // Annotated Individual Report Request
         (6, 27),   // Notification Report Request
+        (2, 27),   // Initiate Processing Request
+        (2, 39),   // Multi-block Inquire - the host asking this end, where S6F5 is the reverse
+    ];
+
+    /// <summary>The service program messages, answered only when a store is configured.</summary>
+    /// <remarks>
+    /// <para>
+    /// Opt-in for the reason <see cref="ProcessProgramMessages"/> is: the routing table is the
+    /// declaration of what an entity understands, so equipment with no service programs leaves
+    /// these out and the connection answers S9F5 - "I do not do those functions of stream 2" -
+    /// which is true and useful where an <c>ACKC2</c> meaning "no" would be neither.
+    /// </para>
+    /// <para>
+    /// <strong>S9F5 and not S9F3</strong>, which is the one way this differs from stream 7: stream
+    /// 2 is a stream this equipment understands whatever it does with service programs, because
+    /// S2F13 and the rest of GEM live there. So the refusal names the function, not the stream.
+    /// </para>
+    /// <para>
+    /// <c>AddGemServicePrograms</c> registers these alongside the store, so the two cannot get out
+    /// of step.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<(byte Stream, byte Function)> ServiceProgramMessages { get; } =
+    [
+        (2, 1),    // Service Program Load Inquire
+        (2, 3),    // Service Program Send
+        (2, 5),    // Service Program Request
+        (2, 7),    // Service Program Run Send
+        (2, 9),    // Service Program Results Request
+        (2, 11),   // Service Program Directory Request
     ];
 
     /// <summary>The process program messages, answered only when a store is configured.</summary>
@@ -253,7 +299,44 @@ public sealed class GemEquipment : IAsyncDisposable
     public static IReadOnlyList<(byte Stream, byte Function)> SpoolMessages { get; } =
     [
         (6, 23),   // Request Spooled Data
+        (2, 43),   // Reset Spooling Streams and Functions
     ];
+
+    /// <summary>Every message this equipment can hold for a host that is not there.</summary>
+    /// <remarks>
+    /// <para>
+    /// The other half of <see cref="SpoolMessages"/>: those are the messages a host sends
+    /// <em>about</em> spooling, and these are the ones that get spooled. The list exists because
+    /// S2F43 lets a host name a whole stream, and "every function of stream 5" has to mean
+    /// something concrete - it means these.
+    /// </para>
+    /// <para>
+    /// Everything here is news rather than a question, which is the rule that decides membership:
+    /// a report, an alarm or an exception notice is worth hearing late, where a grant nobody is
+    /// there to give is not permission and is never held. That is why S6F5 is absent and S6F9 is
+    /// present even though both carry data.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<(byte Stream, byte Function)> SpoolableMessages { get; } =
+    [
+        (5, 1),    // Alarm Report Send
+        (5, 9),    // Exception Post Notify
+        (5, 11),   // Exception Clear Notify
+        (5, 13),   // Exception Recover Notify
+        (5, 15),   // Exception Recover Complete Notify
+        (6, 1),    // Trace Data Send
+        (6, 3),    // Discrete Variable Data Send
+        (6, 9),    // Unformatted Data Send
+        (6, 11),   // Event Report Send
+    ];
+
+    /// <summary>Gets the messages a host has told this equipment to stop spooling - S2F43.</summary>
+    /// <remarks>
+    /// Empty until a host sends S2F43, which is the state almost every machine stays in. A pair in
+    /// here is dropped rather than held when it cannot be delivered, and the drop is logged -
+    /// because from the outside a suppressed report and a report nobody sent look identical.
+    /// </remarks>
+    public IReadOnlyCollection<(byte Stream, byte Function)> SpoolSuppressedMessages => [.. _spoolSuppressed.Keys];
 
     /// <summary>The terminal services messages, answered only when a terminal is configured.</summary>
     /// <remarks>
@@ -783,6 +866,45 @@ public sealed class GemEquipment : IAsyncDisposable
     /// </remarks>
     public Func<uint, SecsItem?> AnswerDataTransfer { get; set; } = static _ => null;
 
+    /// <summary>Answers S2F27 - whether this machine will start processing the named program.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A delegate rather than a member on the model</strong>, for the reason
+    /// <see cref="AnswerExceptionAbort"/> gives: whether this machine can start processing now is a
+    /// fact about the machine at this moment, not a declaration it can publish in advance.
+    /// </para>
+    /// <para>
+    /// <strong>Refuses by default</strong>, which is the same way round as
+    /// <see cref="AnswerExceptionAbort"/> and the opposite of
+    /// <see cref="AnswerMultiBlockInquiry"/>. Starting processing is the machine doing something: a
+    /// machine that has not been told how to start a job cannot start one, and answering
+    /// <c>PRACK</c> nought would tell a host that material was being processed when nothing was.
+    /// </para>
+    /// <para>
+    /// The parameter is the <c>PPID</c>, trimmed. Equipment that manages process programs will
+    /// want to check it against its own store, which is why this is not wired to one here - the
+    /// row is declared whether or not stream 7 is.
+    /// </para>
+    /// </remarks>
+    public Func<string, GemInitiateProcessingAcknowledgement> AnswerInitiateProcessing { get; set; }
+        = static _ => GemInitiateProcessingAcknowledgement.Error;
+
+    /// <summary>Answers S2F39 - whether a host may send a message too big for one block.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Grants by default</strong>, because a handshake whose only purpose is to let this
+    /// end refuse should not refuse by silence. The same way round as
+    /// <c>GemMultiBlockInquiryEventArgs.Grant</c>, which is this handshake in the other direction -
+    /// S6F5 is the machine asking the host, and S2F39 is the host asking the machine.
+    /// </para>
+    /// <para>
+    /// The parameters are <c>DATAID</c> and <c>DATALENGTH</c>, in whatever units the two ends have
+    /// agreed <c>DATALENGTH</c> counts; the reference names none.
+    /// </para>
+    /// </remarks>
+    public Func<uint, uint, GemGrant> AnswerMultiBlockInquiry { get; set; }
+        = static (_, _) => GemGrant.Accepted;
+
     /// <summary>Says a posted exception has gone - S5F11, answered by S5F12.</summary>
     /// <param name="exceptionId">EXID, the identifier the post used.</param>
     /// <param name="cancellationToken">Cancels the send.</param>
@@ -1309,6 +1431,9 @@ public sealed class GemEquipment : IAsyncDisposable
             (6, 7) => OnDataTransferRequest(transaction.Message),
             (6, 17) => OnAnnotatedIndividualReportRequest(transaction.Message),
             (6, 27) => OnNotificationReportRequest(transaction.Message),
+            (2, 27) => OnInitiateProcessing(transaction.Message),
+            (2, 39) => OnMultiBlockInquireRequest(transaction.Message),
+            (2, 43) => OnSpoolReset(transaction.Message),
             _ => null,
         };
 
@@ -1318,6 +1443,12 @@ public sealed class GemEquipment : IAsyncDisposable
         {
             (2, 21) => await OnRemoteCommandAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (2, 41) => await OnHostCommandAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (2, 1) => await OnServiceProgramInquireAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (2, 3) => await OnServiceProgramSendAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (2, 5) => await OnServiceProgramRequestAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (2, 7) => await OnServiceProgramRunAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (2, 9) => await OnServiceProgramResultsAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (2, 11) => await OnServiceProgramDirectoryAsync(cancellationToken).ConfigureAwait(false),
             (7, 1) => await OnProgramInquireAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 3) => await OnProgramSendAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 5) => await OnProgramRequestAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
@@ -1951,6 +2082,290 @@ public sealed class GemEquipment : IAsyncDisposable
     }
 
     // ----------------------------------------------------------------- inbound, stream 7
+
+    // ----------------------------------------------------------------- stream 2, service programs
+
+    private async ValueTask<SecsMessage?> OnServiceProgramInquireAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_servicePrograms is null)
+        {
+            return null;
+        }
+
+        // DuplicateOrInvalid for a body this end could not read, which is the one code GRANT has
+        // that GRANT6 has not - "Duplicate identifier / invalid" - and the only one of the four
+        // that fits a malformed inquire.
+        var grant = GemGrant.DuplicateOrInvalid;
+
+        if (request.Item is { IsList: true, Count: 2 } body
+            && TryReadId(body[0], out var id)
+            && TryReadId(body[1], out var length))
+        {
+            var spid = (uint)Math.Min(id, uint.MaxValue);
+
+            grant = await _servicePrograms
+                .InquireAsync(spid, (int)Math.Min(length, int.MaxValue), cancellationToken)
+                .ConfigureAwait(false);
+
+            // The identifier the S2F3 after this one will be filed under, because that row carries
+            // none of its own. A refused inquire leaves nothing granted, so the send that followed
+            // it would have nowhere to go - which is the refusal doing its job.
+            Interlocked.Exchange(
+                ref _grantedServiceProgram,
+                grant == GemGrant.Accepted ? spid : -1);
+        }
+
+        return new SecsMessage(2, 2, replyExpected: false)
+        {
+            Name = "ServiceProgramLoadGrant",
+            Item = SecsItem.B((byte)grant).Named("GRANT"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnServiceProgramSendAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_servicePrograms is null)
+        {
+            return null;
+        }
+
+        var acknowledgement = GemServiceProgramAcknowledgement.Error;
+
+        // Consumed, not peeked: one send per inquire, because the handshake is per transfer. A
+        // second S2F3 with no second S2F1 is refused.
+        var granted = Interlocked.Exchange(ref _grantedServiceProgram, -1);
+
+        if (granted < 0)
+        {
+            _logger.LogWarning(
+                "S2F3 arrived with no S2F1 granted before it, so there was no SPID to file the program under.");
+        }
+        else if (request.Item is { } body && body.Format.IsText())
+        {
+            // Not trimmed, unlike a PPID. PPID is an A[120] and arrives padded, where SPD is an
+            // A[n] that is exactly as long as the program - so trimming here would quietly edit a
+            // program whose last line ends in a space.
+            acknowledgement = await _servicePrograms
+                .SaveAsync((uint)granted, body.GetString(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new SecsMessage(2, 4, replyExpected: false)
+        {
+            Name = "ServiceProgramSendAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC2"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnServiceProgramRequestAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_servicePrograms is null)
+        {
+            return null;
+        }
+
+        var text = request.Item is { } item && TryReadId(item, out var id)
+            ? await _servicePrograms
+                .LoadAsync((uint)Math.Min(id, uint.MaxValue), cancellationToken)
+                .ConfigureAwait(false)
+            : null;
+
+        return new SecsMessage(2, 6, replyExpected: false)
+        {
+            Name = "ServiceProgramData",
+
+            // A zero-length SPD for "no such program", and it stays inside the format the row
+            // declares rather than becoming an empty list the way S7F6's refusal does: S7F6 is a
+            // list of two items and can be a list of none, where S2F6 is one A[n]. Nothing is lost
+            // by the ambiguity, because a service program with no text is not a program.
+            Item = SecsItem.A(text ?? string.Empty).Named("SPD"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnServiceProgramRunAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_servicePrograms is null)
+        {
+            return null;
+        }
+
+        var acknowledgement = GemServiceProgramAcknowledgement.Error;
+
+        if (request.Item is { } item && TryReadId(item, out var id))
+        {
+            acknowledgement = await _servicePrograms
+                .RunAsync((uint)Math.Min(id, uint.MaxValue), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new SecsMessage(2, 8, replyExpected: false)
+        {
+            Name = "ServiceProgramRunAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC2"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnServiceProgramResultsAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_servicePrograms is null)
+        {
+            return null;
+        }
+
+        var results = request.Item is { } item && TryReadId(item, out var id)
+            ? await _servicePrograms
+                .ResultsAsync((uint)Math.Min(id, uint.MaxValue), cancellationToken)
+                .ConfigureAwait(false)
+            : null;
+
+        return new SecsMessage(2, 10, replyExpected: false)
+        {
+            Name = "ServiceProgramResultsData",
+            Item = SecsItem.A(results ?? string.Empty).Named("SPR"),
+        };
+    }
+
+    private async ValueTask<SecsMessage?> OnServiceProgramDirectoryAsync(CancellationToken cancellationToken)
+    {
+        if (_servicePrograms is null)
+        {
+            return null;
+        }
+
+        var ids = await _servicePrograms.ListAsync(cancellationToken).ConfigureAwait(false);
+        var entries = new SecsItem[ids.Count];
+
+        for (var i = 0; i < ids.Count; i++)
+        {
+            entries[i] = SecsItem.U4(ids[i]).Named("SPID");
+        }
+
+        return new SecsMessage(2, 12, replyExpected: false)
+        {
+            Name = "ServiceProgramDirectoryData",
+            Item = SecsItem.L(entries),
+        };
+    }
+
+    // ----------------------------------------------------------------- stream 2, the three singles
+
+    private SecsMessage OnInitiateProcessing(SecsMessage request)
+    {
+        var acknowledgement = GemInitiateProcessingAcknowledgement.Error;
+
+        if (request.Item is { } item && item.Format.IsText())
+        {
+            // Trimmed, because this one really is a PPID - an A[120] that arrives padded - and it
+            // is the same identifier stream 7 files recipes under.
+            acknowledgement = AnswerInitiateProcessing(item.GetString().TrimEnd());
+        }
+
+        return new SecsMessage(2, 28, replyExpected: false)
+        {
+            Name = "InitiateProcessingAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("PRACK"),
+        };
+    }
+
+    private SecsMessage OnMultiBlockInquireRequest(SecsMessage request)
+    {
+        var grant = GemGrant.DuplicateOrInvalid;
+
+        if (request.Item is { IsList: true, Count: 2 } body
+            && TryReadId(body[0], out var dataId)
+            && TryReadId(body[1], out var length))
+        {
+            grant = AnswerMultiBlockInquiry(
+                (uint)Math.Min(dataId, uint.MaxValue),
+                (uint)Math.Min(length, uint.MaxValue));
+        }
+
+        return new SecsMessage(2, 40, replyExpected: false)
+        {
+            Name = "MultiBlockGrant",
+            Item = SecsItem.B((byte)grant).Named("GRANT"),
+        };
+    }
+
+    private SecsMessage? OnSpoolReset(SecsMessage request)
+    {
+        if (_spool is null)
+        {
+            return null;
+        }
+
+        var acknowledgement = GemSpoolResetAcknowledgement.Accepted;
+        List<SecsItem> results = [];
+
+        if (request.Item is { IsList: true } body)
+        {
+            foreach (var entry in body.Items)
+            {
+                if (entry is not { IsList: true, Count: 2 }
+                    || !GemItems.TryReadCode(entry[0], out var stream)
+                    || !entry[1].IsList)
+                {
+                    // One unreadable entry refuses the message rather than being skipped: a host
+                    // that gets RSPACK 0 with a stream missing from the reply would have no way to
+                    // tell which of its instructions took.
+                    acknowledgement = GemSpoolResetAcknowledgement.Error;
+                    continue;
+                }
+
+                List<byte> functions = [];
+
+                foreach (var named in entry[1].Items)
+                {
+                    if (GemItems.TryReadCode(named, out var function))
+                    {
+                        functions.Add(function);
+                    }
+                }
+
+                // An empty function list names the whole stream. The reading is this library's,
+                // because the reference gives the row two items and no words - but an entry that
+                // named a stream and no functions would otherwise mean nothing at all, and that is
+                // the worse of the two readings.
+                if (functions.Count == 0)
+                {
+                    foreach (var pair in SpoolableMessages)
+                    {
+                        if (pair.Stream == stream)
+                        {
+                            _spoolSuppressed[pair] = true;
+                        }
+                    }
+                }
+                else
+                {
+                    foreach (var function in functions)
+                    {
+                        _spoolSuppressed[(stream, function)] = true;
+                    }
+                }
+
+                results.Add(SecsItem.L(
+                    SecsItem.U1(stream).Named("STRID"),
+                    SecsItem.B(0).Named("STRACK"),
+                    SecsItem.L([.. functions.Select(f => SecsItem.U1(f).Named("FCNID"))])));
+            }
+        }
+        else
+        {
+            // Not a list at all. An empty list is a different thing and is accepted below: it
+            // names no stream, so it is no instruction - and reading "all of them" into it would
+            // be inventing a meaning the row does not carry.
+            acknowledgement = GemSpoolResetAcknowledgement.Error;
+        }
+
+        return new SecsMessage(2, 44, replyExpected: false)
+        {
+            Name = "ResetSpoolingAcknowledge",
+            Item = SecsItem.L(
+                SecsItem.B((byte)acknowledgement).Named("RSPACK"),
+                SecsItem.L(results)),
+        };
+    }
 
     private async ValueTask<SecsMessage?> OnProgramInquireAsync(SecsMessage request, CancellationToken cancellationToken)
     {
@@ -3760,6 +4175,19 @@ public sealed class GemEquipment : IAsyncDisposable
     {
         if (!IsSpooling)
         {
+            return false;
+        }
+
+        if (_spoolSuppressed.ContainsKey((message.S, message.F)))
+        {
+            // The host asked for this one not to be held - S2F43. Logged because the alternative
+            // is invisible: a suppressed report and a report nobody sent leave the same trace,
+            // which is none.
+            _logger.LogInformation(
+                "S{S}F{F} was not spooled, because a host reset spooling for it.",
+                message.S,
+                message.F);
+
             return false;
         }
 

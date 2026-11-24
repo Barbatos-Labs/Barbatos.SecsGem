@@ -1264,6 +1264,366 @@ public sealed class GemHost : IAsyncDisposable
         return reports;
     }
 
+    // ----------------------------------------------------------------- stream 2, service programs
+
+    /// <summary>Asks whether a service program may be sent - S2F1.</summary>
+    /// <param name="id">SPID.</param>
+    /// <param name="length">LENGTH, in characters.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>GRANT.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Send this before <see cref="SendServiceProgramAsync"/>, always.</strong> S2F3
+    /// carries only the text - no <c>SPID</c> at all - so the identifier a program is filed under
+    /// is the one from the inquire that preceded it. An S2F3 with no granted inquire behind it is
+    /// refused, because there is nothing to file it under.
+    /// </para>
+    /// <para>
+    /// A service program is identified by a number: <c>SPID</c> is a <c>U4</c> where stream 7's
+    /// <c>PPID</c> is an <c>A[120]</c>.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemGrant> InquireServiceProgramAsync(
+        ulong id,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 1, replyExpected: true)
+            {
+                Name = "ServiceProgramLoadInquire",
+                Item = SecsItem.L(
+                    GemItems.IdItem(id).Named("SPID"),
+                    SecsItem.U4((uint)Math.Max(length, 0)).Named("LENGTH")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemGrant)ReadNamedCode(reply, 4, "GRANT");
+    }
+
+    /// <summary>Sends the service program the last inquire was granted for - S2F3.</summary>
+    /// <param name="text">SPD.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC2, and the byte it arrived as.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>A service program is text.</strong> The reference types <c>SPD</c> as <c>A[n]</c>
+    /// where stream 7's <c>PPBODY</c> and stream 8's <c>CPBODY</c> are both <c>B</c> - so this
+    /// takes a string, and the text travels exactly as given rather than trimmed. A program whose
+    /// last line ends in a space keeps it.
+    /// </para>
+    /// <para>
+    /// There is no identifier in this row. See <see cref="InquireServiceProgramAsync"/>.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemServiceProgramResult> SendServiceProgramAsync(
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 3, replyExpected: true)
+            {
+                Name = "ServiceProgramSend",
+                Item = SecsItem.A(text).Named("SPD"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return ReadServiceProgramAcknowledgement(reply);
+    }
+
+    /// <summary>Asks for a service program back - S2F5.</summary>
+    /// <param name="id">SPID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>SPD, or <see langword="null"/> for a program the equipment does not have.</returns>
+    /// <remarks>
+    /// A zero-length <c>SPD</c> is read as "no such program", because the row carries no
+    /// acknowledgement to put a refusal in - and a service program with no text is not a program,
+    /// so nothing is lost by the ambiguity.
+    /// </remarks>
+    public async ValueTask<string?> RequestServiceProgramAsync(
+        ulong id,
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 5, replyExpected: true)
+            {
+                Name = "ServiceProgramRequest",
+                Item = GemItems.IdItem(id).Named("SPID"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        var text = reply.Item is { } item && item.Format.IsText() ? item.GetString() : string.Empty;
+
+        return text.Length == 0 ? null : text;
+    }
+
+    /// <summary>Tells the equipment to run a service program - S2F7.</summary>
+    /// <param name="id">SPID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC2, and the byte it arrived as.</returns>
+    /// <remarks>
+    /// Accepted means it started, not that it finished - nothing in the row carries a duration.
+    /// <see cref="ReadServiceProgramResultsAsync"/> is how a host asks what it produced, and S2F7
+    /// and S2F9 together are the reason this capability is not a second flavour of stream 7: a
+    /// recipe can be sent, fetched, verified and deleted, and only a service program runs.
+    /// </remarks>
+    public async ValueTask<GemServiceProgramResult> RunServiceProgramAsync(
+        ulong id,
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 7, replyExpected: true)
+            {
+                Name = "ServiceProgramRunSend",
+                Item = GemItems.IdItem(id).Named("SPID"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return ReadServiceProgramAcknowledgement(reply);
+    }
+
+    /// <summary>Asks what a service program produced - S2F9.</summary>
+    /// <param name="id">SPID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>SPR, or <see langword="null"/> for a program that has not run.</returns>
+    public async ValueTask<string?> ReadServiceProgramResultsAsync(
+        ulong id,
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 9, replyExpected: true)
+            {
+                Name = "ServiceProgramResultsRequest",
+                Item = GemItems.IdItem(id).Named("SPID"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        var text = reply.Item is { } item && item.Format.IsText() ? item.GetString() : string.Empty;
+
+        return text.Length == 0 ? null : text;
+    }
+
+    /// <summary>Asks which service programs the equipment holds - S2F11.</summary>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Every SPID.</returns>
+    /// <remarks>
+    /// The one row of this family with no body at all, which it shares with S2F17 and S7F19.
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<uint>> ListServiceProgramsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 11, replyExpected: true) { Name = "ServiceProgramDirectoryRequest" },
+            cancellationToken).ConfigureAwait(false);
+
+        List<uint> ids = [];
+
+        if (reply.Item is { IsList: true } body)
+        {
+            foreach (var entry in body.Items)
+            {
+                if (GemItems.TryReadId(entry, out var id))
+                {
+                    ids.Add((uint)Math.Min(id, uint.MaxValue));
+                }
+            }
+        }
+
+        return ids;
+    }
+
+    /// <summary>Reads an ACKC2, which the reference does not define, and keeps the byte.</summary>
+    /// <remarks>
+    /// <strong>Not <c>ReadNamedCode</c></strong>, deliberately. That helper logs the arriving code
+    /// as one E5 reserves, and <c>ACKC2</c> has no table at all - so there is no reserved range to
+    /// report and saying there was would be inventing a fact about the reference. Nought is
+    /// acceptance, read off the eight <c>ACKCn</c> items the reference does define; everything
+    /// else is a refusal, and the caller gets the byte.
+    /// </remarks>
+    private static GemServiceProgramResult ReadServiceProgramAcknowledgement(SecsMessage reply)
+    {
+        var code = ReadCode(reply);
+
+        return new GemServiceProgramResult(
+            code == 0
+                ? GemServiceProgramAcknowledgement.Accepted
+                : GemServiceProgramAcknowledgement.Error,
+            code);
+    }
+
+    // ----------------------------------------------------------------- stream 2, the three singles
+
+    /// <summary>Tells the equipment to start processing a program - S2F27.</summary>
+    /// <param name="programId">PPID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>PRACK.</returns>
+    /// <remarks>
+    /// <para>
+    /// The same <c>PPID</c> stream 7 files recipes under, and that is all the row carries - so
+    /// what this asks is never in doubt even though <c>PRACK</c> is undefined. An own gap in the
+    /// acknowledgement is carried; an own gap in the field the message turns on would not be.
+    /// </para>
+    /// <para>
+    /// <strong>Refused by default</strong> at the other end, because starting processing is the
+    /// machine doing something - see <c>GemEquipment.AnswerInitiateProcessing</c>.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemInitiateProcessingAcknowledgement> InitiateProcessingAsync(
+        string programId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(programId);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 27, replyExpected: true)
+            {
+                Name = "InitiateProcessingRequest",
+                Item = SecsItem.A(programId).Named("PPID"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        // Read as ACKC2 is and for the same reason: PRACK has no table, so there is no reserved
+        // range to report.
+        return ReadCode(reply) == 0
+            ? GemInitiateProcessingAcknowledgement.Accepted
+            : GemInitiateProcessingAcknowledgement.Error;
+    }
+
+    /// <summary>Asks permission to send a message too big for one block - S2F39.</summary>
+    /// <param name="dataId">DATAID.</param>
+    /// <param name="length">DATALENGTH, in whatever the two ends have agreed it counts.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>GRANT.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>S6F5 the other way round.</strong> That one is the machine asking a host; this is a
+    /// host asking the machine, and the two rows exist because either end can be the one with no
+    /// room. The grant items differ too - this row carries <c>GRANT</c>, with a fourth code for a
+    /// duplicate identifier, where S6F6 carries <c>GRANT6</c>, which has no identifier to
+    /// duplicate.
+    /// </para>
+    /// <para>
+    /// <strong>Granted by default</strong> at the other end, because a handshake that exists so
+    /// the machine can refuse should not refuse by silence.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemGrant> InquireMultiBlockAsync(
+        ulong dataId,
+        uint length,
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 39, replyExpected: true)
+            {
+                Name = "MultiBlockInquire",
+                Item = SecsItem.L(
+                    GemItems.IdItem(dataId).Named("DATAID"),
+                    SecsItem.U4(length).Named("DATALENGTH")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemGrant)ReadNamedCode(reply, 4, "GRANT");
+    }
+
+    /// <summary>Tells the equipment to stop spooling particular messages - S2F43.</summary>
+    /// <param name="streams">The streams, each with the functions it names.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>RSPACK, and one result per stream.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Two levels of acknowledgement</strong>, which is what makes the row worth serving
+    /// whole: the message can be accepted with one stream inside it refused, and a host that sent
+    /// four needs to know which three took. The same shape S2F45 has, and this package reads it
+    /// the same way.
+    /// </para>
+    /// <para>
+    /// <strong>A stream with no functions means the whole stream.</strong> An entry naming a
+    /// stream and no functions would otherwise mean nothing at all. An empty
+    /// <paramref name="streams"/> names nothing and is accepted without changing anything - this
+    /// library will not read "everything" into it, because nothing in the row says so.
+    /// </para>
+    /// <para>
+    /// Only the messages in <c>GemEquipment.SpoolableMessages</c> can be suppressed, because those
+    /// are the only ones that are ever held.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemSpoolResetReply> ResetSpoolingAsync(
+        IReadOnlyList<GemSpoolStreamReset> streams,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(streams);
+
+        var entries = new SecsItem[streams.Count];
+
+        for (var i = 0; i < streams.Count; i++)
+        {
+            var functions = new SecsItem[streams[i].Functions.Count];
+
+            for (var j = 0; j < functions.Length; j++)
+            {
+                functions[j] = SecsItem.U1(streams[i].Functions[j]).Named("FCNID");
+            }
+
+            entries[i] = SecsItem.L(
+                SecsItem.U1(streams[i].Stream).Named("STRID"),
+                SecsItem.L(functions));
+        }
+
+        using var reply = await RequestAsync(
+            new SecsMessage(2, 43, replyExpected: true)
+            {
+                Name = "ResetSpoolingStreamsAndFunctions",
+                Item = SecsItem.L(entries),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (reply.Item is not { IsList: true, Count: 2 } body)
+        {
+            throw new SecsException(
+                $"S{reply.S}F{reply.F} did not carry an RSPACK and a list of streams.");
+        }
+
+        var acknowledgement = (GemSpoolResetAcknowledgement)ReadNamedCode(reply, 1, "RSPACK", 0);
+        List<GemSpoolStreamResult> results = [];
+
+        if (body[1].IsList)
+        {
+            foreach (var entry in body[1].Items)
+            {
+                if (entry is not { IsList: true, Count: 3 } || !GemItems.TryReadCode(entry[0], out var stream))
+                {
+                    continue;
+                }
+
+                List<byte> functions = [];
+
+                if (entry[2].IsList)
+                {
+                    foreach (var named in entry[2].Items)
+                    {
+                        if (GemItems.TryReadCode(named, out var function))
+                        {
+                            functions.Add(function);
+                        }
+                    }
+                }
+
+                // STRACK as a flag, which is the reading LVACK gets at S2F46: the item is defined
+                // and its table is nought-accepted with the whole non-zero range an unexplained
+                // error, so there is one bit of information in it and the position says which
+                // stream it is about.
+                results.Add(new GemSpoolStreamResult(
+                    stream,
+                    GemItems.TryReadCode(entry[1], out var strack) && strack == 0,
+                    functions));
+            }
+        }
+
+        return new GemSpoolResetReply(acknowledgement, results);
+    }
+
     /// <summary>Asks for the spooled data, or tells the equipment to throw it away - S6F23.</summary>
     /// <param name="request">RSDC.</param>
     /// <param name="cancellationToken">Cancels the work.</param>

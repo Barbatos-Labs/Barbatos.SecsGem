@@ -129,6 +129,23 @@ public class GemReservedAcknowledgementTests
         await DriveAsync(6, 23, 24, "RSDA",
             host => host.RequestSpooledDataAsync(GemSpooledDataRequest.Transmit, GemPair.Token),
             (byte)GemSpooledDataAcknowledgement.Denied);
+
+        // GRANT, which the stream 2 chapter brought into this package as its fourth reader in the
+        // repository - and at two sites in one chapter, which is the shape the per-site rule warns
+        // about: one drive would have left the other free to move its boundary.
+        await DriveAsync(2, 1, 2, "GRANT",
+            host => host.InquireServiceProgramAsync(7, 7, GemPair.Token),
+            (byte)GemGrant.Other);
+
+        await DriveAsync(2, 39, 40, "GRANT",
+            host => host.InquireMultiBlockAsync(41, 70_000, GemPair.Token),
+            (byte)GemGrant.Other);
+
+        // RSPACK's drive is not here and that is deliberate: S2F44 carries a list, not a bare
+        // code, so DriveAsync cannot write the reply - and ResetSpoolingAsync hands back a record
+        // rather than an enum, so it does not fit the signature either. It is driven in
+        // GemStream2Tests.A_reserved_spooling_code_folds_onto_the_boundary, and this note is here
+        // so a sweep counting sites against this file does not conclude there are none.
     }
 
     /// <summary>Drives one reader against a machine that answers <see cref="Reserved"/>.</summary>

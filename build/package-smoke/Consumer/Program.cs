@@ -396,7 +396,12 @@ internal static class Program
             .AddGemFormattedProcessPrograms()
             .AddGemTerminal()
             .AddGemTraces()
-            .AddGemLimits();
+            .AddGemLimits()
+
+            // E5's own stream 2 capability, which the stream 2 chapter added. Registered here as
+            // well as declared, so this file exercises the extension method and not only the list.
+            .AddGemServicePrograms()
+            .AddGemSpooling();
 
         await using var provider = services.BuildServiceProvider();
 
@@ -429,6 +434,56 @@ internal static class Program
         Assert(
             GemHost.HandledMessages.Contains(((byte)6, (byte)9)),
             "the host does not declare S6F9, the one stream 6 row the machine pushes without a CEID");
+
+        // Stream 2, which the stream 2 chapter finished. The counts are here rather than only in
+        // the test suite because a ProjectReference build resolves these from bin/ and cannot see
+        // a packaging mistake - which is how five chapters running this file caught a declaration
+        // that never left the package.
+        Assert(
+            GemEquipment.ServiceProgramMessages.Count == 6,
+            $"the equipment declares {GemEquipment.ServiceProgramMessages.Count} service program message(s), not six");
+
+        Assert(
+            GemEquipment.SpoolMessages.Count == 2,
+            $"the equipment declares {GemEquipment.SpoolMessages.Count} spool message(s), not two");
+
+        Assert(
+            GemEquipment.SpoolableMessages.Count == 9,
+            $"the equipment says {GemEquipment.SpoolableMessages.Count} message(s) can be spooled, not nine");
+
+        // Opt-in, which is what keeping them out of HandledMessages is for: a stream and function
+        // may be declared only once, so an overlap would throw while the router was being built.
+        foreach (var declared in GemEquipment.ServiceProgramMessages.Concat(GemEquipment.SpoolMessages))
+        {
+            Assert(
+                !GemEquipment.HandledMessages.Contains(declared),
+                $"S{declared.Stream}F{declared.Function} is declared twice over");
+
+            Assert(
+                router.TryGetHandler(declared.Stream, declared.Function, out _),
+                $"S{declared.Stream}F{declared.Function} was registered and never reached the routing table");
+        }
+
+        Assert(
+            provider.GetService<IGemServiceProgramStore>() is not null,
+            "AddGemServicePrograms registered no store");
+
+        foreach (var (stream, function) in new[] { ((byte)2, (byte)27), ((byte)2, (byte)39) })
+        {
+            Assert(
+                GemEquipment.HandledMessages.Contains((stream, function)),
+                $"the equipment does not declare S{stream}F{function}");
+
+            Assert(
+                router.TryGetHandler(stream, function, out _),
+                $"S{stream}F{function} is declared and never reached the routing table");
+        }
+
+        // S2F19 is the one row of stream 2 that stays out, on RSTC - which is the whole of its
+        // body and a name the reference never defines.
+        Assert(
+            !GemEquipment.HandledMessages.Contains(((byte)2, (byte)19)),
+            "the equipment declares S2F19, which is refused with a reason recorded");
 
         foreach (var function in new byte[] { 21, 25, 29 })
         {

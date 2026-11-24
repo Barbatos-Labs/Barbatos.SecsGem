@@ -76,6 +76,7 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
 - [Hosting](#hosting)
   - [`AddGemEquipment`](#addgemequipment)
   - [`AddGemProcessPrograms`](#addgemprocessprograms)
+  - [`AddGemServicePrograms`](#addgemserviceprograms)
   - [`AddGemFormattedProcessPrograms`](#addgemformattedprocessprograms)
   - [`AddGemHost`](#addgemhost)
 
@@ -96,7 +97,9 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The twenty-four core pairs. Registering them is how the equipment declares its capability - see below. |
 | `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The ten unformatted stream 7 pairs - S7F1, S7F3, S7F5, S7F7, S7F9, S7F31, S7F37, S7F41, and the S7F17/S7F19 both halves share - registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn, which is also why the two program-related remote commands are here rather than with the core set that owns their command table. |
 | `FormattedProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F23, S7F25, S7F27 and S7F33, registered only when a formatted store is configured. Independent of `ProcessProgramMessages`, and disjoint from it: a stream and function may be declared only once. |
-| `SpoolMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S6F23, registered only when a spool is configured. Equipment that does not spool answers S9F5 rather than RSDA 1 - "I do not do that" and "no, not now" are different answers to a host deciding whether to wait. |
+| `SpoolMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S6F23 and S2F43, registered only when a spool is configured. Equipment that does not spool answers S9F5 rather than RSDA 1 - "I do not do that" and "no, not now" are different answers to a host deciding whether to wait. |
+| `SpoolableMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The nine messages that *get* spooled, where `SpoolMessages` is the two a host sends about spooling. The list exists because S2F43 lets a host name a whole stream, and that has to mean something concrete. Everything on it is news rather than a question, which is the rule for membership: a grant nobody is there to give is not permission and is never held. |
+| `ServiceProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S2F1 to S2F11, registered only when a service program store is configured. **S9F5 and not S9F3**, which is how this differs from stream 7: stream 2 is understood by every piece of GEM equipment, so the refusal names the function rather than the stream. |
 | `TerminalMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S10F3, S10F5 and S10F9, registered only when a terminal is configured. Not S10F1, which the equipment sends; not S10F7, which the catalogue flags as representative and which ACKC10 2 already says. |
 | `CheckLimitsAsync` | `ValueTask<bool> CheckLimitsAsync(uint variableId, CancellationToken cancellationToken = default)` | E30 limits monitoring: checks a variable against the bands a host set, and reports a crossing. Called by the application when a value changes - see [Limits monitoring](#limits-monitoring). |
 | `SendTerminalRequestAsync` | `ValueTask<GemTerminalAcknowledgement?> SendTerminalRequestAsync(string text, byte terminalId = 0, CancellationToken cancellationToken = default)` | S10F1: something an operator typed. `null` when there was nobody to tell - **not spooled**, because a prompt for a person at the host is worthless an hour later. Needs no `IGemTerminal`. |
@@ -117,6 +120,9 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `NotifyExceptionRecoveringAsync` | `ValueTask<bool> NotifyExceptionRecoveringAsync(string exceptionId, CancellationToken cancellationToken = default)` | S5F13. The stage a host may interrupt with S5F17. Spooled. |
 | `NotifyExceptionRecoveredAsync` | `ValueTask<bool> NotifyExceptionRecoveredAsync(string exceptionId, string message, CancellationToken cancellationToken = default)` | S5F15. The one recovery stage with an `EXMESSAGE`, which is the only place the outcome can be said - `ACKC5` on the reply says whether the host took the notice, not whether the recovery worked. Spooled. |
 | `AnswerExceptionAbort` | `Func<string, GemExceptionAbortResult> { get; set; }` | What S5F18 says. **Refuses by default**, which is the opposite way round from this stack's other answer delegates: this one stops something the machine is in the middle of, so a machine nobody told how to abort a recovery cannot abort one. A delegate rather than a model member, because stream 5 has no exception table for one to be declared against. |
+| `AnswerInitiateProcessing` | `Func<string, GemInitiateProcessingAcknowledgement> { get; set; }` | What S2F28 says, given the trimmed `PPID`. **Refuses by default**, for `AnswerExceptionAbort`'s reason: starting processing is the machine doing something, and answering nought would tell a host material was being processed when nothing was. |
+| `AnswerMultiBlockInquiry` | `Func<uint, uint, GemGrant> { get; set; }` | What S2F40 says, given `DATAID` and `DATALENGTH`. **Grants by default**, the opposite way round and deliberately: a handshake whose only purpose is to let this end refuse should not refuse by silence. |
+| `SpoolSuppressedMessages` | `IReadOnlyCollection<(byte Stream, byte Function)> { get; }` | What a host has turned off with S2F43, as a snapshot. Empty until one does, which is where almost every machine stays. |
 | `ReportTerminalNotAccessibleAsync` | `ValueTask<bool> ReportTerminalNotAccessibleAsync(byte terminalId = 0, CancellationToken cancellationToken = default)` | S10F7, which has no reply at all. **Not `ACKC10` 2 by another route**: that code answers a display request, where this is volunteered before anybody asks. Needs no `IGemTerminal`, and is **not spooled** - which terminals were unreachable an hour ago is not news anybody can act on. |
 | `SendDiscreteVariableDataAsync` | `ValueTask<bool> SendDiscreteVariableDataAsync(uint eventId, CancellationToken cancellationToken = default)` | S6F3: DATAID and CEID, which is all this reference's row names - **no values**, since the items that would carry them, `DVNAME` and `DVVAL`, are named by none of its 524 rows. Gated on the same two conditions as `TriggerEventAsync`, because S2F37 disables a CEID and this message names one. |
 | `InquireMultiBlockAsync` | `ValueTask<GemMultiBlockGrant> InquireMultiBlockAsync(uint length, CancellationToken cancellationToken = default)` | S6F5, answered by S6F6's `GRANT6`. **Never spooled**: a question, not news. With no link it answers `NoSpace`, the table having no code for "nobody was listening" and `Busy` inviting a pointless retry. Sends nothing afterwards and measures nothing - how much fits in a block is the link's business and whether a report is worth the round trip is the application's. `DATALENGTH` is passed through as given; the reference records no units for it. |
@@ -356,6 +362,135 @@ re-establish. A form is the machine's own and never changes, which is why forms 
 variables rather than in the state a host can edit - and why a host cannot define one. `SFCD` has
 no table in the reference, so which form a code selects is the machine's to document and this
 library carries the byte.
+
+---
+
+### `GemGrant`
+
+`enum : byte` - `GRANT`, at S2F2 and S2F40. `Accepted = 0`, `Busy = 1`, `NoSpace = 2`,
+`DuplicateOrInvalid = 3`, `Other = 4`.
+
+**The fourth reader of `GRANT` in this repository**, after `Barbatos.SecsGem.Material`,
+`Barbatos.SecsGem.ControlPrograms` and `Barbatos.SecsGem.ItemTransfer`, and the members are those
+three's name for name. **Not `GemMultiBlockGrant`**, which is `GRANT6`: two items, two tables, two
+types - `GRANT` names four codes and reserves 4 to 63 where `GRANT6` names three and reserves 3 to
+63, so a catch-all copied across would read a machine's reserved 3 as a refusal it never made. The
+extra code is `DuplicateOrInvalid`, which a stream 6 inquire has no room for because nothing there
+is being named - and it is what this package answers an S2F39 whose body it could not read.
+
+---
+
+### `GemServiceProgramAcknowledgement`
+
+`enum : byte` - `ACKC2`, at S2F4 and S2F8. `Accepted = 0`, `Error = 1`.
+
+**`ACKC2` is not in the reference's dictionary at all**, so this is an inference, and the route is
+`Barbatos.SecsGem.ControlPrograms`' for `ACKC8`: read as a `B[1]` whose nought is acceptance, off
+the eight `ACKCn` items the reference *does* define - `ACKC3`, `ACKC5`, `ACKC6`, `ACKC7`,
+`ACKC7A`, `ACKC10`, `ACKC13` and `ACKC15`. Two members and no more, because what those eight agree
+on is the zero: `ACKC5` and `ACKC6` reserve the whole non-zero range while `ACKC7` names six
+refusals, so inventing a vocabulary here would be picking one sibling over the others.
+
+---
+
+### `GemServiceProgramResult`
+
+`public readonly record struct` - `Acknowledgement` (`GemServiceProgramAcknowledgement`), `Code`
+(`byte`) and `IsAccepted` (`bool`).
+
+The pair exists because `ACKC2` is undefined: this library reads nought as acceptance and
+everything else as a refusal, and a fab whose machine distinguishes its refusals needs the byte
+that actually arrived. Branch on `Acknowledgement`; log `Code`.
+
+---
+
+### `GemInitiateProcessingAcknowledgement`
+
+`enum : byte` - `PRACK`, at S2F28. `Accepted = 0`, `Error = 1`.
+
+Undefined too, read off `CMDA` and `HCACK` - the two commands this package already serves, both a
+`B[1]` whose zero means the command was taken. **The gap is in the reply, not in the row**: S2F27
+carries a `PPID`, which is defined, capped at 120 characters and named by twenty-eight rows of the
+reference, so what the message asks is never in doubt. An own gap is carried untouched unless it is
+the field the message turns on, and an acknowledgement is not that field.
+
+---
+
+### `IGemServiceProgramStore`
+
+`public interface` - `InquireAsync(uint, int)`, `SaveAsync(uint, string)`, `LoadAsync(uint)`,
+`RunAsync(uint)`, `ResultsAsync(uint)`, `ListAsync()`.
+
+**A service program is not a recipe**, and two item formats decide it: `SPD` is an `A[n]` where
+stream 7's `PPBODY` is a `B`, so the body is *text* and this takes a `string`; and `SPID` is a
+`U4` where `PPID` is an `A[120]`, so it is identified by a number and there is no identifier length
+to validate. **And it runs** - S2F7 and S2F9 have no stream 7 equivalent at all, which is why this
+is a capability of its own rather than a second flavour of `IGemProcessProgramStore`.
+
+`SaveAsync` takes the `SPID` from the S2F1 that preceded the send, because S2F3 carries none.
+
+---
+
+### `GemInMemoryServiceProgramStore`
+
+`public sealed class ... : IGemServiceProgramStore` - `Capacity` (64), `MaxLength` (64 KiB) and
+`Run` (`Func<uint, string, string?>`).
+
+**It cannot run anything**, so `Run` returns `null` by default and `RunAsync` refuses - the same
+way round as `GemEquipment.AnswerExceptionAbort` and for the same reason: running a service program
+is something the machine does, and a store nobody told how to run one would be claiming a program
+had started when nothing started. `MaxLength` is a store's own limit rather than the reference's,
+and it is what lets `InquireAsync` answer `NoSpace` before the text arrives - which is the entire
+point of the inquire. Saving a program discards the results of the one it replaced.
+
+---
+
+### `GemSpoolResetAcknowledgement`
+
+`enum : byte` - **`RSPACK` and `STRACK`**, both at S2F44. `Accepted = 0`, `Error = 1`.
+
+**One enum for two items**, allowed here because the two mean the same thing: the reference defines
+both, gives both a `B[1]`, and gives both the identical table. Two enums with identical members
+would differ only in their names. What differs is where they sit, and position carries that -
+`RSPACK` is `GemSpoolResetReply.Acknowledgement` and `STRACK` is
+`GemSpoolStreamResult.Accepted`. The arrangement is `Barbatos.SecsGem.Objects`' for `RPACK` and
+`URACK`, with the contrast worth keeping in view: those two are *undefined*, so one enum avoided
+inventing two vocabularies, where these are defined and one enum reports a table printed twice.
+
+---
+
+### `GemSpoolStreamReset`
+
+`public readonly record struct` - `Stream` (`byte`, `STRID`), `Functions`
+(`IReadOnlyList<byte>`, `FCNID`) and `IsWholeStream` (`bool`).
+
+**An empty `Functions` means the whole stream.** That reading is this library's, because the
+reference gives S2F43 two items and no words - but an entry naming a stream and no functions would
+otherwise mean nothing at all, and that is the worse of the two readings. An empty *request* is the
+opposite call: it names nothing, so it is no instruction.
+
+---
+
+### `GemSpoolStreamResult`
+
+`public readonly record struct` - `Stream` (`byte`), `Accepted` (`bool`, from `STRACK`) and
+`Functions` (`IReadOnlyList<byte>`).
+
+`STRACK` as a flag, which is the reading `LVACK` gets at S2F46: the item is defined and its table
+is nought-accepted with the whole non-zero range an error the reference will not explain, so there
+is one bit of information in it and the position says which stream it is about.
+
+---
+
+### `GemSpoolResetReply`
+
+`public readonly record struct` - `Acknowledgement` (`GemSpoolResetAcknowledgement`), `Streams`
+(`IReadOnlyList<GemSpoolStreamResult>`) and `IsAccepted` (`bool`).
+
+Shaped after `GemVariableLimitReply`, this package's other row with an acknowledgement for the
+message and one per thing named. A message can be accepted with a stream inside it refused, which
+is exactly what the two levels are for - and a host that named four streams needs to know which
+three took.
 
 ---
 
@@ -1062,8 +1197,12 @@ non-zero member already covered the whole range:
 | `HCACK` | 0-6 | 7-63 | `GemHostCommandAcknowledgement.Other` |
 | `CMDA` | 0-2 | 3-63 | `GemRemoteCommandAcknowledgement.Other` |
 | `GRANT6` | 0-2 | 3-63 | `GemMultiBlockGrant.Other` |
+| `GRANT` | 0-3 | 4-63 | `GemGrant.Other` |
+| `RSPACK` | 0 | 1-63 | `GemSpoolResetAcknowledgement.Error` |
+| `STRACK` | 0 | 1-63 | `GemSpoolResetAcknowledgement.Error` |
 
-`ACKC7` is read at **four** sites now and `CMDA` at **three**, and both counts matter more than the
+`ACKC7` is read at **four** sites now, `CMDA` at **three** and `GRANT` at **two**, and the counts
+matter more than the
 table above: the stream 7 sweep added two `CMDA` readers, a control moved the boundary at one of
 them, and the whole suite stayed green. The same hole `ACKC7` had when one of its three sites was
 driven. Every site is driven now, which is the only check that catches this - a boundary that is
@@ -1162,6 +1301,15 @@ table claiming it.
 | `EnableEventsAsync(enable, ceids)` | S2F37 | `GemEnableEventAcknowledgement`. Empty list means every event |
 | `SendCommandAsync(command, parameters)` | S2F41 | `GemHostCommandAcknowledgement`. **`CompletionLater` (4) is a success** |
 | `SendRemoteCommandAsync(command)` | S2F21 | `GemRemoteCommandAcknowledgement`. The same command table, the same control-state rule, and three codes instead of seven - so "will complete later" arrives as `CannotPerformNow`. A host that needs the distinction sends S2F41 with an empty parameter list |
+| `InquireServiceProgramAsync(spid, length)` | S2F1 | `GemGrant`. **Not optional before a send**: S2F3 carries no `SPID`, so this is where the identifier comes from. The grant is consumed by one send |
+| `SendServiceProgramAsync(text)` | S2F3 | `GemServiceProgramResult` - the verdict and the `ACKC2` byte, because that item is undefined. The text travels exactly as given, not trimmed |
+| `RequestServiceProgramAsync(spid)` | S2F5 | `string?`. A zero-length `SPD` reads as null; the row carries no acknowledgement to put a refusal in |
+| `RunServiceProgramAsync(spid)` | S2F7 | `GemServiceProgramResult`. Accepted means it started, not that it finished |
+| `ReadServiceProgramResultsAsync(spid)` | S2F9 | `string?` - `SPR`, or null for a program that has not run |
+| `ListServiceProgramsAsync` | S2F11 | `IReadOnlyList<uint>`. One of three rows in this package with no request body at all |
+| `InitiateProcessingAsync(ppid)` | S2F27 | `GemInitiateProcessingAcknowledgement`. **Refused by default** at the other end - starting processing is the machine doing something |
+| `InquireMultiBlockAsync(dataId, length)` | S2F39 | `GemGrant`. **S6F5 the other way round**: a host asking the machine, where S6F5 is the machine asking a host. **Granted by default** |
+| `ResetSpoolingAsync(streams)` | S2F43 | `GemSpoolResetReply` - `RSPACK` plus a `STRACK` per stream, so a message can be accepted with one stream refused. A stream with no functions means the whole stream; an empty request changes nothing. Throws `SecsException` when S2F44 was not an acknowledgement and a list |
 | `LoopbackAsync(body)` | S2F25 | `bool` - whether the machine echoed exactly what it was sent. A loopback whose answer you have to compare yourself is a loopback half done |
 | `LoopbackDataAsync(body)` | S2F25 | `ReadOnlyMemory<byte>` - the echoed bytes, for a caller that wants to look at them |
 | `EnableAlarmAsync(enable, alarmId)` | S5F3 | `GemAlarmAcknowledgement`. Zero as the identifier means all of them. ALED is sent as E5 defines it: a `B[1]` whose top bit is the choice |
@@ -1403,6 +1551,26 @@ through the builder's `DeclareOnce`, which declares a set once however many time
 
 Order does not matter relative to `AddGemEquipment`. The equipment resolves its store with
 `GetService`, so it is `null` when nothing registered one.
+
+### `AddGemServicePrograms`
+
+```csharp
+public static ISecsGemBuilder AddGemServicePrograms(this ISecsGemBuilder builder)
+public static ISecsGemBuilder AddGemServicePrograms<TStore>(this ISecsGemBuilder builder)
+    where TStore : class, IGemServiceProgramStore
+public static ISecsGemBuilder AddGemServicePrograms(this ISecsGemBuilder builder, IGemServiceProgramStore store)
+```
+
+Declares `GemEquipment.ServiceProgramMessages` - S2F1 to S2F11 - and registers the store. The
+parameterless overload uses `GemInMemoryServiceProgramStore`. E5's own stream 2 capability and
+nothing to do with E30.
+
+Equipment that does not call it answers none of those functions and the connection reports
+**S9F5** - *that function* is not understood - where stream 7 gets an S9F3 for the whole stream.
+Stream 2 is understood by every piece of GEM equipment because S2F13 and the rest live there, so
+the refusal has to be narrower. Calling it twice is harmless.
+
+---
 
 ### `AddGemFormattedProcessPrograms`
 

@@ -123,7 +123,12 @@ public static class GemServiceCollectionExtensions
 
             // And the operator's terminal. Also GetService: a machine with no screen answers S9F3
             // for stream 10, which is a different thing from refusing each message with ACKC10 2.
-            provider.GetService<IGemTerminal>()));
+            provider.GetService<IGemTerminal>(),
+
+            // Service programs, opt-in like the rest. Null here leaves S2F1 to S2F11 undeclared,
+            // so the connection answers S9F5 - the function, not the stream, because stream 2 is
+            // understood whatever this machine does with service programs.
+            provider.GetService<IGemServiceProgramStore>()));
 
         // Every GEM message, registered as a factory - and the equipment is resolved inside the
         // handler rather than inside the factory. That distinction is the whole game.
@@ -538,6 +543,65 @@ public static class GemServiceCollectionExtensions
     private static ISecsGemBuilder DeclareProcessPrograms(ISecsGemBuilder builder)
     {
         builder.DeclareOnce(GemEquipment.ProcessProgramMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
+
+        return builder;
+    }
+
+    /// <summary>Adds service program management, kept in memory.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// E5's own stream 2 capability, and nothing to do with E30: a service program is text the host
+    /// sends, the machine runs, and the host reads the results of. See
+    /// <see cref="IGemServiceProgramStore"/> for why that makes it a capability of its own rather
+    /// than a second flavour of stream 7.
+    /// </remarks>
+    public static ISecsGemBuilder AddGemServicePrograms(this ISecsGemBuilder builder)
+        => builder.AddGemServicePrograms<GemInMemoryServiceProgramStore>();
+
+    /// <summary>Adds service program management, backed by a store of your own.</summary>
+    /// <typeparam name="TStore">The store.</typeparam>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// This is what declares S2F1 to S2F11. Equipment that does not call it answers none of them,
+    /// and the connection reports S9F5 - <em>that function</em> is not understood, where stream 7
+    /// gets an S9F3 for the whole stream. Stream 2 is understood by every piece of GEM equipment
+    /// because S2F13 and the rest live there, so the refusal has to be narrower.
+    /// </para>
+    /// <para>
+    /// Calling it twice is harmless: its set goes in through the builder's <c>DeclareOnce</c>.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemServicePrograms<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStore>(
+        this ISecsGemBuilder builder)
+        where TStore : class, IGemServiceProgramStore
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton<IGemServiceProgramStore, TStore>();
+        return DeclareServicePrograms(builder);
+    }
+
+    /// <summary>Adds service program management, backed by a store you have already built.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="store">The store.</param>
+    /// <returns>The builder, for chaining.</returns>
+    public static ISecsGemBuilder AddGemServicePrograms(this ISecsGemBuilder builder, IGemServiceProgramStore store)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(store);
+
+        builder.Services.TryAddSingleton(store);
+        return DeclareServicePrograms(builder);
+    }
+
+    private static ISecsGemBuilder DeclareServicePrograms(ISecsGemBuilder builder)
+    {
+        builder.DeclareOnce(GemEquipment.ServiceProgramMessages, static provider =>
             (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
 
         return builder;

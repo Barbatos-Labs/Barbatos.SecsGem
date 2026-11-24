@@ -107,7 +107,8 @@ internal sealed class GemPair : IAsyncDisposable
         IGemTerminal? terminal = null,
         bool traces = false,
         bool limits = false,
-        RecordingLogger<GemHost>? hostLogger = null)
+        RecordingLogger<GemHost>? hostLogger = null,
+        IGemServiceProgramStore? servicePrograms = null)
     {
         var options = new SecsGemOptions
         {
@@ -168,6 +169,11 @@ internal sealed class GemPair : IAsyncDisposable
             declared.AddRange(GemEquipment.TerminalMessages);
         }
 
+        if (servicePrograms is not null)
+        {
+            declared.AddRange(GemEquipment.ServiceProgramMessages);
+        }
+
         if (traces)
         {
             declared.AddRange(GemEquipment.TraceMessages);
@@ -206,7 +212,8 @@ internal sealed class GemPair : IAsyncDisposable
             programs,
             spool,
             formatted,
-            terminal);
+            terminal,
+            servicePrograms);
 
         pendingHost = new GemHost(hostOptions, hostLink, clock, hostLogger);
 

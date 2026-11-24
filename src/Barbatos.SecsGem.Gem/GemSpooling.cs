@@ -59,6 +59,75 @@ public enum GemSpooledDataRequest
     Purge = 1,
 }
 
+/// <summary><c>RSPACK</c> and <c>STRACK</c> - the answer to resetting spooling, S2F44.</summary>
+/// <remarks>
+/// <para>
+/// <strong>One enum for two items</strong>, which is allowed here because the two mean the same
+/// thing: the reference defines both, gives both a <c>B[1]</c>, and gives both the identical table
+/// - nought accepted, 1 to 63 an error whose reason is equipment specific. Two enums with
+/// identical members would differ only in their names. What differs between the items is where
+/// they sit, and position carries that: <c>RSPACK</c> answers the whole message and
+/// <c>STRACK</c> answers one stream, so one is <see cref="GemSpoolResetReply.Acknowledgement"/>
+/// and the other is <see cref="GemSpoolStreamResult.Accepted"/>.
+/// </para>
+/// <para>
+/// The arrangement is <c>Barbatos.SecsGem.Objects</c>' for <c>RPACK</c> and <c>URACK</c>, and the
+/// contrast is worth keeping in view: those two are <em>undefined</em>, so one enum avoided
+/// inventing two vocabularies. These two are defined, so one enum reports a table that was
+/// printed twice.
+/// </para>
+/// </remarks>
+public enum GemSpoolResetAcknowledgement : byte
+{
+    /// <summary>Accepted.</summary>
+    Accepted = 0,
+
+    /// <summary>An error whose reason the reference does not carry.</summary>
+    Error = 1,
+}
+
+/// <summary>One stream, and which of its functions a host is naming - S2F43.</summary>
+/// <remarks>
+/// <strong>An empty <see cref="Functions"/> means the whole stream.</strong> That reading is this
+/// library's, because the reference gives the row two items and no words: what it can be read off
+/// is S2F43's own shape, where a list of functions nested under a stream has nowhere else to put
+/// "all of them". A host that means one function says so.
+/// </remarks>
+/// <param name="Stream">STRID.</param>
+/// <param name="Functions">FCNID, or empty for every function of the stream.</param>
+public readonly record struct GemSpoolStreamReset(byte Stream, IReadOnlyList<byte> Functions)
+{
+    /// <summary>Gets whether this names the whole stream rather than particular functions.</summary>
+    public bool IsWholeStream => Functions.Count == 0;
+}
+
+/// <summary>What happened to one stream in a reset - S2F44.</summary>
+/// <param name="Stream">STRID.</param>
+/// <param name="Accepted">STRACK, as a flag: nought accepted.</param>
+/// <param name="Functions">The FCNID list the machine echoed back for this stream.</param>
+public readonly record struct GemSpoolStreamResult(
+    byte Stream,
+    bool Accepted,
+    IReadOnlyList<byte> Functions);
+
+/// <summary>The whole answer to S2F43.</summary>
+/// <remarks>
+/// Shaped after <c>GemVariableLimitReply</c>, which is this package's other row with an
+/// acknowledgement for the message and one per thing named. <see cref="Acknowledgement"/> is
+/// <c>RSPACK</c> and each <see cref="GemSpoolStreamResult.Accepted"/> is that stream's
+/// <c>STRACK</c>: a message can be accepted with a stream inside it refused, which is exactly
+/// what the two levels are for.
+/// </remarks>
+/// <param name="Acknowledgement">RSPACK.</param>
+/// <param name="Streams">One result per stream the host named.</param>
+public readonly record struct GemSpoolResetReply(
+    GemSpoolResetAcknowledgement Acknowledgement,
+    IReadOnlyList<GemSpoolStreamResult> Streams)
+{
+    /// <summary>Gets whether the message itself was accepted.</summary>
+    public bool IsAccepted => Acknowledgement == GemSpoolResetAcknowledgement.Accepted;
+}
+
 /// <summary>S6F24 RSDA - the answer to S6F23.</summary>
 public enum GemSpooledDataAcknowledgement : byte
 {

@@ -12,7 +12,7 @@ namespace Barbatos.SecsGem.ControlPrograms.UnitTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>GRANT</c> is one item and three packages here serve it - this one for S8F2, Barbatos.SecsGem.Material for S3F16 and Barbatos.SecsGem.ItemTransfer for S21F6. The working agreement is that one item cannot mean two things in
+/// <c>GRANT</c> is one item and four packages here serve it - this one for S8F2, Barbatos.SecsGem.Material for S3F16, Barbatos.SecsGem.ItemTransfer for S21F6 and Barbatos.SecsGem.Gem for S2F2 and S2F40, which the stream 2 chapter added. The working agreement is that one item cannot mean two things in
 /// one repository, and the way that is kept is here: <strong>each package asserts against the
 /// reference's table rather than against the other packages' enums</strong>, so the agreement is
 /// transitive and no pairwise list has to be maintained.

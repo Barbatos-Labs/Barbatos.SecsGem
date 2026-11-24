@@ -358,6 +358,14 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
         }
 
+        // Service programs and the spool, which between them declare the rest of stream 2. Both
+        // are opt-in and both have to be registered here or the host below waits out a T3 on a
+        // function nobody declared - the lesson the stream 4 chapter learned the hard way.
+        foreach (var (stream, function) in GemEquipment.ServiceProgramMessages.Concat(GemEquipment.SpoolMessages))
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
+        }
+
         // And traces and limits, the two capabilities that need nothing registered with them.
         foreach (var (stream, function) in GemEquipment.TraceMessages.Concat(GemEquipment.LimitMessages))
         {
@@ -548,7 +556,16 @@ internal static class Program
             equipmentLink,
             processPrograms: new GemInMemoryProcessProgramStore(),
             formattedProcessPrograms: new GemInMemoryFormattedProcessProgramStore(),
-            terminal: new GemInMemoryTerminal());
+            terminal: new GemInMemoryTerminal(),
+            spool: new GemInMemorySpool(),
+
+            // A service program is text this machine runs, where a recipe is bytes it executes
+            // later: SPD is an A[n] and PPBODY is a B. The run delegate is what makes it a service
+            // program at all - an in-memory store cannot run anything, so it refuses by default.
+            servicePrograms: new GemInMemoryServiceProgramStore
+            {
+                Run = (id, text) => $"SPID {id}: {text.Length} characters, exit 0",
+            });
         await using var host = new GemHost(hostOptions, hostLink);
 
         // Neither end of stream 12 is disposable, and neither end of stream 3: no state, no timer,
@@ -1348,6 +1365,55 @@ internal static class Program
             var grant = await equipment.InquireMultiBlockAsync(70_000, cancellationToken);
             Console.WriteLine($"   S6F5  -> GRANT6={grant}");
             ok &= grant == GemMultiBlockGrant.Ok;
+
+            // Stream 2's service program family - E5's own capability, nothing to do with E30. The
+            // inquire is not optional: S2F3 carries no SPID, so the identifier a program is filed
+            // under is the one granted here.
+            var loadGrant = await host.InquireServiceProgramAsync(7, "PRINT 1".Length, cancellationToken);
+
+            Console.WriteLine($"   S2F1  -> GRANT={loadGrant}");
+            ok &= loadGrant == GemGrant.Accepted;
+
+            var stored = await host.SendServiceProgramAsync("PRINT 1", cancellationToken);
+
+            Console.WriteLine($"   S2F3  -> ACKC2={stored.Code} ({stored.Acknowledgement})");
+            ok &= stored.IsAccepted;
+
+            // And it runs, which is the whole difference from a recipe: S2F7 and S2F9 have no
+            // stream 7 equivalent.
+            ok &= (await host.RunServiceProgramAsync(7, cancellationToken)).IsAccepted;
+
+            Console.WriteLine($"   S2F9  -> {await host.ReadServiceProgramResultsAsync(7, cancellationToken)}");
+            Console.WriteLine($"   S2F11 -> {string.Join(", ", await host.ListServiceProgramsAsync(cancellationToken))}");
+
+            ok &= (await host.ListServiceProgramsAsync(cancellationToken)).Contains(7u);
+
+            // A send with nothing granted behind it, which is refused because there is no SPID to
+            // file it under. The grant above was consumed by the send above.
+            ok &= !(await host.SendServiceProgramAsync("PRINT 2", cancellationToken)).IsAccepted;
+
+            // S2F27, refused because nothing has told this machine how to start processing. The
+            // default is the refusal, and a sample that overrode it would hide that.
+            Console.WriteLine(
+                $"   S2F27 -> PRACK={await host.InitiateProcessingAsync("RECIPE-1", cancellationToken)}");
+
+            // S2F39 is S6F5 the other way round - a host asking the machine - and granted unless
+            // the machine says otherwise.
+            var block = await host.InquireMultiBlockAsync(41, 70_000, cancellationToken);
+
+            Console.WriteLine($"   S2F39 -> GRANT={block}");
+            ok &= block == GemGrant.Accepted;
+
+            // S2F43, with two levels of acknowledgement: one for the message and one per stream.
+            var reset = await host.ResetSpoolingAsync(
+                [new GemSpoolStreamReset(6, [11]), new GemSpoolStreamReset(5, [])],
+                cancellationToken);
+
+            Console.WriteLine(
+                $"   S2F43 -> RSPACK={reset.Acknowledgement}, {reset.Streams.Count} stream(s) answered");
+
+            ok &= reset.IsAccepted && reset.Streams.Count == 2;
+            ok &= equipment.SpoolSuppressedMessages.Contains(((byte)6, (byte)11));
 
             // S6F17: the same report S6F19 reads, with every value identified and its units
             // attached - so this needs no namelist to make sense of, where S6F20 does.

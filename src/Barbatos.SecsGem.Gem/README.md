@@ -549,6 +549,84 @@ side the difference between "out of room" and "out of disk" is nothing it can ac
 One spool per directory. Two over the same one would hand the same host each other's messages and
 fight over the sequence numbers.
 
+## Service programs, which are not recipes
+
+Stream 2's first twelve functions are E5's own capability and nothing to do with E30. They look
+like stream 7 until you read the item table, and then two differences decide everything:
+
+| | A service program | A process program |
+| --- | --- | --- |
+| the body | `SPD`, an **`A[n]`** - source text | `PPBODY`, a `B` - opaque bytes |
+| the identifier | `SPID`, a **`U4`** - a number | `PPID`, an `A[120]` - a name |
+| what you can do | send, fetch, **run**, read the **results** | send, fetch, verify, delete |
+
+**It runs.** S2F7 and S2F9 have no stream 7 equivalent at all, and that is why this is a capability
+of its own rather than a second flavour of recipes:
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .AddGemEquipment(...)
+    .AddGemServicePrograms();            // or AddGemServicePrograms<MyStore>()
+```
+
+```csharp
+// The host. The inquire is not optional - see below.
+await host.InquireServiceProgramAsync(7, program.Length);
+await host.SendServiceProgramAsync(program);
+await host.RunServiceProgramAsync(7);
+
+Console.WriteLine(await host.ReadServiceProgramResultsAsync(7));
+```
+
+**S2F3 carries no identifier.** Only the text - so the `SPID` a program is filed under is the one
+from the S2F1 before it, and a send with no granted inquire behind it is refused because there is
+nothing to file it under. The grant is consumed, not held: one send per inquire, because the
+handshake is per transfer. That correlation is the row's, not this library's invention, and
+[`SecsCatalogStream2Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream2Tests.cs)
+pins it against stream 7's send, which does carry its identifier.
+
+The text travels **exactly as given** - not trimmed, unlike a `PPID`. A `PPID` is an `A[120]` that
+arrives padded; `SPD` is an `A[n]` exactly as long as the program, so trimming would quietly edit a
+program whose last line ends in a space.
+
+`ACKC2`, which answers the send and the run, **is not in the reference at all**. Nought is read as
+acceptance off the eight `ACKCn` items that *are* defined, and everything else as a refusal with no
+reason - so `GemServiceProgramResult` hands back the byte as well as the verdict, for a fab whose
+machine means something by it.
+
+## Three more rows of stream 2
+
+```csharp
+// S2F27 - start processing a recipe. Refused unless the machine says otherwise.
+equipment.AnswerInitiateProcessing = ppid => store.Has(ppid)
+    ? GemInitiateProcessingAcknowledgement.Accepted
+    : GemInitiateProcessingAcknowledgement.Error;
+
+// S2F39 - may the host send something too big for one block? Granted unless it says otherwise.
+equipment.AnswerMultiBlockInquiry = (dataId, length) => length > Capacity
+    ? GemGrant.NoSpace
+    : GemGrant.Accepted;
+
+// S2F43 - stop holding these for me.
+var reply = await host.ResetSpoolingAsync([
+    new GemSpoolStreamReset(6, [11]),   // just the event report
+    new GemSpoolStreamReset(5, []),     // every message of stream 5
+]);
+```
+
+**S2F39 is S6F5 the other way round**, and the two grants differ by exactly one code: `GRANT` has a
+duplicate-identifier refusal that `GRANT6` has not, because a stream 6 inquire names nothing that
+could be duplicated. This package reads both now, so `GemGrant` and `GemMultiBlockGrant` are two
+types on purpose.
+
+**S2F43 has two levels of acknowledgement** and that is what makes it worth serving whole: the
+message can be accepted with one stream inside it refused, and a host that named four needs to know
+which three took. A stream with **no functions means the whole stream** - an entry naming a stream
+and no functions would otherwise mean nothing - where an **empty request names nothing and changes
+nothing**, because reading "everything" into it would be inventing a meaning the row does not carry.
+Only `GemEquipment.SpoolableMessages` can be suppressed, since those are the only ones ever held,
+and a suppressed report is **dropped and logged** rather than held.
+
 ## Recipes, if the machine has any
 
 Stream 7 moves process programs - recipes - onto the machine and off it. It is **opt-in**, and that
@@ -1073,7 +1151,7 @@ not a wall in front of it.
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
 | S1F9/F10, the material transfer status | The one row of streams 1, 5 and 10 that the gapless sweep left out, and the only thing missing from those three streams now. Its two items, `TSIP` and `TSOP`, are `A[n]` with no tables and named by stream 1 alone - so there is no sibling anywhere to read a reading off, which is the test the other eight rows passed. And what it reports is material transfer, a subject this repository serves properly in stream 3 and in E87: a pass-through of two string lists whose meaning nobody states would be an API with nothing behind it, beside two packages that have something. [`SecsCatalogGaplessTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogGaplessTests.cs) pins both reasons |
 | Three pairs of stream 6 | The rest of the stream is here. **S6F21/F22** and **S6F29/F30** were refused on the field each row turns on: `CELLNAME` is what makes a data cell report a *cell* report rather than the event report it is otherwise identical to, and `NRED` is the enable-or-disable flag S6F29 exists to carry - both undefined, both named by one row, so carrying either untouched would leave this library unable to tell apart the two things its row distinguishes. The same reason S14F23 stays out. **S6F25/F26** was refused on something new: not a field but a **body**. Its two items are both defined and both already read here, and the reference records an item list rather than a nesting - S6F16 is recorded as `DATAID` and `CEID` and carries a whole event report - so the two served rows that could settle whether a report list follows disagree, and a body guessed wrong is unparseable rather than merely uninterpretable. [`SecsCatalogStream6Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream6Tests.cs) pins all three |
-| The rest of stream 2 | Every primary stream 2 *documents* is implemented. What is left is representative rows in a stream that is **not** gapless - seven gaps, and the service-program family's are in its replies - so each needs measuring on its own rather than as a group, which is what the gapless streams could be done as |
+| S2F19/F20, reset and initialize | The one row of stream 2 left, and the clearest refusal in the reference: S2F19's **entire body is `RSTC`**, a name nobody wrote down, and `RIACK` is undefined too - the only row in the stream where both halves are gaps. An own gap is carried untouched unless it is the field the message turns on, and a reset code is *which* reset: carrying it opaquely would leave this library unable to tell one reset from another. Strictly worse than S14F23's `ENABLE`, which at least sat beside items that were defined, and there is no second field in the row to anchor a reading against. [`SecsCatalogStream2Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream2Tests.cs) pins it |
 | A trace that outlives a reconnect | Deliberate, and the only part of tracing with no test of its own. Every trace is cancelled where the host's report definitions are reset, on a re-establish - and an in-memory transport pair cannot re-select after a deselect, because the select is driven by the connection's own state machine and nothing public asks it to. The test covers the other side: that a second S1F13 on a live conversation resets nothing |
 | Streams this library does not implement at either end | Stream 3 material status, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |
 
