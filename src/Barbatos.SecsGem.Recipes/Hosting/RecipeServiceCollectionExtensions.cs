@@ -31,9 +31,68 @@ public static class RecipeServiceCollectionExtensions
     /// <summary>Adds the equipment side, backed by the in-memory store.</summary>
     /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
     /// <returns>The builder, for chaining.</returns>
-    /// <remarks>Enough for a simulator or a controller that passes recipes straight on. Anything that must survive a restart wants its own store.</remarks>
+    /// <remarks>
+    /// Enough for a simulator or a controller that passes recipes straight on. A machine whose
+    /// recipes must survive a restart calls <see cref="AddRecipeFileEquipment"/> instead, or brings
+    /// a store of its own.
+    /// </remarks>
     public static ISecsGemBuilder AddRecipeEquipment(this ISecsGemBuilder builder)
         => builder.AddRecipeEquipment<RecipeInMemoryStore>();
+
+    /// <summary>Adds the equipment side, backed by a directory that outlives the process.</summary>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <param name="directory">Where the records live. Created if it is not there.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> or <paramref name="directory"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <see cref="RecipeFileStore"/>, which adopts what is still in the directory - so a host does
+    /// not have to send a recipe again after an upgrade or a power cut, and the namespaces, the
+    /// locks and the selection are what they were. <c>AddGemFileSpooling</c> is the same offer for
+    /// the GEM spool.
+    /// </para>
+    /// <para>
+    /// The directory is a parameter and not a configuration option, because this package has no
+    /// options type: <see cref="RecipeEquipment"/> takes none, stream 15 having no timer and no
+    /// limit of its own. An application that keeps the path in configuration passes it from there.
+    /// </para>
+    /// <para>
+    /// <see cref="RecipeFileStore.MaximumLength"/> keeps its default of one mebibyte. A machine
+    /// that wants another builds the store itself and calls
+    /// <see cref="AddRecipeEquipment(ISecsGemBuilder, IRecipeStore)"/>.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddRecipeFileEquipment(this ISecsGemBuilder builder, string directory)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(directory);
+
+        builder.Services.TryAddSingleton<IRecipeStore>(provider => new RecipeFileStore(
+            directory,
+            provider.GetService<ILogger<RecipeFileStore>>()));
+
+        return builder.DeclareRecipeEquipment();
+    }
+
+    /// <summary>Adds the equipment side, backed by a store you have already built.</summary>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <param name="store">The store.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> or <paramref name="store"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// For a store that needs more than a type and a container can give it - a
+    /// <see cref="RecipeFileStore"/> with a <see cref="RecipeFileStore.MaximumLength"/> of its own,
+    /// or one an application has already loaded recipes into.
+    /// </remarks>
+    public static ISecsGemBuilder AddRecipeEquipment(this ISecsGemBuilder builder, IRecipeStore store)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(store);
+
+        builder.Services.TryAddSingleton(store);
+
+        return builder.DeclareRecipeEquipment();
+    }
 
     /// <summary>Adds the equipment side, backed by a store of your own.</summary>
     /// <typeparam name="TStore">The store.</typeparam>
@@ -68,16 +127,7 @@ public static class RecipeServiceCollectionExtensions
 
         builder.Services.TryAddSingleton<IRecipeStore, TStore>();
 
-        // Built by hand for the same reason the GEM layer is: the logger is optional, and an
-        // application that never called AddLogging should still get a working end.
-        builder.Services.TryAddSingleton(provider => new RecipeEquipment(
-            provider.GetRequiredService<IRecipeStore>(),
-            provider.GetService<ILogger<RecipeEquipment>>()));
-
-        builder.DeclareOnce(RecipeEquipment.HandledMessages, static provider =>
-            (transaction, token) => provider.GetRequiredService<RecipeEquipment>().HandleAsync(transaction, token));
-
-        return builder;
+        return builder.DeclareRecipeEquipment();
     }
 
     /// <summary>Adds the host side: the end that drives every transaction.</summary>
@@ -107,6 +157,27 @@ public static class RecipeServiceCollectionExtensions
         builder.Services.TryAddSingleton(provider => new RecipeHost(
             provider.GetRequiredService<HsmsConnection>(),
             provider.GetService<ILogger<RecipeHost>>()));
+
+        return builder;
+    }
+
+    /// <summary>The half of the equipment registration that does not depend on which store it is.</summary>
+    /// <remarks>
+    /// Three ways in and one declaration, which is <c>DeclareSpooling</c>'s arrangement in the GEM
+    /// package: the routes and the end itself are the same whichever store answered, and a second
+    /// copy of <see cref="RecipeEquipment.HandledMessages"/> in a second overload is a list that
+    /// can fall behind the first.
+    /// </remarks>
+    private static ISecsGemBuilder DeclareRecipeEquipment(this ISecsGemBuilder builder)
+    {
+        // Built by hand for the same reason the GEM layer is: the logger is optional, and an
+        // application that never called AddLogging should still get a working end.
+        builder.Services.TryAddSingleton(provider => new RecipeEquipment(
+            provider.GetRequiredService<IRecipeStore>(),
+            provider.GetService<ILogger<RecipeEquipment>>()));
+
+        builder.DeclareOnce(RecipeEquipment.HandledMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<RecipeEquipment>().HandleAsync(transaction, token));
 
         return builder;
     }

@@ -188,6 +188,26 @@ the whole contract. Do not add `Capture`/`Restore` to a spool - it would be a th
 two, duplicating the drain and refill `IGemSpool` already has. The Gem README's *"A spool that
 outlives the process"* heading introduces this, and is not an open gap.
 
+**`RecipeFileStore` is the second of those, so it is a pattern now and not an exception**: a store
+is durable through an implementation, and gets no snapshot pair either. What it added is a rule the
+spool had no need of - **identity belongs inside the record, not in the file name.** A spooled
+message is the machine's own; a recipe is named by the host, and `RCPID` is an `A[n]` that nothing
+constrains. So a file name is a sequence number and nothing else, which buys two things at once: no
+name a host chose is ever part of a path, so `CON`, `../escape` and two identifiers differing only
+in case are three ordinary recipes rather than three defects; and because the name says nothing
+about which recipe the file holds, a rename is **one atomic rewrite** where moving a file would be
+two operations with a window between them, and a recipe can never have two records for a later start
+to choose between. Reach for this whenever a durable store keys on something the far end chose.
+
+**And the three rules above apply to a store and not only to a state machine.** The one that bites
+is the second: a download grant is a transaction in flight, so nothing is written for it and
+`GrantedCount` is zero on every open - an S15F5 answered and an S15F7 that never came ends the way
+an interruption ends, and the host asks again. Everything else there is what a host told the machine
+and comes back: the recipes, the namespaces, the locks and the selection. The judgement stays in the
+reading rather than the writing, too - a lock or a selection naming a recipe that is no longer on
+the disk is dropped on adoption, where filtering at the write would have hidden the rule in the
+file.
+
 ## Non-negotiables
 
 - **.NET 8, 9, 10 only.** Never add `netstandard` or a `net6`/`net7` shim. TFMs come from

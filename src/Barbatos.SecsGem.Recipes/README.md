@@ -363,8 +363,16 @@ await host.DeleteNamespaceAsync("PROD", token);          // S15F17 - the dangero
 services
     .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
     .UseTcpTransport(listenPort: 5000)
-    .AddRecipeEquipment();          // or AddRecipeEquipment<MyStore>()
+    .AddRecipeEquipment();          // in memory; see the three ways in below
 ```
+
+Three ways in, one declaration behind them:
+
+| call | the store |
+| --- | --- |
+| `AddRecipeEquipment()` | `RecipeInMemoryStore` - a simulator, a test, a controller that passes recipes straight on |
+| `AddRecipeFileEquipment(directory)` | `RecipeFileStore` - a recipe survives the restart |
+| `AddRecipeEquipment<MyStore>()` / `AddRecipeEquipment(store)` | yours, by type or already built |
 
 `IRecipeStore` is fourteen methods, one per pair: `ListNamespacesAsync`, `CreateNamespaceAsync`,
 `DeleteNamespaceAsync`, `RequestDownloadAsync`, `SaveAsync`, `LoadAsync`, `DeleteAsync`,
@@ -417,7 +425,83 @@ one rule of its own that a delete does not: **the selection follows the recipe**
 clears it, because the machine is still set up to run the same bytes.
 
 There is no snapshot pair, for the reason the other transfer packages give: a recipe is not state a
-machine claims about itself, so it survives a restart through an implementation.
+machine claims about itself, so it survives a restart through an implementation. That
+implementation is the next section.
+
+## A store that outlives the process
+
+```csharp
+services
+    .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+    .UseTcpTransport(listenPort: 5000)
+    .AddRecipeFileEquipment(Path.Combine(AppContext.BaseDirectory, "recipes"));
+```
+
+`RecipeFileStore` keeps each recipe in a file and adopts whatever is in the directory when it is
+constructed. The shape is `GemFileSpool`'s, and so are its reasons: **one file per recipe rather
+than one log**, because a log needs a durable cursor, compaction and a checksum to find the record a
+power cut caught halfway, where a file per recipe replaces all three with a rename - the record is
+written under a temporary name, and `File.Move` within one directory is atomic. Writes go through
+`FileOptions.WriteThrough`, which is a disk round trip per recipe and is the point: a buffered write
+the operating system has not flushed is exactly what a power cut takes.
+
+**A file name carries nothing but a sequence number**, and the namespace and identifier live inside
+the record. Both halves of that matter:
+
+- Identity inside the record is what lets a store adopt a directory it has never seen - and it
+  means **no name a host chose is ever part of a path**. `RCPID` is an `A[n]` and nothing in E5
+  stops a host sending `CON`, `../escape` or two identifiers differing only in case; none of those
+  can escape a directory, collide with a Windows device name or become one recipe here.
+- And because the file name says nothing about which recipe it holds, a **rename** and an
+  overwriting **save** are each a single atomic rewrite of one file. A recipe never has two
+  records, so no interruption can leave a duplicate for the next start to choose between.
+
+The index is in memory and the files are the durable copy, so listing, locking and refusing cost no
+directory scan. Unlike the spool the bodies are **not** held: a machine with a hundred recipes of a
+megabyte should not carry a hundred megabytes to answer S15F9.
+
+### What a restart keeps, and what it ends
+
+| | survives | why |
+| --- | --- | --- |
+| namespaces | yes | what a host asked for - and an empty one is in the small file, since it has no record to be read off |
+| recipes | yes | what a host sent |
+| locks | yes | what a host took, as the **encoded item** it minted, so the token that took it still releases it |
+| the selection | yes | what a host chose |
+| download grants | **no** | a transaction in flight: the S15F5 was answered, the S15F7 never came |
+
+That is the rule every state machine in this repository keeps - **what a host told the machine comes
+back, what was in progress ends the way an interruption ends** - and the grant is the one line of it
+this package has to make a choice about. `GrantedCount` is zero on every open, so a host that was
+cut off mid-download asks again.
+
+There is still **no `Capture` and no `Restore`**, and that is deliberate rather than missing: this
+is durable through an implementation, like the GEM spool, and a snapshot pair here would be a third
+mechanism over two.
+
+A lock therefore **outlives the host that took it**, and that consequence is E5's and not this
+class's: stream 15 has no message that asks which recipes are locked and none that forces one open.
+`ForgetLocksAsync()` is the door the standard does not give, for the operator who has to get the
+machine working again - deliberately not reachable from the wire, and logged as something nobody
+asked for.
+
+### A directory somebody else has been in
+
+Four things can be found in a directory that this store did not put there, and each has an answer
+rather than a crash:
+
+- An **unfinished write** (`*.writing`) is deleted. The rename never happened, so nothing was ever
+  told the recipe arrived.
+- A file whose name is **not a sequence number** is left alone: this store did not write it.
+- A record this version **cannot read** is left alone too, not deleted - a downgrade should not
+  throw away a fab's recipes - and counted in the opening log line.
+- A **truncated** record is refused rather than handed over short, because the body's length is in
+  the header as well as implied by the file's. That is the check S15F7's own `LENGTH` makes on the
+  wire, made again against the disk.
+
+And two records holding one recipe - which this layout cannot produce, so somebody copied files in -
+keeps the higher sequence and deletes the other, because leaving both would make the answer depend
+on the order the file system happened to enumerate them in.
 
 ## What can be refused, and what cannot
 
@@ -481,7 +565,9 @@ what a recipe checksum is - so there is nothing to carry and nothing to compare.
 
 ## What is not here yet
 
-- A store that outlives the process. Fourteen methods, and a file behind them is an afternoon.
+- A recipe's **version**, which nothing in stream 15 sets. `CurrentAsync` carries one when a store
+  has it, and neither store here does, because a download is a namespace, an identifier and a body.
+  An application that versions its recipes implements that one method over whatever already knows.
 
 ## Documentation
 

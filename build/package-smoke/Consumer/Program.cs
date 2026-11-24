@@ -1114,6 +1114,101 @@ internal static class Program
             await store.DeleteNamespaceAsync("PROD", CancellationToken.None).ConfigureAwait(false)
                 == RecipeAcknowledgement.Rejected,
             "the store deleted a namespace that still held a recipe");
+
+        await DurableRecipesResolveAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The store that outlives the process, which is the second way into the same registration.
+    /// </summary>
+    /// <remarks>
+    /// Two claims, and the first is a packaging one in the strict sense: <c>AddRecipeFileEquipment</c>
+    /// is an extension method on a builder from another package, so a consumer restoring the real
+    /// <c>.nupkg</c> is the only thing that proves it is reachable at all. The second is the whole
+    /// point of the type - a <em>second</em> store over the same directory answers for a recipe the
+    /// first one took - and it needs two instances, which no in-memory store can be asked for.
+    /// </remarks>
+    private static async Task DurableRecipesResolveAsync()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "barbatos-smoke-recipes-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var services = new ServiceCollection();
+
+            services
+                .AddSecsGem()
+                .UseInMemoryTransport()
+                .AddRecipeFileEquipment(directory);
+
+            await using var provider = services.BuildServiceProvider();
+
+            _ = provider.GetRequiredService<RecipeEquipment>();
+
+            var store = provider.GetRequiredService<IRecipeStore>();
+
+            Assert(store is RecipeFileStore, $"the file store registration produced {store.GetType().Name}");
+
+            var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+            foreach (var (stream, function) in RecipeEquipment.HandledMessages)
+            {
+                Assert(
+                    router.TryGetHandler(stream, function, out _),
+                    $"the router has no handler for S{stream}F{function}, so AddRecipeFileEquipment did not declare it");
+            }
+
+            byte[] recipe = [0x53, 0x54, 0x45, 0x50, 0x20, 0x31];
+
+            Assert(
+                await store.CreateNamespaceAsync("PROD", CancellationToken.None).ConfigureAwait(false)
+                    == RecipeAcknowledgement.Accepted,
+                "the file store refused to create a namespace");
+
+            Assert(
+                await store
+                    .RequestDownloadAsync(
+                        new RecipeDownloadRequest { Namespace = "PROD", Id = "ETCH-7", Length = (uint)recipe.Length },
+                        CancellationToken.None)
+                    .ConfigureAwait(false) == RecipeAcknowledgement.Accepted,
+                "the file store refused a download request");
+
+            Assert(
+                await store.SaveAsync("PROD", "ETCH-7", recipe, CancellationToken.None).ConfigureAwait(false)
+                    == RecipeAcknowledgement.Accepted,
+                "the file store refused a recipe it had just granted room for");
+
+            // The restart, as far as a single process can have one: nothing is shared with the
+            // store above but the directory.
+            var reopened = new RecipeFileStore(directory);
+
+            Assert(reopened.Count == 1, $"a store over the same directory found {reopened.Count} recipe(s), not one");
+            Assert(reopened.HasNamespace("PROD"), "a store over the same directory lost the namespace");
+            Assert(reopened.GrantedCount == 0, "a store over the same directory restored a download grant");
+
+            var (upload, body) = await reopened
+                .LoadAsync("PROD", "ETCH-7", CancellationToken.None)
+                .ConfigureAwait(false);
+
+            Assert(upload == RecipeAcknowledgement.Accepted, "a store over the same directory would not hand the recipe back");
+            Assert(
+                body.Span.SequenceEqual(recipe),
+                "the recipe came back from the disk as something other than the bytes that went in");
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(directory))
+                {
+                    Directory.Delete(directory, recursive: true);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A smoke test that cannot tidy up after itself should not fail for it.
+            }
+        }
     }
 
     /// <summary>

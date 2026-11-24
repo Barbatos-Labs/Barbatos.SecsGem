@@ -120,6 +120,38 @@ store, because on the wire every refusal looks like every other.
 
 No `Capture`/`Restore` pair, on purpose: a recipe is not state a machine claims about itself.
 
+### `RecipeFileStore`
+
+`sealed class RecipeFileStore : IRecipeStore`
+
+One file per recipe, written through and renamed into place, adopting whatever is in the directory
+when it is constructed - `GemFileSpool`'s shape, for `GemFileSpool`'s reasons. **One store per
+directory**: two over the same one would fight over the sequence numbers.
+
+| Member | Notes |
+| --- | --- |
+| `RecipeFileStore(string directory, ILogger<RecipeFileStore>? logger = null)` | Creates and scans the directory **here** rather than on first use, so a wrong path fails at start-up. An unfinished write is swept; a file that is not this store's, and a record this version cannot read, are left alone and counted in the opening log line. |
+| `string Directory { get; }` | Where the records live, as a full path. |
+| `uint MaximumLength { get; set; }` | As the in-memory store's, and **not durable**: it is this machine's configuration, not anything a host said. |
+| `int Count { get; }` | How many recipes are held, across every namespace. |
+| `int GrantedCount { get; }` | How many downloads have been granted and not yet sent. **Zero on every open** - a grant is a transaction in flight, so a restart ends it. |
+| `int LockedCount { get; }` | How many recipes are locked. Restored, because a lock is what a host took. |
+| `(string Namespace, string Id)? SelectedId { get; }` | What is selected, where `RecipeInMemoryStore.Selected` is a whole `Recipe` - the body is in a file, and a property that read a megabyte off a disk would be a trap. |
+| `bool HasNamespace(string recipeNamespace)` | Whether it is there. |
+| `bool IsLocked(string recipeNamespace, string recipeId)` | Whether it is. |
+| `ValueTask<int> ForgetLocksAsync(CancellationToken cancellationToken = default)` | Forgets every lock and says how many. **The door E5 does not give** - no row of stream 15 asks which recipes are locked or forces one open, so a host that crashed holding a token would otherwise leave a recipe locked for as long as the store lasts. Not reachable from the wire, and logged as something nobody asked for. |
+| `const string RecordExtension` | `.recipe` - what a finished record carries. |
+| `const string PartialExtension` | `.writing` - appended to any file while it is being written. |
+| `const string NamespacesFile`, `LocksFile`, `SelectedFile` | The three small files, each rewritten whole and renamed into place. |
+
+A file name is **a sequence number and nothing else**; the namespace and the identifier are inside
+the record. So no name a host chose is ever part of a path, and a rename is one atomic rewrite of
+one file rather than two operations with a window between them - a recipe never has two records.
+
+No `Capture`/`Restore` pair here either, and for a second reason on top of the first: this is
+durable through an implementation, so a snapshot would be a third mechanism over two. The README's
+table says what a restart keeps and what it ends.
+
 ## The recipe
 
 ### `Recipe`
@@ -228,8 +260,14 @@ Namespace `Microsoft.Extensions.DependencyInjection`.
 | Member | Notes |
 | --- | --- |
 | `ISecsGemBuilder AddRecipeEquipment(this ISecsGemBuilder builder)` | Backed by `RecipeInMemoryStore`. |
+| `ISecsGemBuilder AddRecipeFileEquipment(this ISecsGemBuilder builder, string directory)` | Backed by `RecipeFileStore`, which outlives the process. The directory is a parameter and not an option because this package has no options type - stream 15 has no timer and no limit of its own. |
 | `ISecsGemBuilder AddRecipeEquipment<TStore>(this ISecsGemBuilder builder) where TStore : class, IRecipeStore` | Backed by a store of your own. The store goes in with `TryAdd`, so one already in the container wins. |
+| `ISecsGemBuilder AddRecipeEquipment(this ISecsGemBuilder builder, IRecipeStore store)` | Backed by a store you have already built - a `RecipeFileStore` with a `MaximumLength` of its own, say. |
 | `ISecsGemBuilder AddRecipeHost(this ISecsGemBuilder builder)` | Registers `RecipeHost` and **nothing else** - no route, because every primary is the host's. |
+
+Four ways in and **one declaration** behind them, which is `DeclareSpooling`'s arrangement in the
+GEM package: the routes and the end are the same whichever store answered, and a second copy of
+`RecipeEquipment.HandledMessages` in a second overload is a list that can fall behind the first.
 
 No deferred factory on the equipment side, because that end takes no `HsmsConnection`: there is no
 cycle between the end, the connection and the router to break. The three one-way streams - 8, 13

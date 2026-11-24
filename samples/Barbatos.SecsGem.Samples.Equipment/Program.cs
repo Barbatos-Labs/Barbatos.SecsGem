@@ -300,7 +300,15 @@ internal static class Program
             // And stream 15, which goes the way streams 8 and 13 do: nine primaries arrive here and
             // this end sends none. A recipe is bytes with a namespace, because PPBODY is stream 7's
             // own defined B - the firmest payload footing in this stack.
-            .AddRecipeEquipment()
+            //
+            // To a directory, like the spool above and for a sharper reason: a recipe is the one
+            // thing in this stack a host would least like to send twice, and AddRecipeEquipment()
+            // would hold them in memory and lose the lot on a restart. Worth trying the same
+            // experiment the spool gets - start this, let the host sample send its recipe, stop it,
+            // look in recipes/ beside the binary, and start it again. The log says how many it
+            // adopted, the seeding below finds the recipe already there and does nothing, and a
+            // host that asks gets the bytes it sent to the process before this one.
+            .AddRecipeFileEquipment(Path.Combine(AppContext.BaseDirectory, "recipes"))
 
             // And material status, the other stream a machine answers that GEM does not cover:
             // five questions about what it is holding, and four reports of its own. The runner
@@ -420,17 +428,35 @@ internal sealed class ChamberRunner(
             firmware.Add("BOOT-A", new byte[] { 0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01 }, "1.4.2");
         }
 
-        // Two recipes in two namespaces for stream 15. Stream 15 has no message announcing one
+        // One recipe in two namespaces for stream 15. Stream 15 has no message announcing one
         // either, so a host finds the namespaces with S15F1 and then has to be told the recipe
         // names some other way - S15F3, the directory of one namespace, is among the pairs that
         // package leaves out, because its reply needs three names the dictionary does not define.
         // That is the gap a user of this stream will feel first, and the sample shows it honestly
         // rather than pretending otherwise.
-        if (recipes is RecipeInMemoryStore recipeStore)
+        //
+        // Through the transactions rather than through a back door, because the store behind this
+        // one is a RecipeFileStore and a durable store has no Add: a recipe gets in by being
+        // granted and sent, which is what a host does. Each step asks first, so a second start
+        // over a directory that already has these leaves them exactly as the last host left them -
+        // and a seed that overwrote a recipe somebody downloaded would make the durability above
+        // worthless.
+        if ((await recipes.LoadAsync("PROD", "ETCH-7", stoppingToken)).Acknowledgement
+            != RecipeAcknowledgement.Accepted)
         {
-            recipeStore.Add("PROD", "ETCH-7", Encoding.ASCII.GetBytes("STEP 1: pump down\nSTEP 2: etch 40s\n"));
-            recipeStore.AddNamespace("DEV");
+            var seed = Encoding.ASCII.GetBytes("STEP 1: pump down\nSTEP 2: etch 40s\n");
+
+            await recipes.CreateNamespaceAsync("PROD", stoppingToken);
+            await recipes.RequestDownloadAsync(
+                new RecipeDownloadRequest { Namespace = "PROD", Id = "ETCH-7", Length = (uint)seed.Length },
+                stoppingToken);
+
+            await recipes.SaveAsync("PROD", "ETCH-7", seed, stoppingToken);
         }
+
+        // And the empty one, which the host sample deletes and this puts back - a namespace with
+        // no recipes in it is the one piece of this seeding a restart cannot infer from a record.
+        await recipes.CreateNamespaceAsync("DEV", stoppingToken);
 
         // Two items for stream 21, which likewise has no message that announces one: a host finds
         // them with S21F1 and reads their attributes with S21F3. They are seeded with attributes
