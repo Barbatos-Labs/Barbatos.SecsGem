@@ -329,10 +329,32 @@ and of six other streams. The reason is that `RCPNS` - the recipe namespace - is
 rival spelling anywhere, and addresses every transaction in the stream: nine of its ten primaries
 carry it, and the tenth is the request that asks for the *list* of namespaces, whose reply is a
 list of them. Stream 19 is not a worse-documented stream 15; it is a stream whose addressing is
-missing. Stream 20 was refused on the same figure, and its real reason is that its only two
-gap-free rows are rows this repository already serves under other numbers. So when re-reading a
-refusal, ask which name stops it and whether anything here already does the job - and if the answer
-is a count, keep reading.
+missing. Stream 20 was refused on the same figure, and its real reason is that the rows of it this
+repository could read are rows it already serves under other numbers. So when re-reading a refusal,
+ask which name stops it and whether anything here already does the job - and if the answer is a
+count, keep reading.
+
+**Stream 20 has been re-read twice and the second time moved two of its own reasons.** Its readable
+rows are **three** and not two: S20F17 and S20F33 are item for item the delete and the namespace
+create this repository serves, and **S20F15 is readable without being gap-free** - `NEWRCPSPEC` and
+`NEWRCPID` are each a defined name with a word in front, sitting in the same body two positions
+earlier, which is `RCPIDNEW`'s position exactly. The rival measure sees neither, because its
+relations are anagram and prefix and these extend at the **front**: the `RSPACK` blindness again.
+And the sentence that said *a rival makes a refusal firmer* is gone, because two chapters overturned
+it for the identical cases - `RCPIDNEW` is served and `RCPVER` is carried untouched at S15F36. Of
+stream 20's three rival-spelled gaps only `RCPSTATE` still stands, and for the other reason: its
+twin `RCPSTAT` is a `U1[1]` with **no code table**, so the two readings differ and one is a number
+with no meanings.
+
+**What keeps stream 20 out is therefore one argument and not a mix.** S20F15 is the only one of the
+three that is not a duplicate - a rename *and* a move, where stream 15's rename cannot leave its
+namespace and its copy leaves the original behind - so a host does it as a copy and a delete. What
+the single transaction adds is **atomicity**, and `RMACK` has one refusal code: a host told Rejected
+cannot learn whether the source survived. **The advantage is unobservable on the wire**, which is
+`ACKC7`'s missing mismatch code in another stream. So the verdict rests on the routing table alone -
+three of seventeen primaries - and the gap count decides nothing either way: eighteen of stream 20's
+thirty-four rows carry an undefined name against twenty-two of stream 15's fifty-four, so the stream
+this repository serves has *more* gapped rows than the one it refuses.
 
 **When every row of a stream carries the same items, the item measures go quiet and the row's name
 is the evidence.** Stream 7 is where that happens: nine of its rows carry `PPID, PPBODY` and six are

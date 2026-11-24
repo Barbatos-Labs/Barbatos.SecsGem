@@ -103,15 +103,42 @@ public class SecsCatalogRecipeRegionTests
     }
 
     [Fact]
-    public void Stream_20_has_exactly_two_rows_whose_items_are_all_defined()
+    public void Stream_20_has_two_gap_free_pairs_and_a_third_this_repository_can_read()
     {
-        // Which is where the re-read earned its keep: the recorded refusal said stream 20 was
-        // rootless, and two of its rows are as serveable as anything in stream 15.
+        // Which is where the first re-read earned its keep: the recorded refusal said stream 20
+        // was rootless, and two of its rows are as serveable as anything in stream 15.
         Assert.Equal<byte[]>([17, 33], Servable(20));
+
+        // And a third is readable without being gap-free, which the chapter that served stream
+        // 15's rename established and this file had not caught up with. S20F15 carries two names
+        // the dictionary does not define - and each of them is a name that IS defined with a word
+        // in front, sitting in the same body two positions earlier.
+        var move = Assert.Single(Stream(20).Messages, message => message.Function == 15);
+
+        Assert.Equal<string[]>(["RCPSPEC", "RCPID", "NEWRCPSPEC", "NEWRCPID"], [.. move.DataItems]);
+
+        foreach (var (modifier, basis) in new[] { ("NEWRCPSPEC", "RCPSPEC"), ("NEWRCPID", "RCPID") })
+        {
+            Assert.False(IsDefined(modifier), modifier);
+            Assert.True(SecsCatalog.TryGetDataItem(basis, out var item), basis);
+            Assert.Equal("A", item!.FormatToken);
+            Assert.Contains(basis, move.DataItems);
+            Assert.EndsWith(basis, modifier, StringComparison.Ordinal);
+        }
+
+        // The measure cannot see either pair, because its two relations are anagram and prefix and
+        // these extend at the FRONT - the blindness RSPACK against SPACK recorded. That is why the
+        // reading has to come from the row rather than from the measure.
+        Assert.DoesNotContain(
+            SecsCatalog.Provenance.RivalSpellings,
+            rival => rival.UsedName is "NEWRCPSPEC");
+
+        // And the reply is one RMACK, so there is nothing else in the pair to read.
+        Assert.Equal<string[]>(["RMACK"], [.. Stream(20).Messages.Single(m => m.Function == 16).DataItems]);
     }
 
     [Fact]
-    public void And_both_of_them_are_rows_this_repository_already_serves_under_other_numbers()
+    public void And_all_three_are_things_stream_15_already_does()
     {
         var fifteen = Stream(15);
         var twenty = Stream(20);
@@ -133,23 +160,52 @@ public class SecsCatalogRecipeRegionTests
             Assert.Equal<string[]>(["RMACK"], [.. theirReply.DataItems]);
         }
 
-        // So serving them would be the stream 18 situation again - one capability, two stream
-        // numbers, serve one or the other - and stream 15's is the firmer because it is whole:
-        // Barbatos.SecsGem.Recipes serves thirteen of its pairs, where these two would be two of
-        // seventeen. Declaring two rows of stream 20 would turn an honest S9F3 for the stream into
-        // an S9F5 for fifteen functions, which invites a host to keep asking.
+        // The third is not a duplicate, and saying so is what makes the refusal honest. S20F15 is
+        // a rename AND a move: it carries two namespaces where stream 15's rename carries one, so
+        // a recipe can change its name and its namespace in one transaction. Stream 15 cannot do
+        // that in one - its rename stays inside a namespace and its copy leaves the original
+        // where it was.
+        var ourRename = Assert.Single(fifteen.Messages, m => m.Function == 19);
+        var ourCopy = Assert.Single(fifteen.Messages, m => m.Function == 21);
+
+        Assert.Equal<string[]>(["RCPSPEC", "RCPID", "RCPIDNEW"], [.. ourRename.DataItems]);
+        Assert.Equal<string[]>(["RCPSPEC", "RCPID", "RCPSPECDST", "RCPIDDST"], [.. ourCopy.DataItems]);
+
+        // What it would add over the copy and the delete a host already has is ATOMICITY - and
+        // that is the one thing its reply cannot report. RMACK has a single refusal code, so a
+        // host told Rejected cannot learn whether the source is still there. The advantage is
+        // unobservable on the wire, which is the same shape of argument ACKC7's missing mismatch
+        // code makes about a verify.
+        Assert.Equal<string[]>(["RMACK"], [.. twenty.Messages.Single(m => m.Function == 16).DataItems]);
+        Assert.True(SecsCatalog.TryGetDataItem("RMACK", out var rmack));
+        Assert.Equal(3, rmack!.Codes.Count);
+
+        // So it is still one capability under two stream numbers - serve one or the other, as
+        // Barbatos.SecsGem.Subsystems says of stream 18 - and stream 15's is the firmer because it
+        // is whole: fourteen pairs there against three of seventeen here. Declaring three rows of
+        // stream 20 would turn an honest S9F3 for the stream into an S9F5 for fourteen functions,
+        // which invites a host to keep asking.
         Assert.Equal(17, twenty.Messages.Count(message => message.Function % 2 == 1));
     }
 
     [Fact]
-    public void Fifteen_of_stream_20s_rows_carry_an_undefined_name_and_three_of_those_have_rivals()
+    public void Eighteen_of_stream_20s_rows_carry_an_undefined_name_and_a_rival_is_no_longer_a_reason()
     {
         var twenty = Stream(20);
         var gaps = twenty.Anchoring.OwnGaps.Concat(twenty.Anchoring.SharedGaps).ToArray();
 
-        // The rival-spelled ones: the reference *did* write these fields down, under another
-        // spelling, so reading a format off the definition would be correcting the reference
-        // rather than reading it. That is a firmer refusal than a name nobody wrote down.
+        // The figure, measured rather than remembered - this test's name used to say fifteen.
+        Assert.Equal(
+            18,
+            twenty.Messages.Count(message => message.DataItems.Any(name => !IsDefined(name))));
+
+        // The three rival-spelled gaps, and the sentence that used to be here said a rival makes a
+        // refusal FIRMER: reading a format off the definition would be correcting the reference.
+        // Two chapters have overturned that for the identical cases in stream 15. RCPIDNEW is
+        // served, because its anagram and its base in the same body are both an A[n]; RCPVER is
+        // carried untouched at S15F36. So of these three only RCPSTATE still stands, and it stands
+        // for a different reason: RCPSTAT is a U1[1] with NO CODE TABLE, so the two readings
+        // DIFFER and one of them is a number with no meanings.
         foreach (var (used, defined) in new[] { ("RCPVER", "RCPVERS"), ("NEWRCPID", "RCPNEWID"), ("RCPSTATE", "RCPSTAT") })
         {
             Assert.Contains(used, gaps);
@@ -164,6 +220,14 @@ public class SecsCatalogRecipeRegionTests
             Assert.True(SecsCatalog.TryGetDataItem(defined, out var item));
             Assert.True(item!.IsNamedByNoMessage, defined);
         }
+
+        Assert.Equal("A", SecsCatalog.DataItems.Single(item => item.Name == "RCPVERS").FormatToken);
+        Assert.Equal("A", SecsCatalog.DataItems.Single(item => item.Name == "RCPNEWID").FormatToken);
+
+        var state = SecsCatalog.DataItems.Single(item => item.Name == "RCPSTAT");
+
+        Assert.Equal("U1", state.FormatToken);
+        Assert.Empty(state.Codes);
 
         // The rest were never written down in any spelling.
         foreach (var name in new[] { "RCPATTRNAME", "RCPATTRVAL", "RCPLOCK", "CHECKSUM", "VFACK", "OWNERID", "LOCKID", "NOTIFYENABLE", "CHANGETYPE", "NEWRCPSPEC" })
@@ -203,6 +267,11 @@ public class SecsCatalogRecipeRegionTests
         // three spellings, and the reference defines exactly the one no message names - so both
         // rows that want to rename a recipe carry a field it will not describe, and the
         // description it does give belongs to a name nothing sends.
+        //
+        // Which turned out not to stop either of them. S15F19 is served: both readings of
+        // RCPIDNEW are an A[n], so the rivalry puts no byte in doubt. S20F15 is readable for the
+        // same reason and stays out for what declaring its stream would claim - the reasons are
+        // in the two tests above.
         Assert.False(IsDefined("RCPIDNEW"));
         Assert.False(IsDefined("NEWRCPID"));
 

@@ -74,26 +74,44 @@ RMACK     B[1]  defined, WITH A TABLE: 0 accepted, 1 rejected, 2-63 reserved
 Every figure on this page is asserted in `SecsCatalogStream15Tests`, so a refresh of the catalogue
 data has to walk past them rather than quietly make the page wrong.
 
-### What stream 20's two pairs turned out to be
+### What stream 20's readable pairs turned out to be
 
 The table above has said "stream 20: 2" since this page was written, and nobody had asked **which
-two**. A later chapter did, and the answer is the reason stream 20 is still refused:
+two**. A later chapter did; a later one again found a **third** that is readable without being
+gap-free, and all three together are the reason stream 20 is still refused:
 
 | stream 20 | items | the stream 15 row it is | already served |
 | --- | --- | --- | --- |
 | S20F17/F18 Recipe Delete | `RCPSPEC, RCPID` → `RMACK` | S15F13/F14 Recipe Delete | yes |
 | S20F33/F34 Directory Create | `RCPSPEC` → `RMACK` | S15F15/F16 Namespace Create | yes |
+| S20F15/F16 Rename/Move | `RCPSPEC, RCPID, NEWRCPSPEC, NEWRCPID` → `RMACK` | S15F19's rename **and** S15F21's copy | as two transactions |
 
-**Item for item, in order, with the same names.** They are not two rows this package is missing;
-they are two rows it already has, under different numbers. Which puts stream 20 in exactly the
-position `Barbatos.SecsGem.Subsystems` describes for stream 18 - one capability, two stream
-numbers, **serve one or the other** - and stream 15's is the firmer because it is whole:
-fourteen pairs here against two of seventeen there.
+The first two are **item for item, in order, with the same names**: not two rows this package is
+missing but two it already has, under different numbers.
 
-And there is a second reason, which is about what a routing table says. Declaring two rows of
-stream 20 would make the connection answer **S9F5** for the other fifteen functions - "I do stream
-20, but not that function" - where leaving the stream alone answers **S9F3**, "I do not do stream
-20". The first invites a host to keep asking; the second is true.
+**The third is readable because of the chapter that served stream 15's rename**, and this page said
+otherwise for several chapters. `NEWRCPSPEC` and `NEWRCPID` are undefined - and each is a name the
+dictionary *does* define with a word in front, sitting in the same body two positions earlier, which
+is `RCPIDNEW`'s position exactly. The rival measure cannot see either pair, because its relations
+are anagram and prefix and these extend at the **front**; that is the blindness `RSPACK` against
+`SPACK` recorded, and it means the reading comes from the row rather than from the measure.
+
+**And it is not a duplicate**, which is worth saying because the other two are: S20F15 carries two
+namespaces where S15F19 carries one, so a recipe can change its name *and* its namespace in one
+transaction. Stream 15 cannot do that in one - the rename stays inside a namespace and the copy
+leaves the original where it was - so a host does it as a copy and a delete.
+
+What the single transaction would add over those two is **atomicity**, and that is the one thing its
+reply cannot report: `RMACK` has a single refusal code, so a host told `Rejected` cannot learn
+whether the source is still there. The advantage is unobservable on the wire - the same shape of
+argument `ACKC7`'s missing mismatch code makes about a verify.
+
+So stream 20 is still one capability under a second stream number - the position
+`Barbatos.SecsGem.Subsystems` describes for stream 18, **serve one or the other** - and stream 15's
+is the firmer because it is whole: fourteen pairs here against three of seventeen there. Declaring
+three rows of stream 20 would make the connection answer **S9F5** for the other fourteen functions -
+"I do stream 20, but not that function" - where leaving the stream alone answers **S9F3**, "I do not
+do stream 20". The first invites a host to keep asking; the second is true.
 `RecipeHostingTests.Nothing_in_this_package_claims_stream_19_or_stream_20` is that decision as a
 routing fact, and `SecsCatalogRecipeRegionTests` holds the measurement.
 

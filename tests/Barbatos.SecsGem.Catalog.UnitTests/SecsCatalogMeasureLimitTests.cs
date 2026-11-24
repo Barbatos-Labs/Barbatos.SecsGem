@@ -155,7 +155,9 @@ public class SecsCatalogMeasureLimitTests
         // record, and S7F35 by asking which item its own row names where its siblings' do not.
         //   S17F9, S17F13        a routing table is a claim about the stream, and four of this
         //                        stream's seven primaries are somebody's extrapolation
-        //   S20F17, S20F33       rows this repository already serves under stream 15's numbers
+        //   S20F17, S20F33       rows this repository already serves under stream 15's numbers -
+        //                        and S20F15 beside them, which is not gap-free and is readable
+        //                        anyway, and which stays out for what declaring its stream claims
         //
         // Stream 7 is the extreme case and the reason the rule exists: ALL TWENTY-TWO of its
         // pairs are gap-free, so "every item in this row is defined" was true of all six of its
