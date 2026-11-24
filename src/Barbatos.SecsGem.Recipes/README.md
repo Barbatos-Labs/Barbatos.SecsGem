@@ -445,6 +445,12 @@ written under a temporary name, and `File.Move` within one directory is atomic. 
 `FileOptions.WriteThrough`, which is a disk round trip per recipe and is the point: a buffered write
 the operating system has not flushed is exactly what a power cut takes.
 
+The mechanism itself lives in `src/Shared/DurableRecordDirectory.cs` and is **compiled into all four
+transfer packages** - streams 8, 13, 15 and 21 - because what they share is a mechanism and not a
+rule, and no one of the four may depend on another. Each store keeps its own framing and its own
+rules; a recipe's record is two fields and a payload. The GEM spool deliberately keeps its own copy,
+being a queue with a head and a capacity that never parses a record to know what it holds.
+
 **A file name carries nothing but a sequence number**, and the namespace and identifier live inside
 the record. Both halves of that matter:
 

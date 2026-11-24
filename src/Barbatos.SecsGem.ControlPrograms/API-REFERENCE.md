@@ -90,6 +90,30 @@ It enforces inquire-before-send, **checks the declared length against the bytes 
 thing stream 13 cannot do - keeps what is stored when a transfer is aborted, and leaves the boot
 program out of the directory because it has no name a host could ask with.
 
+### `ControlProgramFileStore`
+
+`sealed class ControlProgramFileStore : IControlProgramStore`
+
+One file per program, written through and renamed into place, adopting whatever is in the directory
+when it is constructed. The mechanism is `DurableRecordDirectory`, shared as source with the recipe,
+data set and item stores. **One store per directory.**
+
+| Member | Notes |
+| --- | --- |
+| `ControlProgramFileStore(string directory, ILogger<ControlProgramFileStore>? logger = null)` | Creates and scans the directory **here** rather than on first use, so a wrong path fails at start-up. `Capacity` is not enforced on what is adopted. |
+| `string Directory { get; }` | Where the records live, as a full path. |
+| `int Capacity { get; set; }`, `int MaxLength { get; set; }` | As the in-memory store's, and **not durable**: this machine's configuration, not anything a host said. |
+| `int Count { get; }` | How many programs are held, the boot program included. |
+| `uint? GrantedLength { get; }` | What the last inquire declared. **Null on every open** - a grant is a transaction in flight. |
+| `bool Has(string controlProgramId)` | Whether a program is held, where `ControlProgramInMemoryStore.Find` hands back the program: the body is in a file, so existence and bytes are two costs and two members. |
+| `ValueTask AddAsync(string controlProgramId, ReadOnlyMemory<byte> body, string revision = "", CancellationToken cancellationToken = default)` | **The only way a named program gets in**, because S8F3 is anonymous and no row of stream 8 names a program a host can create. Replaces one of the same name by rewriting its own record. |
+| `const string RecordExtension`, `PartialExtension` | `.program` and `.writing`. |
+| `const string BootProgramId` | Defined from `ControlProgramInMemoryStore.BootProgramId`, so a machine swapping one store for the other finds its boot program in the same place. |
+
+No `Capture`/`Restore` pair, and for two reasons now: a control program is not state a machine
+claims about itself, and this is durable through an implementation, so a snapshot would be a third
+mechanism over two.
+
 ## The program
 
 ### `ControlProgram`
@@ -138,7 +162,9 @@ Namespace `Microsoft.Extensions.DependencyInjection`.
 | Member | Notes |
 | --- | --- |
 | `ISecsGemBuilder AddControlProgramEquipment(this ISecsGemBuilder)` | The equipment side with `ControlProgramInMemoryStore`. |
+| `ISecsGemBuilder AddControlProgramFileEquipment(this ISecsGemBuilder, string directory)` | With `ControlProgramFileStore`, which outlives the process. The directory is a parameter because this package has no options type. |
 | `ISecsGemBuilder AddControlProgramEquipment<TStore>(this ISecsGemBuilder)` | With a store of your own. `TryAdd`, so one already in the container wins. Declares the six. |
+| `ISecsGemBuilder AddControlProgramEquipment(this ISecsGemBuilder, IControlProgramStore store)` | With a store you have already built - one with limits of its own, or one a machine has loaded a named program into. |
 | `ISecsGemBuilder AddControlProgramHost(this ISecsGemBuilder)` | Registers `ControlProgramHost` and **nothing else** - one of two registrations here that add no route, the other being `AddDataSetHost`. |
 
 No deferred factory on the equipment side: it takes no connection, so there is no cycle to break.

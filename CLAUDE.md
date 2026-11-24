@@ -8,7 +8,8 @@ signature is a breaking change in somebody's fab.
 
 ```
 src/          twenty-seven shipping packages, one folder each (+ README.md, API-REFERENCE.md)
-src/Shared/   compile-linked source, not a package: the serialization hub registration
+src/Shared/   compile-linked source, not a package: the serialization hub registration, and the
+              durable record directory the four transfer stores keep their files with
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
 benchmarks/   BenchmarkDotNet
@@ -207,6 +208,46 @@ and comes back: the recipes, the namespaces, the locks and the selection. The ju
 reading rather than the writing, too - a lock or a selection naming a recipe that is no longer on
 the disk is dropped on adoption, where filtering at the write would have hidden the rule in the
 file.
+
+**All four transfer stores are durable now, and the mechanism is one file: `src/Shared/
+DurableRecordDirectory.cs`.** Streams 8, 13, 15 and 21 each keep what a host sent, and what they
+share is a mechanism rather than a rule - write through under a temporary name, commit with a
+rename, name the file by a sequence number alone, adopt the directory on the next construction. It
+is **shared source and not a package** because no one of the four may depend on another: they sit
+side by side on Hsms, and the only package all four could take it from is the transport, which has
+no business holding a file format. `SecsSerializationRegistration` is the same arrangement for a
+related reason. The argument for sharing rather than copying is not taste either - the first draft of
+`RecipeFileStore.TryDelete` caught `IOException` where `GemFileSpool`'s catches
+`UnauthorizedAccessException` too, which is a read-only file throwing out of a transaction in one
+store and not the other. **The spool deliberately keeps its own copy**: it is a queue with an order,
+a head, a capacity and an overflow policy that never parses a record to know what it holds, where
+these four parse every record on the way in because the key is inside it.
+
+**A record is a list of fields and an optional payload, which is what lets one format serve four
+stores.** A control program is an identifier and a revision, a data set a number and a declared
+length, a recipe a namespace and an identifier, an item an identifier, a type, a length and any
+number of attributes - no fixed header fits all four, and a count plus length-prefixed fields fits
+each. A field's meaning is its position, which is what a SECS-II body is. The **tail** is the one
+field written straight from the caller's memory rather than copied in beside the others, and whether
+a record has one is in the header - so stream 21 can tell an item that was listed from one whose
+contents are empty.
+
+**What each store writes down differs, and in every case the question is which end said it.** The
+grants (stream 8's single anonymous one, stream 21's per item) and stream 13's open are transactions
+in flight, so none of them is written. Stream 13 went further and is the sharpest case: between an
+S13F1 and the data there is **a declared length and no data set**, and that length is written *with
+the payload or not at all*, because a record whose length field disagrees with its own payload is a
+machine reporting S13F16 figures it cannot stand behind. Where a store is deliberately tidier than
+its in-memory sibling - `DataSetFileStore.CloseAsync` forgetting the declaration, `Count` being what
+is on the disk - it says so and no host can see the difference.
+
+**And two of the three found something the stream cannot do.** Stream 8 has **no row that names a
+program**: S8F3 is anonymous, so a named control program can only come from the store's own
+`AddAsync`, and nothing a host sends will ever create one. Stream 21 has no row that sets an
+**attribute**: S21F3 only asks. So `AddAsync` on those two is not the convenience `Add` is on the
+in-memory stores - it is the only door, and a durable store without one could serve only what was
+already on the disk. Which is also why the equipment sample seeds through the store API and asks
+first: a seed that overwrote what the last host left would make the durability pointless.
 
 ## Non-negotiables
 

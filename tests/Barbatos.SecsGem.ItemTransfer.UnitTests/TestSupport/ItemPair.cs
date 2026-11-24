@@ -31,6 +31,9 @@ internal sealed class ItemPair : IAsyncDisposable
     private readonly ConcurrentQueue<(byte Stream, byte Function)> _askedRight;
     private readonly ConcurrentQueue<(byte Stream, byte Function)> _askedLeft;
 
+    private readonly ItemInMemoryStore? _leftMemory;
+    private readonly ItemInMemoryStore? _rightMemory;
+
     private ItemPair(
         InMemorySecsTransport active,
         InMemorySecsTransport passive,
@@ -38,8 +41,8 @@ internal sealed class ItemPair : IAsyncDisposable
         HsmsConnection rightLink,
         ItemTransferPeer left,
         ItemTransferPeer right,
-        ItemInMemoryStore leftStore,
-        ItemInMemoryStore rightStore,
+        ItemInMemoryStore? leftStore,
+        ItemInMemoryStore? rightStore,
         ConcurrentQueue<(byte Stream, byte Function)> askedRight,
         ConcurrentQueue<(byte Stream, byte Function)> askedLeft)
     {
@@ -51,8 +54,8 @@ internal sealed class ItemPair : IAsyncDisposable
         RightLink = rightLink;
         Left = left;
         Right = right;
-        LeftStore = leftStore;
-        RightStore = rightStore;
+        _leftMemory = leftStore;
+        _rightMemory = rightStore;
 
         Running = Task.WhenAll(
             leftLink.RunAsync(_cts.Token),
@@ -66,10 +69,19 @@ internal sealed class ItemPair : IAsyncDisposable
     public ItemTransferPeer Right { get; }
 
     /// <summary>Gets the left end's own items.</summary>
-    public ItemInMemoryStore LeftStore { get; }
+    /// <exception cref="InvalidOperationException">The pair was started over a store of the test's own.</exception>
+    /// <remarks>
+    /// Throws rather than returning null, which is <c>RecipePair.Store</c>'s arrangement and for
+    /// its reason: a test that passed its own store and then read this would be asserting against
+    /// a store nothing is wired to.
+    /// </remarks>
+    public ItemInMemoryStore LeftStore => _leftMemory
+        ?? throw new InvalidOperationException("This pair's left end was started over a store of the test's own.");
 
     /// <summary>Gets the right end's own items.</summary>
-    public ItemInMemoryStore RightStore { get; }
+    /// <exception cref="InvalidOperationException">The pair was started over a store of the test's own.</exception>
+    public ItemInMemoryStore RightStore => _rightMemory
+        ?? throw new InvalidOperationException("This pair's right end was started over a store of the test's own.");
 
     /// <summary>Gets the left end's connection.</summary>
     public HsmsConnection LeftLink { get; }
@@ -110,9 +122,13 @@ internal sealed class ItemPair : IAsyncDisposable
     /// get tested at all: a machine that sends a directory flat, or an acknowledgement code the
     /// item has no table for, has to be played by hand.
     /// </remarks>
+    /// <param name="left">The left end's items. Null uses a fresh in-memory store, which <see cref="LeftStore"/> then exposes.</param>
+    /// <param name="right">The right end's items, likewise.</param>
     public static ItemPair Start(
         Func<SecsTransaction, SecsMessage?>? answerRight = null,
-        IReadOnlyList<(byte Stream, byte Function)>? alsoRouteRight = null)
+        IReadOnlyList<(byte Stream, byte Function)>? alsoRouteRight = null,
+        IItemStore? left = null,
+        IItemStore? right = null)
     {
         var options = new SecsGemOptions
         {
@@ -124,8 +140,10 @@ internal sealed class ItemPair : IAsyncDisposable
         var clock = new FakeTimeProvider();
         var (active, passive) = InMemorySecsTransport.CreatePair();
 
-        var leftStore = new ItemInMemoryStore();
-        var rightStore = new ItemInMemoryStore();
+        // One store per end, because stream 21 is a peer protocol: either end may be the one a
+        // test gives a durable store to.
+        var leftMemory = left is null ? new ItemInMemoryStore() : null;
+        var rightMemory = right is null ? new ItemInMemoryStore() : null;
 
         ItemTransferPeer? pendingLeft = null;
         ItemTransferPeer? pendingRight = null;
@@ -185,8 +203,8 @@ internal sealed class ItemPair : IAsyncDisposable
         var leftLog = new RecordingLogger<ItemTransferPeer>();
         var rightLog = new RecordingLogger<ItemTransferPeer>();
 
-        pendingLeft = new ItemTransferPeer(leftStore, leftLink, leftLog);
-        pendingRight = new ItemTransferPeer(rightStore, rightLink, rightLog);
+        pendingLeft = new ItemTransferPeer(left ?? leftMemory!, leftLink, leftLog);
+        pendingRight = new ItemTransferPeer(right ?? rightMemory!, rightLink, rightLog);
 
         return new ItemPair(
             active,
@@ -195,8 +213,8 @@ internal sealed class ItemPair : IAsyncDisposable
             rightLink,
             pendingLeft,
             pendingRight,
-            leftStore,
-            rightStore,
+            leftMemory,
+            rightMemory,
             askedRight,
             askedLeft)
         {

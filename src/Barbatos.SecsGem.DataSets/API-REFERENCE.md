@@ -101,6 +101,35 @@ It enforces the sequence, reports the length it was given rather than one comput
 payload, and treats an open for send with nothing behind it as not a data set - neither the
 directory nor the status admits to one. No `Capture` / `Restore`: see the README.
 
+### `DataSetFileStore`
+
+`sealed class DataSetFileStore : IDataSetStore`
+
+One file per data set, written through and renamed into place, adopting whatever is in the directory
+when it is constructed. The mechanism is `DurableRecordDirectory`, shared as source with the control
+program, recipe and item stores. **One store per directory.**
+
+| Member | Notes |
+| --- | --- |
+| `DataSetFileStore(string directory, ILogger<DataSetFileStore>? logger = null)` | Creates and scans the directory **here** rather than on first use. `Capacity` is not enforced on what is adopted. |
+| `string Directory { get; }` | Where the records live, as a full path. |
+| `int Capacity { get; set; }` | As the in-memory store's, and not durable. A declaration with no data yet counts against it, as it does there. |
+| `int Count { get; }` | What is on the disk. An open for send whose data has not arrived is **not** one, where the in-memory store counts that entry. |
+| `int OpenCount { get; }` | **Zero on every open of the store**: an open is a transaction in flight. |
+| `bool IsOpen(uint dataSetId, out DataSetOpenMode mode)` | Whether it is open, and how. |
+| `bool Has(uint dataSetId)` | Whether a data set is held, contents and all - where `DataSetInMemoryStore.Get` hands the contents back. |
+| `ValueTask AddAsync(uint dataSetId, DataSetPayload data, uint length = 0, CancellationToken cancellationToken = default)` | How an equipment offers a data set for a host to fetch, stream 13 having no primary that announces one. |
+| `const string RecordExtension`, `PartialExtension` | `.dataset` and `.writing`. |
+
+**The length is written with the payload or not at all.** S13F1 declares it and S13F3 does not carry
+it, so between the open and the data there is a number and no data set - kept in memory, never on
+the disk, because a record whose length field disagreed with its own payload would be a machine
+reporting S13F16 figures it cannot stand behind. `CloseAsync` forgets such a declaration, which the
+in-memory store does not; no host can see the difference.
+
+No `Capture`/`Restore` pair, for the in-memory store's reason and because this is durable through an
+implementation.
+
 ## The payload
 
 ### `DataSetPayload`
@@ -214,7 +243,9 @@ Namespace `Microsoft.Extensions.DependencyInjection`.
 | Member | Notes |
 | --- | --- |
 | `ISecsGemBuilder AddDataSetEquipment(this ISecsGemBuilder)` | The equipment side with `DataSetInMemoryStore`. |
+| `ISecsGemBuilder AddDataSetFileEquipment(this ISecsGemBuilder, string directory)` | With `DataSetFileStore`, which outlives the process. The directory is a parameter because this package has no options type. |
 | `ISecsGemBuilder AddDataSetEquipment<TStore>(this ISecsGemBuilder)` | With a store of your own. `TryAdd`, so one already in the container wins. Declares all seven primaries. |
+| `ISecsGemBuilder AddDataSetEquipment(this ISecsGemBuilder, IDataSetStore store)` | With a store you have already built - one with a capacity of its own, or one an equipment has put a data set into. |
 | `ISecsGemBuilder AddDataSetHost(this ISecsGemBuilder)` | Registers `DataSetHost` and **nothing else** - one of two registrations in this repository that add no route, the other being `AddControlProgramHost`. |
 
 No deferred factory on the equipment side, unlike every other end here: it takes no connection, so

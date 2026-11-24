@@ -225,7 +225,45 @@ abort that deleted would be doing S21F17's job.
 - **S21F19/F20, the transfer complete.** It needs `CHKSUM` and `XFRACK`, both undefined - and a
   checksum is the one value that carrying opaquely does not rescue, because what two ends have to
   agree on is the algorithm and the span, and the reference gives neither.
-- A store that outlives the process. Six methods, and a file behind them is an afternoon.
+
+## A store that outlives the process
+
+```csharp
+services
+    .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+    .UseTcpTransport(listenPort: 5000)
+    .AddItemFileTransfer(Path.Combine(AppContext.BaseDirectory, "items"));
+```
+
+`ItemFileStore` keeps each item in a file - written through, committed with a rename, the identifier
+*inside* the record so `ITEMID` never becomes part of a path - and adopts whatever is in the
+directory when it is constructed. Stream 21 is the one stream here where **either end** may be the
+one that was switched off, because both ends call the same registration; two peers in one process
+need two directories.
+
+**This is the store with the most to write down, and the record shape is what makes it possible.** A
+control program is bytes and a revision, a data set a number and a payload; an item is an
+identifier, a type, a length, *any number of attributes* and contents that may not exist yet. A
+record is a list of fields and an **optional** payload, so the attributes are fields and "listed but
+never sent" is a record with no payload at all - a real state here rather than a half-finished one,
+since S21F1 lists an item, S21F3 describes it and S21F7 sends it, three transactions a host may make
+hours apart.
+
+| | survives | why |
+| --- | --- | --- |
+| the items, their types and lengths | yes | what the other end sent, or what this end offered |
+| the attributes | yes | and nothing else can put them back - see below |
+| the contents, where there are any | yes | the encoded item that arrived |
+| the grants | **no** | an S21F5 answered and an S21F7 that never came is a transaction in flight |
+
+**`AddAsync` is the only way an item gets attributes**, because no row of stream 21 sets one - S21F3
+only asks. It is also how a peer offers an item for the other end to fetch, there being no "I have a
+new item" primary. And it **copies** the attribute values it is given, where
+`ItemInMemoryStore.Add` keeps the caller's own items: a record is bytes, so a caller may dispose what
+it built, and every attribute request decodes a fresh item. That is worth knowing because
+`AttributeBody` puts a value *into* the reply it builds and a disposed reply disposes its children -
+harmless for a small value, which owns nothing to release, but an attribute past the codec's pooling
+threshold would go back to the pool after the first request.
 
 ## Documentation
 

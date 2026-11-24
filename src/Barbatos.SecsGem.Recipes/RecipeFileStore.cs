@@ -3,10 +3,9 @@
 // Copyright (C) Barbatos Labs | Pham The Hung and Barbatos.SecsGem Contributors.
 // All Rights Reserved.
 
-using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Text;
+using Barbatos.SecsGem.Internal;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -81,7 +80,7 @@ public sealed class RecipeFileStore : IRecipeStore
     public const string RecordExtension = ".recipe";
 
     /// <summary>The extension appended to any file while it is being written.</summary>
-    public const string PartialExtension = ".writing";
+    public const string PartialExtension = DurableRecordDirectory.PartialExtension;
 
     /// <summary>The file the namespaces are listed in.</summary>
     public const string NamespacesFile = "namespaces";
@@ -92,10 +91,8 @@ public sealed class RecipeFileStore : IRecipeStore
     /// <summary>The file the selection is kept in.</summary>
     public const string SelectedFile = "selected";
 
-    private const byte FormatVersion = 1;
-    private const int HeaderLength = 16;
-
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly DurableRecordDirectory _records;
     private readonly ConcurrentDictionary<string, bool> _namespaces = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<(string Namespace, string Id), long> _recipes = new();
     private readonly ConcurrentDictionary<(string Namespace, string Id), uint> _granted = new();
@@ -134,26 +131,13 @@ public sealed class RecipeFileStore : IRecipeStore
         ArgumentNullException.ThrowIfNull(directory);
 
         _logger = logger ?? NullLogger<RecipeFileStore>.Instance;
-        Directory = System.IO.Directory.CreateDirectory(directory).FullName;
-
-        var partial = 0;
-
-        foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*" + PartialExtension))
-        {
-            TryDelete(path);
-            partial++;
-        }
+        _records = new DurableRecordDirectory(directory, RecordExtension, _logger);
 
         var unreadable = 0;
 
-        foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*" + RecordExtension))
+        foreach (var (sequence, path) in _records.Records())
         {
-            if (!TryReadSequence(path, out var sequence))
-            {
-                continue;
-            }
-
-            if (TryReadRecord(path) is not { } record)
+            if (Read(path) is not { } record)
             {
                 unreadable++;
                 continue;
@@ -174,7 +158,7 @@ public sealed class RecipeFileStore : IRecipeStore
                     Math.Max(held, sequence),
                     Math.Min(held, sequence));
 
-                TryDelete(PathFor(Math.Min(held, sequence)));
+                _records.Delete(Math.Min(held, sequence));
 
                 if (sequence < held)
                 {
@@ -187,12 +171,12 @@ public sealed class RecipeFileStore : IRecipeStore
             _next = Math.Max(_next, sequence + 1);
         }
 
-        foreach (var name in ReadEntries(NamespacesFile))
+        foreach (var name in _records.ReadEntries(NamespacesFile))
         {
             _namespaces[Text(name)] = true;
         }
 
-        foreach (var entry in ReadEntries(LocksFile).Chunk(3))
+        foreach (var entry in _records.ReadEntries(LocksFile).Chunk(3))
         {
             if (entry.Length == 3 && _recipes.ContainsKey((Text(entry[0]), Text(entry[1]))))
             {
@@ -200,14 +184,14 @@ public sealed class RecipeFileStore : IRecipeStore
             }
         }
 
-        var selection = ReadEntries(SelectedFile);
+        var selection = _records.ReadEntries(SelectedFile);
 
         if (selection.Count == 2 && _recipes.ContainsKey((Text(selection[0]), Text(selection[1]))))
         {
             _selected = new Selection(Text(selection[0]), Text(selection[1]));
         }
 
-        if (_recipes.Count > 0 || _namespaces.Count > 0 || partial > 0 || unreadable > 0)
+        if (_recipes.Count > 0 || _namespaces.Count > 0 || _records.Swept > 0 || unreadable > 0)
         {
             _logger.LogInformation(
                 "Recipe directory {Directory} opened with {Recipes} recipe(s) in {Namespaces} namespace(s), "
@@ -216,13 +200,13 @@ public sealed class RecipeFileStore : IRecipeStore
                 _recipes.Count,
                 _namespaces.Count,
                 _locks.Count,
-                partial,
+                _records.Swept,
                 unreadable);
         }
     }
 
     /// <summary>Gets the directory the records live in, as a full path.</summary>
-    public string Directory { get; }
+    public string Directory => _records.Path;
 
     /// <summary>Gets or sets the largest recipe this store will take. Default one mebibyte.</summary>
     /// <remarks>
@@ -485,7 +469,7 @@ public sealed class RecipeFileStore : IRecipeStore
                 return (RecipeAcknowledgement.Rejected, default);
             }
 
-            if (TryReadRecord(PathFor(sequence)) is not { } record)
+            if (Read(sequence) is not { } record)
             {
                 // The index says it is here and the file says otherwise, so somebody has been in
                 // the directory. Refused rather than guessed at, and logged because S15F10's one
@@ -531,7 +515,7 @@ public sealed class RecipeFileStore : IRecipeStore
                 return RecipeAcknowledgement.Rejected;
             }
 
-            TryDelete(PathFor(sequence));
+            _records.Delete(sequence);
 
             // A recipe that was selected and is now gone leaves nothing selected, where a rename
             // moves the selection with it: the in-memory store's two rules. The small file has to
@@ -632,7 +616,7 @@ public sealed class RecipeFileStore : IRecipeStore
                 return RecipeAcknowledgement.Rejected;
             }
 
-            if (TryReadRecord(PathFor(sequence)) is not { } record)
+            if (Read(sequence) is not { } record)
             {
                 return RecipeAcknowledgement.Rejected;
             }
@@ -685,7 +669,7 @@ public sealed class RecipeFileStore : IRecipeStore
                 return RecipeAcknowledgement.Rejected;
             }
 
-            if (TryReadRecord(PathFor(sequence)) is not { } record)
+            if (Read(sequence) is not { } record)
             {
                 return RecipeAcknowledgement.Rejected;
             }
@@ -811,30 +795,7 @@ public sealed class RecipeFileStore : IRecipeStore
 
     // ---------------------------------------------------------------- the files
 
-    private static string Text(byte[] entry) => Encoding.UTF8.GetString(entry);
-
-    private static bool TryReadSequence(string path, out long sequence)
-        => long.TryParse(
-            Path.GetFileNameWithoutExtension(path),
-            NumberStyles.None,
-            CultureInfo.InvariantCulture,
-            out sequence);
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // Deliberately not propagated, which is GemFileSpool.TryDelete's reason as well: every
-            // caller has already decided the record is gone, and throwing here would turn a file
-            // that will not delete into a transaction that never answers. A leftover is adopted by
-            // the next constructor, or - for a record whose recipe has been deleted - reported as
-            // one record holding a recipe the index does not have.
-        }
-    }
+    private static string Text(byte[] entry) => DurableRecordDirectory.Text(entry);
 
     /// <summary>Whether a recipe is the selected one, which four of the fourteen methods ask.</summary>
     private bool IsSelected(string recipeNamespace, string recipeId)
@@ -842,23 +803,19 @@ public sealed class RecipeFileStore : IRecipeStore
             && string.Equals(selected.Namespace, recipeNamespace, StringComparison.Ordinal)
             && string.Equals(selected.Id, recipeId, StringComparison.Ordinal);
 
-    private string PathFor(long sequence) => Path.Combine(
-        Directory,
-        sequence.ToString("D19", CultureInfo.InvariantCulture) + RecordExtension);
-
     private ValueTask WriteNamespacesAsync(CancellationToken cancellationToken)
-        => WriteEntriesAsync(
+        => _records.WriteEntriesAsync(
             NamespacesFile,
             [.. _namespaces.Keys
                 .OrderBy(name => name, StringComparer.Ordinal)
-                .Select(name => (ReadOnlyMemory<byte>)Encoding.UTF8.GetBytes(name))],
+                .Select(name => (ReadOnlyMemory<byte>)DurableRecordDirectory.Bytes(name))],
             cancellationToken);
 
     private ValueTask WriteSelectedAsync(CancellationToken cancellationToken)
-        => WriteEntriesAsync(
+        => _records.WriteEntriesAsync(
             SelectedFile,
             _selected is { } selected
-                ? [Encoding.UTF8.GetBytes(selected.Namespace), Encoding.UTF8.GetBytes(selected.Id)]
+                ? [DurableRecordDirectory.Bytes(selected.Namespace), DurableRecordDirectory.Bytes(selected.Id)]
                 : [],
             cancellationToken);
 
@@ -868,8 +825,8 @@ public sealed class RecipeFileStore : IRecipeStore
 
         foreach (var ((space, id), token) in _locks.OrderBy(pair => pair.Key.Id, StringComparer.Ordinal))
         {
-            flat.Add(Encoding.UTF8.GetBytes(space));
-            flat.Add(Encoding.UTF8.GetBytes(id));
+            flat.Add(DurableRecordDirectory.Bytes(space));
+            flat.Add(DurableRecordDirectory.Bytes(id));
 
             // The encoded item and not its text, which is what makes a restored lock the same lock:
             // RCPLOCKID is carried opaquely on the wire, so it is carried opaquely to the disk, and
@@ -878,193 +835,40 @@ public sealed class RecipeFileStore : IRecipeStore
             flat.Add(token.Encoded);
         }
 
-        return WriteEntriesAsync(LocksFile, flat, cancellationToken);
+        return _records.WriteEntriesAsync(LocksFile, flat, cancellationToken);
     }
 
-    private IReadOnlyList<byte[]> ReadEntries(string name)
-    {
-        byte[] bytes;
-
-        try
-        {
-            bytes = File.ReadAllBytes(Path.Combine(Directory, name));
-        }
-        catch (FileNotFoundException)
-        {
-            // Nothing has written this one yet, which is the ordinary first start.
-            return [];
-        }
-        catch (IOException exception)
-        {
-            _logger.LogWarning(exception, "The {Name} file could not be read and was taken as empty.", name);
-
-            return [];
-        }
-
-        List<byte[]> entries = [];
-        var at = 0;
-
-        while (at + 4 <= bytes.Length)
-        {
-            var length = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(at));
-            at += 4;
-
-            if (length < 0 || at + length > bytes.Length)
-            {
-                // A file this store did not finish writing cannot reach here - the rename is the
-                // commit - so this is a truncation from outside, and what was read already is kept
-                // rather than thrown away.
-                _logger.LogWarning(
-                    "The {Name} file ends mid-entry; {Read} entry/entries were read.",
-                    name,
-                    entries.Count);
-
-                break;
-            }
-
-            entries.Add(bytes.AsSpan(at, length).ToArray());
-            at += length;
-        }
-
-        return entries;
-    }
-
-    private ValueTask WriteEntriesAsync(
-        string name,
-        IReadOnlyList<ReadOnlyMemory<byte>> entries,
-        CancellationToken cancellationToken)
-    {
-        var bytes = new byte[entries.Sum(entry => 4 + entry.Length)];
-        var at = 0;
-
-        foreach (var entry in entries)
-        {
-            BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(at), entry.Length);
-            entry.Span.CopyTo(bytes.AsSpan(at + 4));
-            at += 4 + entry.Length;
-        }
-
-        // Rewritten whole rather than appended to, which is affordable because all three of these
-        // files are lists of names: the longest is one entry per namespace, where a recipe is a
-        // megabyte. An append-only file would need compaction and a tombstone for every delete.
-        return WriteAtomicAsync(name, bytes, default, cancellationToken);
-    }
-
+    /// <summary>Writes one recipe's record: the namespace and the identifier, then the body.</summary>
+    /// <remarks>
+    /// Two fields and a tail, which is the whole of this store's framing - the rest of what a
+    /// record is belongs to <c>DurableRecordDirectory</c>, shared with the three other transfer
+    /// stores because it is a mechanism and not a rule.
+    /// </remarks>
     private ValueTask WriteRecordAsync(
         long sequence,
         string recipeNamespace,
         string recipeId,
         ReadOnlyMemory<byte> body,
         CancellationToken cancellationToken)
-    {
-        var space = Encoding.UTF8.GetBytes(recipeNamespace);
-        var id = Encoding.UTF8.GetBytes(recipeId);
-        var header = new byte[HeaderLength + space.Length + id.Length];
-
-        header[0] = FormatVersion;
-        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(4), space.Length);
-        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(8), id.Length);
-
-        // The body's length is in the header as well as implied by the file's, so a record that was
-        // truncated outside this store is refused rather than handed to a host as a shorter recipe.
-        // That is the check S15F7's own LENGTH makes on the wire, made again against the disk.
-        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(12), body.Length);
-
-        space.CopyTo(header, HeaderLength);
-        id.CopyTo(header, HeaderLength + space.Length);
-
-        return WriteAtomicAsync(
-            sequence.ToString("D19", CultureInfo.InvariantCulture) + RecordExtension,
-            header,
+        => _records.WriteRecordAsync(
+            sequence,
+            [DurableRecordDirectory.Bytes(recipeNamespace), DurableRecordDirectory.Bytes(recipeId)],
             body,
             cancellationToken);
-    }
 
-    private (string Namespace, string Id, ReadOnlyMemory<byte> Body)? TryReadRecord(string path)
-    {
-        byte[] bytes;
+    /// <summary>Reads one recipe's record.</summary>
+    /// <remarks>
+    /// Null for a record this version cannot read, for one a tool truncated and for one that will
+    /// not open - three different disks that mean one thing to a store, and never "delete it".
+    /// </remarks>
+    private (string Namespace, string Id, ReadOnlyMemory<byte> Body)? Read(long sequence)
+        => Read(_records.PathFor(sequence));
 
-        try
-        {
-            bytes = File.ReadAllBytes(path);
-        }
-        catch (IOException exception)
-        {
-            _logger.LogWarning(exception, "A recipe record could not be read: {Path}.", path);
+    private (string Namespace, string Id, ReadOnlyMemory<byte> Body)? Read(string path)
+        => _records.TryReadRecord(path) is { Fields.Count: 2, Tail: { } body } record
+            ? (Text(record.Fields[0]), Text(record.Fields[1]), body)
+            : null;
 
-            return null;
-        }
-
-        if (bytes.Length < HeaderLength || bytes[0] != FormatVersion)
-        {
-            return null;
-        }
-
-        var spaceLength = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(4));
-        var idLength = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(8));
-        var bodyLength = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(12));
-
-        if (spaceLength < 0
-            || idLength < 0
-            || bodyLength < 0
-            || (long)HeaderLength + spaceLength + idLength + bodyLength != bytes.Length)
-        {
-            return null;
-        }
-
-        return (
-            Encoding.UTF8.GetString(bytes, HeaderLength, spaceLength),
-            Encoding.UTF8.GetString(bytes, HeaderLength + spaceLength, idLength),
-            new ReadOnlyMemory<byte>(bytes, HeaderLength + spaceLength + idLength, bodyLength));
-    }
-
-    private async ValueTask WriteAtomicAsync(
-        string name,
-        byte[] prefix,
-        ReadOnlyMemory<byte> body,
-        CancellationToken cancellationToken)
-    {
-        var partial = Path.Combine(Directory, name + PartialExtension);
-
-        try
-        {
-            var options = new FileStreamOptions
-            {
-                Mode = FileMode.Create,
-                Access = FileAccess.Write,
-                Share = FileShare.None,
-                Options = FileOptions.Asynchronous | FileOptions.WriteThrough,
-                PreallocationSize = prefix.Length + body.Length,
-            };
-
-            await using (var file = new FileStream(partial, options))
-            {
-                await file.WriteAsync(prefix, cancellationToken).ConfigureAwait(false);
-
-                if (!body.IsEmpty)
-                {
-                    // Straight from the caller's memory rather than copied in beside the header: a
-                    // recipe of a megabyte would otherwise want a megabyte buffer, and anything
-                    // over 85 KB of it is a large object heap allocation.
-                    await file.WriteAsync(body, cancellationToken).ConfigureAwait(false);
-                }
-
-                await file.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            // The commit. Atomic within one directory, which is what makes a half-written record
-            // impossible rather than merely unlikely.
-            File.Move(partial, Path.Combine(Directory, name), overwrite: true);
-        }
-        catch
-        {
-            // A write that failed leaves no record, so it leaves no file either. The constructor
-            // would clear this on the next start, but a store filling a disk should not need a
-            // restart to stop littering.
-            TryDelete(partial);
-            throw;
-        }
-    }
 
     /// <summary>What is selected, as one reference.</summary>
     /// <remarks>

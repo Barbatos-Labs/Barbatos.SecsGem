@@ -29,9 +29,69 @@ public static class DataSetServiceCollectionExtensions
     /// <summary>Adds the equipment side, backed by the in-memory store.</summary>
     /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
     /// <returns>The builder, for chaining.</returns>
-    /// <remarks>Enough for a simulator or an equipment that passes data sets straight on. Anything that must survive a restart wants its own store.</remarks>
+    /// <remarks>
+    /// Enough for a simulator or an equipment that passes data sets straight on. An equipment whose
+    /// data sets must survive a restart calls <see cref="AddDataSetFileEquipment"/> instead, or
+    /// brings a store of its own.
+    /// </remarks>
     public static ISecsGemBuilder AddDataSetEquipment(this ISecsGemBuilder builder)
         => builder.AddDataSetEquipment<DataSetInMemoryStore>();
+
+    /// <summary>Adds the equipment side, backed by a directory that outlives the process.</summary>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <param name="directory">Where the records live. Created if it is not there.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> or <paramref name="directory"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <see cref="DataSetFileStore"/>, which adopts what is still in the directory - so a host does
+    /// not have to send a data set again after a power cut, and an equipment that was asked for one
+    /// still has it. The machine cannot regenerate a host's data set: <c>DSDATA</c> is defined
+    /// nowhere, so what is stored is whatever the two ends agreed it is.
+    /// </para>
+    /// <para>
+    /// The directory is a parameter and not a configuration option, because this package has no
+    /// options type: <see cref="DataSetEquipment"/> takes none, stream 13 having no timer of its
+    /// own. An application that keeps the path in configuration passes it from there.
+    /// </para>
+    /// <para>
+    /// <see cref="DataSetFileStore.Capacity"/> keeps its default. An equipment that wants another,
+    /// or that offers a data set of its own for a host to fetch, builds the store itself and calls
+    /// <see cref="AddDataSetEquipment(ISecsGemBuilder, IDataSetStore)"/> - stream 13 has no message
+    /// announcing a data set, so <see cref="DataSetFileStore.AddAsync"/> is how one gets there.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddDataSetFileEquipment(this ISecsGemBuilder builder, string directory)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(directory);
+
+        builder.Services.TryAddSingleton<IDataSetStore>(provider => new DataSetFileStore(
+            directory,
+            provider.GetService<ILogger<DataSetFileStore>>()));
+
+        return builder.DeclareDataSetEquipment();
+    }
+
+    /// <summary>Adds the equipment side, backed by a store you have already built.</summary>
+    /// <param name="builder">The builder <c>AddSecsGem</c> returned.</param>
+    /// <param name="store">The store.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> or <paramref name="store"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// For a store that needs more than a type and a container can give it - a
+    /// <see cref="DataSetFileStore"/> with a capacity of its own, or one an application has already
+    /// put a data set into for a host to find.
+    /// </remarks>
+    public static ISecsGemBuilder AddDataSetEquipment(this ISecsGemBuilder builder, IDataSetStore store)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(store);
+
+        builder.Services.TryAddSingleton(store);
+
+        return builder.DeclareDataSetEquipment();
+    }
 
     /// <summary>Adds the equipment side, backed by a store of your own.</summary>
     /// <typeparam name="TStore">The store.</typeparam>
@@ -64,6 +124,18 @@ public static class DataSetServiceCollectionExtensions
 
         builder.Services.TryAddSingleton<IDataSetStore, TStore>();
 
+        return builder.DeclareDataSetEquipment();
+    }
+
+    /// <summary>The half of the equipment registration that does not depend on which store it is.</summary>
+    /// <remarks>
+    /// Three ways in and one declaration, which is <c>DeclareSpooling</c>'s arrangement in the GEM
+    /// package: the routes and the end are the same whichever store answered, and a second copy of
+    /// <see cref="DataSetEquipment.HandledMessages"/> in a second overload is a list that can fall
+    /// behind the first.
+    /// </remarks>
+    private static ISecsGemBuilder DeclareDataSetEquipment(this ISecsGemBuilder builder)
+    {
         // Built by hand for the same reason the GEM layer is: the logger is optional, and an
         // application that never called AddLogging should still get a working end.
         builder.Services.TryAddSingleton(provider => new DataSetEquipment(

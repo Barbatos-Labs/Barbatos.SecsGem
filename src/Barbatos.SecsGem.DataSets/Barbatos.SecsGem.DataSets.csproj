@@ -5,7 +5,7 @@
     <TargetFrameworks>$(BarbatosTargetFrameworks)</TargetFrameworks>
     <RootNamespace>Barbatos.SecsGem.DataSets</RootNamespace>
     <PackageTags>secs;e5;stream13;dataset;transfer;upload;download</PackageTags>
-    <Description>Data set transfer (SECS-II stream 13) for .NET, both ends: open for send or for read, send, get, close, the directory and the status request, with both code tables as enums rather than bytes. A host drives every transaction and the equipment answers out of an IDataSetStore. The one item stream 13 needs and the dictionary never defines is the payload itself, so a data set travels as the encoded item that carried it rather than as a format this library chose. Depends on Barbatos.SecsGem.Hsms, not on GEM: stream 13 is not part of SEMI E30.</Description>
+    <Description>Data set transfer (SECS-II stream 13) for .NET, both ends: open for send or for read, send, get, close, the directory and the status request, with both code tables as enums rather than bytes. A host drives every transaction and the equipment answers out of an IDataSetStore. The one item stream 13 needs and the dictionary never defines is the payload itself, so a data set travels as the encoded item that carried it rather than as a format this library chose. Two stores: one in memory, and one that keeps each data set in a file - written through and renamed into place - so what a host sent survives a restart and does not have to be sent twice. The length an open declares is written with the payload or not at all, because a stored length that described nothing would be a figure the machine could not stand behind. Depends on Barbatos.SecsGem.Hsms, not on GEM: stream 13 is not part of SEMI E30.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,6 +18,14 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Core\Barbatos.SecsGem.Core.csproj" />
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
+  </ItemGroup>
+
+  <!-- Shared source rather than a package reference: the four stores here that outlive a process
+       share a mechanism and not a rule, and no one of the four may depend on another - they sit
+       side by side on Hsms, and a transport has no business holding a file format. -->
+  <ItemGroup>
+    <Compile Include="$(RepositoryDirectory)src\Shared\DurableRecordDirectory.cs"
+             Link="Shared\DurableRecordDirectory.cs" />
   </ItemGroup>
 
 </Project>

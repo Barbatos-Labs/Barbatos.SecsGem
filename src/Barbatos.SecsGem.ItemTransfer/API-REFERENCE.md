@@ -89,6 +89,35 @@ Three of its rules are **its own choices, not E5's**, and each is tested where i
 
 No `Capture`/`Restore` pair, on purpose: an item is not state a machine claims about itself.
 
+### `ItemFileStore`
+
+`sealed class ItemFileStore : IItemStore`
+
+One file per item, written through and renamed into place, adopting whatever is in the directory when
+it is constructed. The mechanism is `DurableRecordDirectory`, shared as source with the control
+program, data set and recipe stores. **One store per directory** - and since both ends of stream 21
+have a store, two peers in one process need two directories.
+
+| Member | Notes |
+| --- | --- |
+| `ItemFileStore(string directory, ILogger<ItemFileStore>? logger = null)` | Creates and scans the directory **here** rather than on first use. `Capacity` is not enforced on what is adopted. |
+| `string Directory { get; }` | Where the records live, as a full path. |
+| `int Capacity { get; set; }` | As the in-memory store's, and not durable. |
+| `int Count { get; }` | How many items are held, contents or no contents. |
+| `int GrantedCount { get; }` | **Zero on every open**: a grant is a transaction in flight. |
+| `Item? Find(string itemId)` | Out of the index and not off the disk, so a directory request is not a scan of every record. |
+| `ValueTask<ItemPayload?> ContentsAsync(string itemId, CancellationToken cancellationToken = default)` | Asynchronous where `ItemInMemoryStore.Contents` is not, the contents being in a file. Null for an item that was only listed **and** for a record that will not read - the second is logged. |
+| `ValueTask AddAsync(Item item, ItemPayload? data = null, IReadOnlyList<ItemAttribute>? attributes = null, CancellationToken cancellationToken = default)` | **The only way an item gets attributes**, no row of stream 21 setting one. **Copies** the attribute values, where `ItemInMemoryStore.Add` keeps the caller's items - so the caller may dispose what it built. |
+| `const string RecordExtension`, `PartialExtension` | `.item` and `.writing`. |
+
+A record is a list of fields and an **optional** payload, so an item that was listed and described
+and never sent is a record with no payload at all - a state of its own in this stream, not a
+half-finished one. Every attribute request decodes the stored bytes afresh, so the items handed back
+are the caller's and may be disposed with the reply they go into.
+
+No `Capture`/`Restore` pair, for the in-memory store's reason and because this is durable through an
+implementation.
+
 ## The item
 
 ### `Item`
@@ -183,7 +212,9 @@ Namespace `Microsoft.Extensions.DependencyInjection`.
 | Member | Notes |
 | --- | --- |
 | `ISecsGemBuilder AddItemTransfer(this ISecsGemBuilder builder)` | Backed by `ItemInMemoryStore`. |
+| `ISecsGemBuilder AddItemFileTransfer(this ISecsGemBuilder builder, string directory)` | Backed by `ItemFileStore`, which outlives the process. Either end may want it, both calling the same registration. |
 | `ISecsGemBuilder AddItemTransfer<TStore>(this ISecsGemBuilder builder) where TStore : class, IItemStore` | Backed by a store of your own. |
+| `ISecsGemBuilder AddItemTransfer(this ISecsGemBuilder builder, IItemStore store)` | Backed by a store you have already built - one with a capacity of its own, or one a peer has put items and attributes into. |
 
 **One method, because there is one kind of end** - both ends of a link call it and both declare the
 same six primaries. The store goes in with `TryAdd`, so an `IItemStore` already in the container

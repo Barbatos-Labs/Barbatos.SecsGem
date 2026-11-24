@@ -135,11 +135,24 @@ public sealed class ItemInMemoryStore : IItemStore
     /// <summary>Puts an item in without a transaction, for a simulator or a test.</summary>
     /// <param name="item">What it is.</param>
     /// <param name="data">Its contents, or null for an item that is only listed.</param>
-    /// <param name="attributes">Its attributes.</param>
+    /// <param name="attributes">Its attributes. <strong>Kept, not copied</strong> - see the remarks.</param>
     /// <exception cref="ArgumentNullException"><paramref name="item"/> is <see langword="null"/>.</exception>
     /// <remarks>
+    /// <para>
+    /// <strong>An attribute's value stays this caller's item and is kept by reference</strong>,
+    /// which is a lifetime the caller has to honour: do not dispose it while the store holds it.
+    /// That matters because <c>ItemTransferCodec.AttributeBody</c> puts the value into the reply it
+    /// builds and a disposed reply disposes its children - harmless for a small value, which owns
+    /// nothing to release, but an attribute past <c>SecsCodecOptions.PooledPayloadThreshold</c>
+    /// would go back to the pool after the first S21F3 and be lent out again on the second.
+    /// <see cref="ItemFileStore.AddAsync"/> copies instead, because a record is bytes, so a caller
+    /// that wants to be rid of the ownership question can use that store.
+    /// </para>
+    /// <para>
     /// How a peer offers an item the other end can go and fetch, which stream 21 has no message
-    /// for: there is no "I have a new item" primary, so the other end finds out with S21F1.
+    /// for: there is no "I have a new item" primary, so the other end finds out with S21F1. It is
+    /// also the only way an item gets attributes at all - S21F3 asks for them and no row sets one.
+    /// </para>
     /// </remarks>
     public void Add(Item item, ItemPayload? data = null, IReadOnlyList<ItemAttribute>? attributes = null)
     {

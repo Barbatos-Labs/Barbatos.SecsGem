@@ -229,9 +229,41 @@ silence.
   `Barbatos.SecsGem.DataSets`. A program too large for one message is, for now, one message.
 - Any message that deletes a control program. Stream 7 has S7F17 for a process program and stream 8
   has no equivalent, so an abort that threw one away would be this library inventing a message.
-- A store that outlives the process, and no snapshot pair on purpose: a control program is not state
-  a machine claims about itself, so it survives a restart through an implementation - the same
-  answer `IGemSpool` and `IDataSetStore` give. Six methods, and a file behind them is an afternoon.
+
+## A store that outlives the process
+
+```csharp
+services
+    .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+    .UseTcpTransport(listenPort: 5000)
+    .AddControlProgramFileEquipment(Path.Combine(AppContext.BaseDirectory, "programs"));
+```
+
+Firmware is the thing in this stack it would hurt most to lose: a machine that came back from a
+power cut with no boot program needs a host to send it again before it can run.
+`ControlProgramFileStore` keeps each program in a file - written through, committed with a rename,
+the identifier and the revision *inside* the record so `CPID` never becomes part of a path - and
+adopts whatever is in the directory when it is constructed. The mechanism is shared source with the
+recipe, data set and item stores, and the README of `Barbatos.SecsGem.Recipes` sets it out at
+length.
+
+| | survives | why |
+| --- | --- | --- |
+| the programs | yes | what a host sent |
+| their revisions | yes | what the machine was told they are |
+| the grant | **no** | an S8F1 answered and an S8F3 that never came is a transaction in flight |
+| `Capacity`, `MaxLength` | no | this machine's configuration, not anything a host said |
+
+**`AddAsync` is the only way a named program gets in, and that is stream 8's doing rather than this
+package's.** S8F3 sends a program with **no name** - the anonymous download held under
+`BootProgramId` - and no row of the stream names a program a host can create. So where
+`RecipeInMemoryStore.Add` is a convenience, this is the only door: without it a machine could never
+offer a named program for S8F11 to find.
+
+And one consequence of the same gap, pinned by a test rather than left to be discovered: **the boot
+program is write-only over the wire.** A host can send it and cannot ask for it back, because the
+only name it has is this library's own convention for a slot and an empty `CPID` names nothing. The
+machine has it either way, through `LoadAsync`.
 
 ## Documentation
 

@@ -126,7 +126,10 @@ No `Capture`/`Restore` pair, on purpose: a recipe is not state a machine claims 
 
 One file per recipe, written through and renamed into place, adopting whatever is in the directory
 when it is constructed - `GemFileSpool`'s shape, for `GemFileSpool`'s reasons. **One store per
-directory**: two over the same one would fight over the sequence numbers.
+directory**: two over the same one would fight over the sequence numbers. The mechanism is
+`DurableRecordDirectory`, shared as source with `ControlProgramFileStore`, `DataSetFileStore` and
+`ItemFileStore`; what is this store's own is the framing (a namespace, an identifier and the body)
+and the rules.
 
 | Member | Notes |
 | --- | --- |

@@ -97,6 +97,7 @@ internal static class Program
         await Run("controlprograms: stream 8 resolves at both ends, and a program is bytes rather than an item", ControlProgramsResolveAsync).ConfigureAwait(false);
         await Run("itemtransfer: stream 21 resolves from one registration both ends call", ItemTransferResolvesAsync).ConfigureAwait(false);
         await Run("recipes: stream 15 resolves at both ends, and a recipe is bytes with a namespace", RecipesResolveAsync).ConfigureAwait(false);
+        await Run("transfer stores: four packages keep what a host sent, and find it again", DurableTransferStoresAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
@@ -1128,6 +1129,178 @@ internal static class Program
     /// point of the type - a <em>second</em> store over the same directory answers for a recipe the
     /// first one took - and it needs two instances, which no in-memory store can be asked for.
     /// </remarks>
+    /// <summary>
+    /// The three stores beside the recipes' one, each over a directory of its own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One check for three packages, because what is being checked is the same claim three times:
+    /// the registration is reachable from a restored <c>.nupkg</c>, and a <em>second</em> store over
+    /// one directory answers for what the first was given. The second half needs two instances,
+    /// which no in-memory store can be asked for, and the first half is a packaging claim in the
+    /// strict sense - these are extension methods on a builder from another package.
+    /// </para>
+    /// <para>
+    /// The mechanism under all four is one compile-linked source file, so this also proves it
+    /// reached all four assemblies: a <c>Compile Include</c> that resolved in the repository and not
+    /// in the package would build here and fail at the first record.
+    /// </para>
+    /// </remarks>
+    private static async Task DurableTransferStoresAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "barbatos-smoke-transfer-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            // ---------------------------------------------------------------- stream 8
+            var programs = Path.Combine(root, "programs");
+            var firmwareServices = new ServiceCollection();
+
+            firmwareServices
+                .AddSecsGem()
+                .UseInMemoryTransport()
+                .AddControlProgramFileEquipment(programs);
+
+            await using (var provider = firmwareServices.BuildServiceProvider())
+            {
+                _ = provider.GetRequiredService<ControlProgramEquipment>();
+
+                var store = provider.GetRequiredService<IControlProgramStore>();
+
+                Assert(store is ControlProgramFileStore, $"the file store registration produced {store.GetType().Name}");
+
+                byte[] firmware = [0x7F, 0x45, 0x4C, 0x46];
+
+                // AddAsync and not a transaction, because S8F3 is anonymous: this is the only way a
+                // named program exists at all, which is the thing to check reaches a consumer.
+                await ((ControlProgramFileStore)store)
+                    .AddAsync("BOOT-A", firmware, "1.4.2", CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                var reopened = new ControlProgramFileStore(programs);
+
+                Assert(reopened.Count == 1, $"a second control program store found {reopened.Count} program(s), not one");
+                Assert(
+                    await reopened.RevisionAsync("BOOT-A", CancellationToken.None).ConfigureAwait(false) == "1.4.2",
+                    "a second control program store lost the revision");
+
+                var body = await reopened.LoadAsync("BOOT-A", CancellationToken.None).ConfigureAwait(false);
+
+                Assert(
+                    body is not null && body.Value.Span.SequenceEqual(firmware),
+                    "the firmware came back from the disk as something else");
+            }
+
+            // ---------------------------------------------------------------- stream 13
+            var dataSets = Path.Combine(root, "datasets");
+            var dataSetServices = new ServiceCollection();
+
+            dataSetServices
+                .AddSecsGem()
+                .UseInMemoryTransport()
+                .AddDataSetFileEquipment(dataSets);
+
+            await using (var provider = dataSetServices.BuildServiceProvider())
+            {
+                _ = provider.GetRequiredService<DataSetEquipment>();
+
+                var store = provider.GetRequiredService<IDataSetStore>();
+
+                Assert(store is DataSetFileStore, $"the file store registration produced {store.GetType().Name}");
+
+                using var contents = SecsItem.L(SecsItem.A("chamber-log"), SecsItem.U4(1, 2, 3));
+
+                await ((DataSetFileStore)store)
+                    .AddAsync(41u, DataSetPayload.From(contents), 64u, CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                var reopened = new DataSetFileStore(dataSets);
+
+                Assert(reopened.Count == 1, $"a second data set store found {reopened.Count} data set(s), not one");
+                Assert(reopened.OpenCount == 0, "a second data set store restored an open");
+
+                var status = await reopened.StatusAsync(41u, CancellationToken.None).ConfigureAwait(false);
+
+                Assert(status.Length == 64u, $"the length came back as {status.Length}, not 64");
+
+                // The open must come first whichever store it is - the sequence is the store's rule.
+                var opening = await reopened
+                    .OpenAsync(new DataSetOpenRequest { DataSetId = 41u, Mode = DataSetOpenMode.Request }, CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                Assert(opening.IsGranted, "a second data set store would not open what it adopted");
+
+                var payload = await reopened
+                    .LoadAsync(new DataSetRequest { DataSetId = 41u, DataId = 1u }, CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                using var decoded = payload?.Decode();
+
+                Assert(decoded is { Count: 2 }, "the data set came back from the disk as something else");
+            }
+
+            // ---------------------------------------------------------------- stream 21
+            var items = Path.Combine(root, "items");
+            var itemServices = new ServiceCollection();
+
+            itemServices
+                .AddSecsGem()
+                .UseInMemoryTransport()
+                .AddItemFileTransfer(items);
+
+            await using (var provider = itemServices.BuildServiceProvider())
+            {
+                _ = provider.GetRequiredService<ItemTransferPeer>();
+
+                var store = provider.GetRequiredService<IItemStore>();
+
+                Assert(store is ItemFileStore, $"the file store registration produced {store.GetType().Name}");
+
+                using var revision = SecsItem.A("1.4.2");
+
+                // An item with attributes and no contents, which is the state only this stream has
+                // and the one a record with no payload exists for.
+                await ((ItemFileStore)store)
+                    .AddAsync(
+                        new Item { Id = "RECIPE-7", Type = "recipe", Length = 3u },
+                        attributes: [new ItemAttribute { Name = "Revision", Value = revision }],
+                        cancellationToken: CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                var reopened = new ItemFileStore(items);
+
+                Assert(reopened.Count == 1, $"a second item store found {reopened.Count} item(s), not one");
+                Assert(reopened.GrantedCount == 0, "a second item store restored a transfer grant");
+                Assert(
+                    await reopened.ContentsAsync("RECIPE-7", CancellationToken.None).ConfigureAwait(false) is null,
+                    "an item that was only listed came back carrying contents");
+
+                var attributes = await reopened
+                    .AttributesAsync(new ItemAttributeRequest { ItemId = "RECIPE-7" }, CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                Assert(attributes.Count == 1, $"a second item store found {attributes.Count} attribute(s), not one");
+                Assert(
+                    attributes[0].Value.GetString() == "1.4.2",
+                    "an attribute came back from the disk as something else");
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A smoke test that cannot tidy up after itself should not fail for it.
+            }
+        }
+    }
+
     private static async Task DurableRecipesResolveAsync()
     {
         var directory = Path.Combine(Path.GetTempPath(), "barbatos-smoke-recipes-" + Guid.NewGuid().ToString("N"));

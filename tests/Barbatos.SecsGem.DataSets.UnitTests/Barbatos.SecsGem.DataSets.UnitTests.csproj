@@ -6,6 +6,13 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
+    <!-- xUnit1069 wants every test with a Timeout to name TestContext.Current.CancellationToken
+         itself, and cannot see that a helper property already is it. The Timeout is on the file
+         store tests, where a control that breaks a store can leave a wire test waiting on a T3 the
+         FakeTimeProvider never advances - a hung run prints no summary, and a run with no summary
+         reads exactly like a control that found nothing. That has cost this repository five
+         chapters. -->
+    <NoWarn>$(NoWarn);xUnit1069</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

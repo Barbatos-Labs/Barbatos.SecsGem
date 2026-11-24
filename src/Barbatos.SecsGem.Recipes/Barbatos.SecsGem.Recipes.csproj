@@ -20,4 +20,12 @@
     <ProjectReference Include="..\..\src\Barbatos.SecsGem.Hsms\Barbatos.SecsGem.Hsms.csproj" />
   </ItemGroup>
 
+  <!-- Shared source rather than a package reference: the four stores here that outlive a process
+       share a mechanism and not a rule, and no one of the four may depend on another - they sit
+       side by side on Hsms, and a transport has no business holding a file format. -->
+  <ItemGroup>
+    <Compile Include="$(RepositoryDirectory)src\Shared\DurableRecordDirectory.cs"
+             Link="Shared\DurableRecordDirectory.cs" />
+  </ItemGroup>
+
 </Project>

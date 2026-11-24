@@ -307,13 +307,49 @@ returned: a host that wants to act on it has the log, and one that wanted the da
   number has no dictionary entry - and neither does any other block-transfer item in the
   catalogue: `BLKNUM`, `BLKSIZE`, `BLKACK`, `BLKEND`, `CHECKSUM`, `CHKSUM` and `CKSUM` are
   undefined, seven for seven. That is a vocabulary the source never wrote down, not one row it
-  missed, and it is the same measurement that keeps streams 8 and 21 out of this repository
-  altogether. A data set too large for one message is, for now, several data sets.
-- A store that outlives the process. `DataSetInMemoryStore` is in memory, as it says. There is no
-  `Capture` and `Restore` here on purpose: a data set is not state a machine claims about itself,
-  so it survives a restart through an implementation rather than through a snapshot - the same
-  answer `IGemSpool` gives to the same question. Six methods, and a file or a database behind them
-  is an afternoon.
+  missed, and it is the same measurement that keeps the **blocked halves** of streams 8 and 21 out -
+  S8F7 to S8F10 and S21F9 to S21F14. Both of those streams are served here in every other respect,
+  which this sentence used to deny: it was written when neither had a package.
+  A data set too large for one message is, for now, several data sets.
+
+## A store that outlives the process
+
+```csharp
+services
+    .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+    .UseTcpTransport(listenPort: 5000)
+    .AddDataSetFileEquipment(Path.Combine(AppContext.BaseDirectory, "datasets"));
+```
+
+A data set is whatever the two ends agreed it is, which is exactly why it is worth writing down: the
+machine cannot regenerate one and the host has no reason to think it needs sending twice.
+`DataSetFileStore` keeps each one in a file - written through, committed with a rename, the
+identifier and the length *inside* the record - and adopts whatever is in the directory when it is
+constructed. The mechanism is shared source with the control program, recipe and item stores.
+
+| | survives | why |
+| --- | --- | --- |
+| a data set with contents | yes | what a host sent |
+| the length it reports | yes | written **with** the payload - see below |
+| an open | **no** | a transaction in flight: `OpenCount` is zero on every open of the store |
+| a declared length with no data | **no** | the same thing from the other side |
+
+**The last row is the sharp one.** S13F1 is where a host says how long a data set will be, because
+S13F3 does not carry a length - so between the open and the data there is a number and no data set.
+`DataSetInMemoryStore` keeps that as an entry whose contents are null. This store keeps it in memory
+only, and writes the length *with* the payload or not at all, because **a record whose length field
+disagreed with its own payload would be a machine reporting S13F16 figures it cannot stand behind**.
+An open for send that declares 900 over a data set holding 300 and then never sends still reports
+300 after a restart.
+
+Two differences from the in-memory store, both deliberate and **neither visible to a host**: `Count`
+is what is on the disk, so an open with no data yet is not in it; and `CloseAsync` forgets the
+declaration as well as the open, so a slot an open took comes back - where the in-memory store keeps
+it for the life of the process with nothing behind it. Every rule a host can observe is the same in
+both: what an open grants, what a save needs, what the directory lists, what the status reports.
+
+`AddAsync` puts a data set in without a transaction, which is how an equipment offers one for a host
+to fetch: stream 13 has no "I have a new data set" primary, so a host finds out with S13F13.
 
 ## Documentation
 

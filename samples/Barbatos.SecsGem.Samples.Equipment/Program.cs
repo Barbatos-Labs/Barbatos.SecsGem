@@ -277,7 +277,11 @@ internal static class Program
             // Data set transfer, E5 stream 13: the one stream where this end answers everything
             // and starts nothing. There is no message for "I have a new data set", so the runner
             // below puts one in the store and the host finds it by asking.
-            .AddDataSetEquipment()
+            // To a directory, like the spool and the recipes: a data set is whatever the two
+            // ends agreed it is - DSDATA is defined nowhere - so this machine cannot
+            // regenerate one a host sent, and losing it on a restart would mean asking for it
+            // again.
+            .AddDataSetFileEquipment(Path.Combine(AppContext.BaseDirectory, "datasets"))
 
             // And stream 18, which is this machine's own sub-parts: the chamber and the load lock,
             // each commandable and readable on its own. Six primaries arrive here and two go the
@@ -288,14 +292,20 @@ internal static class Program
             // And stream 8, which is firmware rather than recipes: the same transfer design as
             // stream 7 above, for a different kind of program. Six primaries arrive here and this
             // end sends none - stream 8 and stream 13 are the two one-way streams in the stack.
-            .AddControlProgramEquipment()
+            // And to a directory, which matters more here than anywhere: a machine that came
+            // back from a power cut with no boot program would need a host to send its firmware
+            // before it could run.
+            .AddControlProgramFileEquipment(Path.Combine(AppContext.BaseDirectory, "programs"))
 
             // And stream 21, which is the opposite arrangement to the two above it: every row
             // travels either way, so there is one registration and this machine calls the same one
             // the host does. It is a peer, not an equipment - which means it needs a store even
             // though this sample never initiates a transfer, because the host may ask it for a
             // directory. The runner below puts two items in for that question to find.
-            .AddItemTransfer()
+            // And to a directory at this end. Stream 21 is the one stream in this stack where
+            // EITHER end may be the one that was switched off, because both call the same
+            // registration - so a durable store is not an equipment's privilege here.
+            .AddItemFileTransfer(Path.Combine(AppContext.BaseDirectory, "items"))
 
             // And stream 15, which goes the way streams 8 and 13 do: nine primaries arrive here and
             // this end sends none. A recipe is bytes with a namespace, because PPBODY is stream 7's
@@ -423,9 +433,16 @@ internal sealed class ChamberRunner(
         // and waits to be asked - and the bytes are the program, not an encoded item, which is
         // where stream 8 and stream 13 part company. (The data set that makes the other half of
         // that comparison is seeded further down, with the rest of stream 13.)
-        if (controlPrograms is ControlProgramInMemoryStore firmware)
+        // And seeded through the store, which for stream 8 is not a convenience but the only way:
+        // S8F3 sends a program with no name at all, so no host can create a named one. Asked for
+        // first, so a restart leaves whatever is already on the disk.
+        if (controlPrograms is ControlProgramFileStore firmware && !firmware.Has("BOOT-A"))
         {
-            firmware.Add("BOOT-A", new byte[] { 0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01 }, "1.4.2");
+            await firmware.AddAsync(
+                "BOOT-A",
+                new byte[] { 0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01 },
+                "1.4.2",
+                stoppingToken);
         }
 
         // One recipe in two namespaces for stream 15. Stream 15 has no message announcing one
@@ -463,19 +480,38 @@ internal sealed class ChamberRunner(
         // and no contents, which is a shape only this stream has - an item can be listed and
         // described before anybody has sent its bytes, because the directory, the attributes and
         // the data are three separate transactions.
-        if (items is ItemInMemoryStore inventoryOfItems)
+        if (items is ItemFileStore inventoryOfItems)
         {
-            inventoryOfItems.Add(
-                new Item { Id = "RECIPE-7", Type = "recipe", Length = 3 },
-                attributes:
-                [
-                    new ItemAttribute { Name = "Revision", Value = SecsItem.A("1.4.2") },
-                    new ItemAttribute { Name = "Steps", Value = SecsItem.U4(3) },
-                ]);
+            // Through the store again, and here it is the only way an item gets ATTRIBUTES: S21F3
+            // asks for them and no row of the stream sets one. The host sample deletes an item
+            // before it finishes, so asking first is what puts that one back after a restart while
+            // leaving everything else as it was found.
+            if (inventoryOfItems.Find("RECIPE-7") is null)
+            {
+                using var revision = SecsItem.A("1.4.2");
+                using var steps = SecsItem.U4(3);
 
-            inventoryOfItems.Add(
-                new Item { Id = "LOG-2026-11-21", Type = "log" },
-                attributes: [new ItemAttribute { Name = "Lines", Value = SecsItem.U4(0) }]);
+                await inventoryOfItems.AddAsync(
+                    new Item { Id = "RECIPE-7", Type = "recipe", Length = 3 },
+                    attributes:
+                    [
+                        new ItemAttribute { Name = "Revision", Value = revision },
+                        new ItemAttribute { Name = "Steps", Value = steps },
+                    ],
+                    cancellationToken: stoppingToken);
+            }
+
+            if (inventoryOfItems.Find("LOG-2026-11-21") is null)
+            {
+                // Disposed here where the in-memory store's could not be, because this store copies
+                // what it is given into a record - the ownership question a durable store answers.
+                using var lines = SecsItem.U4(0);
+
+                await inventoryOfItems.AddAsync(
+                    new Item { Id = "LOG-2026-11-21", Type = "log" },
+                    attributes: [new ItemAttribute { Name = "Lines", Value = lines }],
+                    cancellationToken: stoppingToken);
+            }
         }
 
         // The machine's sub-parts, which stream 18 has no message to create - so they come from
@@ -511,14 +547,18 @@ internal sealed class ChamberRunner(
             };
         }
 
-        if (dataSets is DataSetInMemoryStore store)
+        // One data set for a host to fetch, and seeded through the store rather than through a
+        // transaction because stream 13 has no message that announces one. Asked for first, so a
+        // second start over the same directory leaves whatever the last host left - a seed that
+        // overwrote a data set somebody had sent would make the durability above worthless.
+        if (dataSets is DataSetFileStore store && !store.Has(41u))
         {
             using var log = SecsItem.L(
                 SecsItem.A("chamber-log"),
                 SecsItem.U4(1, 2, 3, 4),
                 SecsItem.A("23.9 degC, 4.1 mTorr"));
 
-            store.Add(41, DataSetPayload.From(log), length: 64);
+            await store.AddAsync(41u, DataSetPayload.From(log), length: 64, stoppingToken);
         }
 
         // The machine as objects, for stream 14: a chamber with two attributes. The type and the
