@@ -161,6 +161,63 @@ public class MaterialHostingTests
         Assert.All(all, pair => Assert.True(pair.Function % 2 == 1, $"S3F{pair.Function} is not a primary"));
     }
 
+    /// <summary>The job half is the one registration where the two ends differ.</summary>
+    /// <remarks>
+    /// Everything else in stream 4 travels either way, so one method serves both ends. These four
+    /// pairs are directional: three primaries are the host's and S4F23 is the machine's, so a
+    /// machine calling the host's registration would be declaring that it answers its own alerts.
+    /// </remarks>
+    [Fact]
+    public async Task The_job_half_declares_the_other_ends_primaries_at_each_end()
+    {
+        var machine = new ServiceCollection();
+
+        machine
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Passive)
+            .UseInMemoryTransport(isActive: false)
+            .AddMaterialHandoff()
+            .AddMaterialTransferJobs()
+            .AddMaterialTransferJobs();
+
+        await using (var provider = machine.BuildServiceProvider())
+        {
+            _ = provider.GetRequiredService<MaterialTransferJobs>();
+
+            var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+            foreach (var (stream, function) in MaterialTransferJobs.EquipmentMessages)
+            {
+                Assert.True(
+                    router.TryGetHandler(stream, function, out _),
+                    $"S{stream}F{function} should have a handler");
+            }
+
+            // And not the alert, which is this end's own primary to send.
+            Assert.False(router.TryGetHandler(4, 23, out _));
+        }
+
+        var host = new ServiceCollection();
+
+        host
+            .AddSecsGem(configure: link => link.Mode = HsmsConnectionMode.Active)
+            .UseInMemoryTransport(isActive: true)
+            .AddMaterialTransferJobHost();
+
+        await using (var provider = host.BuildServiceProvider())
+        {
+            var router = provider.GetRequiredService<ISecsMessageRouter>();
+
+            Assert.True(router.TryGetHandler(4, 23, out _));
+
+            foreach (var (stream, function) in MaterialTransferJobs.EquipmentMessages)
+            {
+                Assert.False(
+                    router.TryGetHandler(stream, function, out _),
+                    $"S{stream}F{function} is this end's to send, not to answer");
+            }
+        }
+    }
+
     /// <summary>The handoff registration is the one both ends call.</summary>
     /// <remarks>
     /// Stream 4's handshake is symmetric, so there is no equipment half and no host half of it:

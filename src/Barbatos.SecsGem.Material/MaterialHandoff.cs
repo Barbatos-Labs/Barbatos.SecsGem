@@ -73,8 +73,10 @@ public sealed class MaterialHandoff
     /// stream and the symmetry.
     /// </para>
     /// <para>
-    /// S4F19 to S4F26 are still not here - the transfer jobs and the multi-block inquire in front
-    /// of them. The package README says why, and the reason is not the one it used to give.
+    /// S4F19 to S4F26 are <see cref="MaterialTransferJobs"/>, which is a type of its own because
+    /// those four pairs are <strong>directional</strong>: three are the host's primaries and one is
+    /// the machine's. Putting them here would have cost this list the property its first paragraph
+    /// claims. With them, stream 4 is served whole - seventeen rows here and eight there.
     /// </para>
     /// </remarks>
     public static IReadOnlyList<(byte Stream, byte Function)> HandledMessages { get; } =

@@ -67,7 +67,7 @@ Core  <-  Hsms  <-  Gem
                                and everything else is a refusal with no reason.)
             ^----  ItemTransfer (E5 stream 21, and nothing else. ONE end type, because every row
                                travels either way - the second such type here after stream 4's
-                               MaterialHandoff - so one registration, the same six primaries in
+                               MaterialHandoff's handoff half - so one registration, the same six primaries in
                                both routing tables, and a store at both ends: a process that only
                                sends still answers a directory request. Three inferences, each by
                                a route already in use. ITEMDATA is the encoded item that arrived,
@@ -343,8 +343,27 @@ refusals were argued from the message rows when the answer was in the item dicti
 transfer job has no state model anywhere in the reference, where `TRJOBMS` names six states; the
 other said only S4F19 can mint a `TRLINK`, where S4F27 carries one and travels either way. So when
 a chapter reopens a stream, re-read every reason that stream's packages give for leaving something
-out, and replace the wrong ones rather than deleting them - the job half of stream 4 is still
-refused, on `TRACK`, and saying so is what stops the next chapter re-deriving it.
+out, and replace the wrong ones rather than deleting them.
+
+**That paragraph's own example went stale, which is the best argument for it there is.** It used to
+end "the job half of stream 4 is still refused, on `TRACK`, and saying so is what stops the next
+chapter re-deriving it." The next chapter but four asked what `TRACK` is and found an `A[n]` in the
+dictionary: **untabled is not undefined.** All four remaining pairs of stream 4 went in, and stream
+4 is now served whole. Three refusals, three wrong reasons, all three argued from the message rows
+while the answer sat in the dictionary - so when a refusal names an item, look the item up before
+believing it.
+
+**And the half-right part of that refusal became a design rule.** `TRACK` has no values and
+`ERRCODE` has none either, so S4F20 carries no tabled item and a host cannot read a verdict off it.
+That is a reason to invent no verdict, not a reason to leave the row out: carrying a field nobody
+defined is what this repository does for every own gap, and a row is refused for an uninterpretable
+field only when that field is the one the message turns on - `ENABLE`, `NRED`, `CHKSUM`. What S4F19
+turns on is its job and its link, and both are defined. So `ERRCODE` is a **reason, never a
+verdict**: where a row carries a tabled item, read that and put `ERRCODE` beside it, as
+`GemExceptionAbortResult` does with `ACKA`; where it carries none, hand all the fields back
+untouched. `Barbatos.SecsGem.Objects` and `Barbatos.SecsGem.Material` both said so already, and the
+first draft of the transfer job code contradicted them before a re-read of their own remarks caught
+it.
 
 **Check the item NAME before the table, because a true table can belong to another row.** This has
 now happened twice and both times the comparison passed. GEM documents its trace acknowledgement

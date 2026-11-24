@@ -472,6 +472,22 @@ internal static class Program
             hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingSendingEnd!.HandleAsync(transaction, token));
         }
 
+        // And stream 4's job half, which is the opposite arrangement: these four pairs are
+        // directional, so each end declares the *other* end's primaries. The machine answers the
+        // create, the command and the inquire; the host answers the alert.
+        MaterialTransferJobs? pendingMachineJobs = null;
+        MaterialTransferJobs? pendingHostJobs = null;
+
+        foreach (var (stream, function) in MaterialTransferJobs.EquipmentMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingMachineJobs!.HandleAsync(transaction, token));
+        }
+
+        foreach (var (stream, function) in MaterialTransferJobs.HostMessages)
+        {
+            hostRoutes.OnPrimary(stream, function, (transaction, token) => pendingHostJobs!.HandleAsync(transaction, token));
+        }
+
         // Stream 13 goes entirely the other way, so every route is on the equipment's side and the
         // host's router gets nothing at all - which is the one claim in this sample that is made by
         // the absence of code.
@@ -585,6 +601,11 @@ internal static class Program
         // named reasons earn their place: a bare denial would say nothing.
         var sendingEnd = new MaterialHandoff(hostLink);
         var receivingEnd = new MaterialHandoff(equipmentLink);
+        var machineJobs = new MaterialTransferJobs(equipmentLink);
+        var hostJobs = new MaterialTransferJobs(hostLink);
+
+        pendingMachineJobs = machineJobs;
+        pendingHostJobs = hostJobs;
 
         receivingEnd.AnswerOffer = (portId, _) => portId == 1
             ? MaterialSendAcknowledgement.WillAccept
@@ -923,6 +944,8 @@ internal static class Program
                 materialHost,
                 sendingEnd,
                 receivingEnd,
+                machineJobs,
+                hostJobs,
                 dataSetHost,
                 new SubsystemDemo(subsystemHost, subsystemEquipment),
                 controlProgramHost,
@@ -1094,6 +1117,8 @@ internal static class Program
                 materialHost: null,
                 sendingEnd: null,
                 receivingEnd: null,
+                machineJobs: null,
+                hostJobs: null,
 
                 // Over a socket this is the one capability the host can drive on its own, because
                 // stream 13 gives the equipment nothing to start: the equipment sample seeds a
@@ -1176,6 +1201,8 @@ internal static class Program
         MaterialHost? materialHost,
         MaterialHandoff? sendingEnd,
         MaterialHandoff? receivingEnd,
+        MaterialTransferJobs? machineJobs,
+        MaterialTransferJobs? hostJobs,
         DataSetHost? dataSets,
         SubsystemDemo? subsystems,
         ControlProgramHost? controlPrograms,
@@ -1942,6 +1969,58 @@ internal static class Program
             Console.WriteLine($"   S4F27 -> {announced}");
             ok &= announced!.Role == MaterialHandoffRole.Source;
 
+            // Stream 4's job half, which three refusals kept out and a fourth re-read let in. The
+            // machine has to be told how to schedule: the default refuses, because scheduling a
+            // transfer is the machine doing something.
+            machineJobs.AnswerCreate = request => (
+                $"TJ-{request.JobName}",
+                new MaterialTransferJobResult("OK", 0, string.Empty));
+
+            machineJobs.AnswerCommand = (job, command, _) => command == "PAUSE"
+                ? new MaterialTransferJobResult("OK", 0, string.Empty)
+                : new MaterialTransferJobResult(string.Empty, 4, $"{job} does not take {command}");
+
+            var (scheduled, created) = await hostJobs.CreateAsync(
+                new MaterialTransferJobRequest
+                {
+                    JobName = "JOB-7",
+                    Link = announced!,
+                },
+                cancellationToken);
+
+            // All three fields, uninterpreted: TRACK is an A with no values and ERRCODE is a U4
+            // with none, so this library hands them back and the fab decides.
+            Console.WriteLine($"   S4F19 -> TRJOBID={scheduled}, {created}");
+            ok &= scheduled.Length > 0;
+
+            Console.WriteLine(
+                $"   S4F21 -> {await hostJobs.SendCommandAsync(scheduled, "PAUSE", [("REASON", "operator")], cancellationToken)}");
+
+            var refusedCommand = await hostJobs.SendCommandAsync(scheduled, "LAUNCH", [], cancellationToken);
+
+            Console.WriteLine($"   S4F21 -> {refusedCommand}");
+            ok &= refusedCommand.ErrorCode == 4;
+
+            // The alert is the one primary of this half the machine sends, so it arrives on the
+            // host's object. TRJOBMS reserves nothing, so a state outside its six is refused.
+            MaterialTransferJobAlertEventArgs? alerted = null;
+
+            hostJobs.JobAlerted += (_, e) => alerted = e;
+
+            await machineJobs.AlertAsync(
+                scheduled,
+                MaterialTransferJobState.Executing,
+                "JOB-7",
+                cancellationToken: cancellationToken);
+
+            await WaitUntilAsync(() => alerted is not null, "the transfer job alert to reach the host");
+
+            Console.WriteLine($"   S4F23 -> {alerted}");
+            ok &= alerted!.State == MaterialTransferJobState.Executing;
+
+            Console.WriteLine(
+                $"   S4F25 -> GRANT={await hostJobs.InquireMultiBlockAsync(41, 70_000, cancellationToken)}");
+
             await sendingEnd.SendCommandAsync("LINK-1", 1, "LOAD", [("SLOT", "7")], cancellationToken);
             await WaitUntilAsync(
                 () => step?.Notice == MaterialHandoffNotice.Command,
@@ -1987,12 +2066,14 @@ internal static class Program
 
             Console.WriteLine("   S4F35 -> cancel asked and answered on S4F37, a primary of its own");
 
-            // S4F19 to S4F26 are still not here, and the reason is TRACK: an A with no table of
-            // values, which is the whole of the outcome in S4F20 and S4F22, so a host cannot tell
-            // whether its transfer job was created.
+            // Stream 4 is served whole now. S4F19 to S4F26 were refused three times, the last time
+            // on TRACK - which is defined, an A[n] with no values, and untabled is not undefined.
+            // What stayed true is that neither acknowledgement in those rows is interpretable, so
+            // this library interprets neither and hands all three fields back.
             Console.WriteLine(
                 $"   stream 4: {MaterialHandoff.HandledMessages.Count} primaries at both ends, "
-                    + "and S4F19-S4F26 refused on TRACK");
+                    + $"and {MaterialTransferJobs.EquipmentMessages.Count + MaterialTransferJobs.HostMessages.Count} "
+                    + "more in the job half - every primary the reference gives the stream");
             ok &= heard?.MaterialId == StartedLot;
         }
 

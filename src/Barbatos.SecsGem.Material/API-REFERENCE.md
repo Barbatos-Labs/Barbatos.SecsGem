@@ -198,6 +198,79 @@ table of values. Codes 5 to 63 are the equipment's and all read as `Other`, logg
 `enum : byte` - `RRACK`. `Granted = 0`, `Denied = 1`, `Other = 2`. Also quoted. The refusal carries
 no reason, as most of this stream's do.
 
+### `MaterialTransferJobs`
+
+`public sealed class`, built from an `HsmsConnection` and an optional
+`ILogger<MaterialTransferJobs>`. The job half of stream 4 - S4F19 to S4F26 - and the only part of
+the stream where **the two ends declare different messages**.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `EquipmentMessages` | `static IReadOnlyList<(byte, byte)>` | S4F19, S4F21, S4F25 - what a machine answers |
+| `HostMessages` | `static IReadOnlyList<(byte, byte)>` | S4F23 alone - what a host answers |
+| `CreateAsync(request)` | `ValueTask<(string JobId, MaterialTransferJobResult)>` | S4F19. **The identifier is minted here** and comes back from this call; everything later addresses the job by it. Throws `SecsException` when S4F20 was not four items |
+| `SendCommandAsync(jobId, command, parameters)` | `ValueTask<MaterialTransferJobResult>` | S4F21. `TRCMDNAME` is an `A` with no table, the same position `HOCMDNAME` is in - the string is carried and nothing here takes a view. Throws `SecsException` when S4F22 was not three items |
+| `InquireMultiBlockAsync(dataId, length)` | `ValueTask<MaterialGrant>` | S4F25. Here rather than left to S2F39 because this package does not depend on `Barbatos.SecsGem.Gem`: a machine doing handoff and nothing else has no S2F39 to fall back on |
+| `AlertAsync(jobId, state, jobName, errorCode, errorText)` | `ValueTask` | S4F23. Answered by an S4F24 with no body, so there is nothing to hand back |
+| `JobAlerted` | `event EventHandler<MaterialTransferJobAlertEventArgs>?` | S4F23 at the host end |
+| `AnswerCreate` | `Func<MaterialTransferJobRequest, (string, MaterialTransferJobResult)>` | **Refuses by default**, and the identifier it returns is the job's: a machine that accepted without minting one would leave a host with a job it could not command |
+| `AnswerCommand` | `Func<string, string, IReadOnlyList<(string, string)>, MaterialTransferJobResult>` | Refuses by default, for the same reason |
+| `AnswerMultiBlockInquiry` | `Func<uint, uint, MaterialGrant>` | **Grants by default** - a handshake whose only purpose is to let this end refuse should not refuse by silence |
+
+---
+
+### `MaterialTransferJobState`
+
+`enum : byte` - `TRJOBMS`, quoted from its table: `Queued = 0`, `Selected = 1`, `Executing = 2`,
+`Paused = 3`, `Completed = 4`, `Cancelled = 5`.
+
+**No catch-all member**, because the table reserves nothing - six codes and nothing above. So a
+machine reporting six is naming a state the reference does not, and the reader **refuses the alert
+rather than folding it** onto a state the machine never claimed. The same position `COMMACK` is in.
+
+This enum is also the first refusal's undoing: that one said a transfer job has no state model
+anywhere in the reference, where this table had six states in it all along.
+
+---
+
+### `MaterialTransferJobResult`
+
+`public readonly record struct` - `Acknowledgement` (`string`, `TRACK`), `ErrorCode` (`uint`) and
+`ErrorText` (`string`).
+
+**No verdict on it, deliberately.** `TRACK` is an `A` with no values and `ERRCODE` is a `U4` with
+none, so S4F20 and S4F22 carry no tabled item at all - and this package already says of the same
+`ERRCODE` at S4F33 that "nothing here interprets it". The first draft had an `IsAccepted` reading
+nought from `ERRCODE` and contradicted that; all three fields now come back as they arrived.
+
+Where a row *does* carry a tabled item this stack reads it and uses `ERRCODE` as the reason beside
+it - `GemExceptionAbortResult` with S5F18's `ACKA`. This row has nothing to play that part.
+
+---
+
+### `MaterialTransferJobRequest`
+
+`public sealed class` - `JobName` (`required string`), `Link` (`required MaterialHandoffLink`) and
+`DataId` (`uint`).
+
+**The link block is S4F27's, item for item**, which is how the body was settled: S4F19 carries a
+`DATAID` and a `TRJOBNAME` and then the eight items `AnnounceLinkAsync` already writes, in the same
+order. `MaterialHandoffLink.EquipmentName` is ignored - S4F27 has an `EQNAME` and S4F19 does not,
+which is the one difference between the two blocks. One link per job.
+
+---
+
+### `MaterialTransferJobAlertEventArgs`
+
+`sealed class : EventArgs` - `JobId` (`required string`), `JobName` (`string`), `State`
+(`required MaterialTransferJobState`), `ErrorCode` (`uint`), `ErrorText` (`string`), and a
+`ToString()` of `TJ-1 Executing`.
+
+A plain state change carries `ErrorCode` nought; the row can also report a fault on a job, which is
+what the `ERRCODE` and `ERRTEXT` beside the state are for.
+
+---
+
 ### `MaterialHandoffStep`
 
 `enum` - which step of the handshake, valued by its own function number: `ReadyToSend = 1`,
@@ -285,6 +358,8 @@ Namespace `Microsoft.Extensions.DependencyInjection`. Extensions on `ISecsGemBui
 | `AddMaterialEquipment<TSource>()` | The same with an inventory of your own. `TryAdd`, so an `IMaterialSource` already registered wins. |
 | `AddMaterialHost()` | `MaterialHost` and handlers for S3F5, F7, F13, F35. |
 | `AddMaterialHandoff()` | `MaterialHandoff` and handlers for all seventeen - S4F1 to S4F17 and S4F27 to S4F41. **Both ends call this one**, and it composes with either of the two above: stream 3 and stream 4 share no declaration. |
+| `AddMaterialTransferJobs()` | `MaterialTransferJobs` and handlers for `EquipmentMessages` - S4F19, S4F21 and S4F25. The **machine's** end. |
+| `AddMaterialTransferJobHost()` | The same type and handlers for `HostMessages` - S4F23 alone. The **host's** end. A host calling the other one would be declaring that it answers its own requests. |
 
 Either called twice is harmless: the messages go in through the builder's `DeclareOnce`, which
 declares a capability's set once however many times it is asked for.

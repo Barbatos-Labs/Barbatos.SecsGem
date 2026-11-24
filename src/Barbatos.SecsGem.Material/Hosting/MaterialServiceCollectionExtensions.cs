@@ -121,4 +121,59 @@ public static class MaterialServiceCollectionExtensions
 
         return builder;
     }
+
+    /// <summary>Adds the job half of stream 4, as the equipment end answers it.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// Declares <see cref="MaterialTransferJobs.EquipmentMessages"/> - S4F19, S4F21 and S4F25 - so
+    /// a machine answers a host that creates jobs, commands them and asks to send a long message.
+    /// <strong>Unlike <see cref="AddMaterialHandoff"/>, the two ends call different methods</strong>:
+    /// these three primaries are the host's and S4F23 is the machine's, where all seventeen handoff
+    /// rows travel either way.
+    /// </para>
+    /// <para>
+    /// The machine refuses by default. Set <c>MaterialTransferJobs.AnswerCreate</c> and
+    /// <c>AnswerCommand</c> to schedule anything - a machine that has not been told how to run a
+    /// transfer job cannot run one, and answering otherwise would tell a host material was moving.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddMaterialTransferJobs(this ISecsGemBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        DeclareTransferJobs(builder);
+
+        builder.DeclareOnce(MaterialTransferJobs.EquipmentMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<MaterialTransferJobs>().HandleAsync(transaction, token));
+
+        return builder;
+    }
+
+    /// <summary>Adds the job half of stream 4, as the host end answers it.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// Declares <see cref="MaterialTransferJobs.HostMessages"/> - just S4F23, the alert a machine
+    /// sends about a job - and gives the host the three methods that send S4F19, S4F21 and S4F25.
+    /// A host that calls <see cref="AddMaterialTransferJobs"/> instead would be declaring that it
+    /// answers its own requests.
+    /// </remarks>
+    public static ISecsGemBuilder AddMaterialTransferJobHost(this ISecsGemBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        DeclareTransferJobs(builder);
+
+        builder.DeclareOnce(MaterialTransferJobs.HostMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<MaterialTransferJobs>().HandleAsync(transaction, token));
+
+        return builder;
+    }
+
+    private static void DeclareTransferJobs(ISecsGemBuilder builder)
+        => builder.Services.TryAddSingleton(provider => new MaterialTransferJobs(
+            provider.GetRequiredService<HsmsConnection>(),
+            provider.GetService<ILogger<MaterialTransferJobs>>()));
 }

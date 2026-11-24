@@ -1219,7 +1219,11 @@ internal static class Program
             .AddSecsGem()
             .UseInMemoryTransport()
             .AddMaterialEquipment()
-            .AddMaterialHandoff();
+            .AddMaterialHandoff()
+
+            // And the job half, which the stream 4 chapter added: a separate registration because
+            // these four pairs are directional where the seventeen above travel either way.
+            .AddMaterialTransferJobs();
 
         await using var equipmentProvider = equipmentServices.BuildServiceProvider();
 
@@ -1240,6 +1244,7 @@ internal static class Program
         // Two protocols in one type - the interlocked handshake's nine and the handoff protocol's
         // eight - with disjoint function numbers.
         _ = equipmentProvider.GetRequiredService<MaterialHandoff>();
+        _ = equipmentProvider.GetRequiredService<MaterialTransferJobs>();
 
         Assert(
             MaterialHandoff.HandledMessages.Count == 17,
@@ -1250,10 +1255,41 @@ internal static class Program
                 && MaterialHandoff.HandledMessages.Contains(((byte)4, (byte)41)),
             "the packed handoff is missing the handoff protocol, so only the interlocked handshake came out of the package");
 
+        // The job half is a type of its own, because unlike the seventeen above these four pairs
+        // are directional - so the handoff list must still not carry them.
         Assert(
             !MaterialHandoff.HandledMessages.Contains(((byte)4, (byte)19))
                 && !MaterialHandoff.HandledMessages.Contains(((byte)4, (byte)25)),
-            "the packed handoff declares a transfer job row, which stays out on TRACK");
+            "the packed handoff declares a transfer job row, which belongs to MaterialTransferJobs");
+
+        Assert(
+            MaterialTransferJobs.EquipmentMessages.Count == 3,
+            $"the packed job half declares {MaterialTransferJobs.EquipmentMessages.Count} equipment primaries, not three");
+
+        Assert(
+            MaterialTransferJobs.HostMessages.Count == 1,
+            $"the packed job half declares {MaterialTransferJobs.HostMessages.Count} host primaries, not one");
+
+        // Stream 4 whole: seventeen plus four is every primary the reference gives it, and the
+        // three lists share nothing - a stream and function may be declared only once.
+        Assert(
+            MaterialHandoff.HandledMessages.Count
+                + MaterialTransferJobs.EquipmentMessages.Count
+                + MaterialTransferJobs.HostMessages.Count == 21,
+            "the packed stream 4 is not served whole");
+
+        Assert(
+            !MaterialTransferJobs.EquipmentMessages.Intersect(MaterialTransferJobs.HostMessages).Any()
+                && !MaterialTransferJobs.EquipmentMessages.Intersect(MaterialHandoff.HandledMessages).Any()
+                && !MaterialTransferJobs.HostMessages.Intersect(MaterialHandoff.HandledMessages).Any(),
+            "two of the packed stream 4 lists declare the same primary");
+
+        // And neither acknowledgement of the job half is interpreted, which is the decision the
+        // capability turns on and the one a packaging mistake could not show but an API change
+        // could: an IsAccepted back on this type would mean the rule had been forgotten.
+        Assert(
+            typeof(MaterialTransferJobResult).GetProperty("IsAccepted") is null,
+            "MaterialTransferJobResult has an IsAccepted again, and neither TRACK nor ERRCODE is tabled");
 
         foreach (var (stream, function) in MaterialHandoff.HandledMessages)
         {

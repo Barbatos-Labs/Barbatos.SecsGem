@@ -45,9 +45,13 @@ internal sealed class MaterialPair : IAsyncDisposable
         MaterialInMemorySource source,
         MaterialHandoff sender,
         MaterialHandoff receiver,
+        MaterialTransferJobs machineJobs,
+        MaterialTransferJobs hostJobs,
         ConcurrentQueue<(byte Stream, byte Function)> askedOfEquipment,
         ConcurrentQueue<(byte Stream, byte Function)> askedOfHost)
     {
+        MachineJobs = machineJobs;
+        HostJobs = hostJobs;
         _active = active;
         _passive = passive;
         _askedOfEquipment = askedOfEquipment;
@@ -86,6 +90,16 @@ internal sealed class MaterialPair : IAsyncDisposable
     /// <summary>Gets the handoff end on the equipment's link.</summary>
     public MaterialHandoff Receiver { get; }
 
+    /// <summary>Gets the job capability on the equipment's link - the end that answers S4F19.</summary>
+    public MaterialTransferJobs MachineJobs { get; }
+
+    /// <summary>Gets the job capability on the host's link - the end that sends it.</summary>
+    /// <remarks>
+    /// Two objects rather than one, because this half of stream 4 is directional: these are the
+    /// only rows of the stream where the two ends declare different messages.
+    /// </remarks>
+    public MaterialTransferJobs HostJobs { get; }
+
     /// <summary>Gets the host's connection.</summary>
     public HsmsConnection HostLink { get; }
 
@@ -117,7 +131,8 @@ internal sealed class MaterialPair : IAsyncDisposable
         MaterialInMemorySource? source = null,
         Func<SecsTransaction, SecsMessage?>? equipmentAnswer = null,
         Func<SecsTransaction, SecsMessage?>? hostAnswer = null,
-        ILogger<MaterialHandoff>? receiverLogger = null)
+        ILogger<MaterialHandoff>? receiverLogger = null,
+        ILogger<MaterialTransferJobs>? jobLogger = null)
     {
         var options = new SecsGemOptions
         {
@@ -184,6 +199,32 @@ internal sealed class MaterialPair : IAsyncDisposable
             });
         }
 
+        // And the job half, which declares *different* messages at the two ends: the host sends
+        // S4F19, S4F21 and S4F25, and the machine sends S4F23. So unlike the handoff rows above,
+        // each router gets the other end's list.
+        MaterialTransferJobs? pendingMachineJobs = null;
+        MaterialTransferJobs? pendingHostJobs = null;
+
+        foreach (var (stream, function) in MaterialTransferJobs.EquipmentMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) =>
+            {
+                askedOfEquipment.Enqueue((transaction.S, transaction.F));
+
+                return Answer(transaction, token, equipmentAnswer, pendingMachineJobs!.HandleAsync);
+            });
+        }
+
+        foreach (var (stream, function) in MaterialTransferJobs.HostMessages)
+        {
+            hostRoutes.OnPrimary(stream, function, (transaction, token) =>
+            {
+                askedOfHost.Enqueue((transaction.S, transaction.F));
+
+                return Answer(transaction, token, hostAnswer, pendingHostJobs!.HandleAsync);
+            });
+        }
+
         var equipmentLink = new HsmsConnection(options, passive, equipmentRoutes.Build(), clock);
         var hostLink = new HsmsConnection(options, active, hostRoutes.Build(), clock);
 
@@ -191,6 +232,8 @@ internal sealed class MaterialPair : IAsyncDisposable
         pendingHost = new MaterialHost(hostLink);
         pendingSender = new MaterialHandoff(hostLink);
         pendingReceiver = new MaterialHandoff(equipmentLink, receiverLogger);
+        pendingMachineJobs = new MaterialTransferJobs(equipmentLink, jobLogger);
+        pendingHostJobs = new MaterialTransferJobs(hostLink);
 
         return new MaterialPair(
             active,
@@ -202,9 +245,33 @@ internal sealed class MaterialPair : IAsyncDisposable
             inventory,
             pendingSender,
             pendingReceiver,
+            pendingMachineJobs,
+            pendingHostJobs,
             askedOfEquipment,
             askedOfHost);
     }
+
+    /// <summary>Waits, bounded, for an exchange in flight to finish.</summary>
+    /// <typeparam name="T">What it answers with.</typeparam>
+    /// <param name="sending">The call in flight.</param>
+    /// <returns>Whatever it answered.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Earned by a control</strong>, and by the same one that earned <c>GemPair.SentAsync</c>
+    /// a few chapters earlier: a control that removed S4F25 from
+    /// <c>MaterialTransferJobs.EquipmentMessages</c> left the undeclared primary waiting on a T3
+    /// that the <c>FakeTimeProvider</c> never advances, so the whole run died on its own timeout
+    /// with no summary - and the control reported "found nothing" when what it had found was a
+    /// hang.
+    /// </para>
+    /// <para>
+    /// The timeout is on the real clock deliberately. Everything the library does runs on the fake
+    /// one; this is the harness noticing that the library has stopped. Wrap any call whose primary
+    /// the other end might not answer.
+    /// </para>
+    /// </remarks>
+    public static Task<T> SentAsync<T>(ValueTask<T> sending)
+        => sending.AsTask().WaitAsync(TimeSpan.FromSeconds(5), Token);
 
     /// <summary>Waits for both ends of the link to select.</summary>
     /// <returns>A task that completes once they have.</returns>

@@ -505,6 +505,225 @@ internal static class MaterialCodec
         SecsItem.A(link.PartnerPort).Named("TRPTPORT"),
         SecsItem.A(link.Location).Named("TRLOCATION"));
 
+    /// <summary>Writes S4F19's body: a DATAID, a job name, and S4F27's link block without EQNAME.</summary>
+    /// <param name="request">The job.</param>
+    /// <returns>Ten items.</returns>
+    /// <remarks>
+    /// The link block is <see cref="HandoffLinkBody"/>'s, in the same order and minus its first
+    /// item - which is the whole of the difference between the two rows, and the reason this body
+    /// needed no guessing.
+    /// </remarks>
+    internal static SecsItem TransferJobBody(MaterialTransferJobRequest request) => SecsItem.L(
+        SecsItem.U4(request.DataId).Named("DATAID"),
+        SecsItem.A(request.JobName).Named("TRJOBNAME"),
+        SecsItem.A(request.Link.Link).Named("TRLINK"),
+        SecsItem.A(request.Link.ObjectName).Named("TROBJNAME"),
+        SecsItem.A(request.Link.ObjectType).Named("TROBJTYPE"),
+        SecsItem.A(request.Link.Port).Named("TRPORT"),
+        SecsItem.A(RoleWord(request.Link.Role)).Named("TRROLE"),
+        SecsItem.A(request.Link.PartnerName).Named("TRPTNR"),
+        SecsItem.A(request.Link.PartnerPort).Named("TRPTPORT"),
+        SecsItem.A(request.Link.Location).Named("TRLOCATION"));
+
+    /// <summary>Reads S4F19's body.</summary>
+    /// <param name="body">The item.</param>
+    /// <param name="request">The job.</param>
+    /// <returns><see langword="false"/> when the body is not ten items, or names no link.</returns>
+    /// <remarks>
+    /// A job with no <c>TRLINK</c> is refused for the reason <see cref="TryReadHandoffLink"/> gives:
+    /// every later message addresses the link by that string. A job with no <c>TRJOBNAME</c> is
+    /// allowed, because S4F20 mints the identifier everything afterwards uses.
+    /// </remarks>
+    internal static bool TryReadTransferJob(SecsItem? body, out MaterialTransferJobRequest? request)
+    {
+        request = null;
+
+        if (body is not { IsList: true, Count: 10 })
+        {
+            return false;
+        }
+
+        var link = Text(body[2]);
+
+        if (link.Length == 0)
+        {
+            return false;
+        }
+
+        request = new MaterialTransferJobRequest
+        {
+            DataId = UInt32(body[0]),
+            JobName = Text(body[1]),
+            Link = new MaterialHandoffLink
+            {
+                Link = link,
+                ObjectName = Text(body[3]),
+                ObjectType = Text(body[4]),
+                Port = Text(body[5]),
+                Role = ReadRole(Text(body[6])),
+                PartnerName = Text(body[7]),
+                PartnerPort = Text(body[8]),
+                Location = Text(body[9]),
+            },
+        };
+
+        return true;
+    }
+
+    /// <summary>Writes S4F20's body: the job identifier, then the verdict.</summary>
+    internal static SecsItem TransferJobResultBody(string jobId, MaterialTransferJobResult result) => SecsItem.L(
+        SecsItem.A(jobId).Named("TRJOBID"),
+        SecsItem.A(result.Acknowledgement).Named("TRACK"),
+        SecsItem.U4(result.ErrorCode).Named("ERRCODE"),
+        SecsItem.A(result.ErrorText).Named("ERRTEXT"));
+
+    /// <summary>Writes S4F22's body: the verdict, with no identifier because the command named one.</summary>
+    internal static SecsItem TransferJobCommandResultBody(MaterialTransferJobResult result) => SecsItem.L(
+        SecsItem.A(result.Acknowledgement).Named("TRACK"),
+        SecsItem.U4(result.ErrorCode).Named("ERRCODE"),
+        SecsItem.A(result.ErrorText).Named("ERRTEXT"));
+
+    /// <summary>Reads the three items S4F20 and S4F22 share.</summary>
+    /// <param name="body">The reply body.</param>
+    /// <param name="offset">0 for S4F22, 1 for S4F20, which carries a TRJOBID first.</param>
+    /// <returns>The verdict.</returns>
+    /// <remarks>
+    /// <c>TRACK</c> comes back as the text it is, and the verdict is read from <c>ERRCODE</c> - see
+    /// <see cref="MaterialTransferJobResult"/> for why that is a reading and not a shortcut.
+    /// </remarks>
+    internal static MaterialTransferJobResult ReadTransferJobResult(SecsItem body, int offset) => new(
+        Text(body[offset]),
+        UInt32(body[offset + 1]),
+        Text(body[offset + 2]));
+
+    /// <summary>Writes S4F21's body: a job, a command name and its parameters.</summary>
+    /// <remarks>
+    /// <see cref="HandoffCommandBody"/>'s shape without the <c>MCINDEX</c>, which S4F29 has and
+    /// S4F21 does not - a command on a job addresses the job, where a command on a handoff
+    /// addresses one step of it.
+    /// </remarks>
+    internal static SecsItem TransferJobCommandBody(
+        string jobId,
+        string command,
+        IReadOnlyList<(string Name, string Value)> parameters)
+    {
+        var pairs = new SecsItem[parameters.Count];
+
+        for (var i = 0; i < parameters.Count; i++)
+        {
+            pairs[i] = SecsItem.L(
+                SecsItem.A(parameters[i].Name).Named("CPNAME"),
+                SecsItem.A(parameters[i].Value).Named("CPVAL"));
+        }
+
+        return SecsItem.L(
+            SecsItem.A(jobId).Named("TRJOBID"),
+            SecsItem.A(command).Named("TRCMDNAME"),
+            SecsItem.L(pairs));
+    }
+
+    /// <summary>Reads S4F21's body.</summary>
+    /// <param name="body">The item.</param>
+    /// <param name="jobId">TRJOBID.</param>
+    /// <param name="command">TRCMDNAME.</param>
+    /// <param name="parameters">The CPNAME and CPVAL pairs, which may be empty.</param>
+    /// <returns><see langword="false"/> when the body is not three items or names no job.</returns>
+    internal static bool TryReadTransferJobCommand(
+        SecsItem? body,
+        out string jobId,
+        out string command,
+        out IReadOnlyList<(string Name, string Value)> parameters)
+    {
+        jobId = string.Empty;
+        command = string.Empty;
+        parameters = [];
+
+        if (body is not { IsList: true, Count: 3 })
+        {
+            return false;
+        }
+
+        jobId = Text(body[0]);
+
+        if (jobId.Length == 0)
+        {
+            return false;
+        }
+
+        command = Text(body[1]);
+        List<(string, string)> pairs = [];
+
+        if (body[2].IsList)
+        {
+            foreach (var entry in body[2].Items)
+            {
+                if (entry is { IsList: true, Count: 2 })
+                {
+                    pairs.Add((Text(entry[0]), Text(entry[1])));
+                }
+            }
+        }
+
+        parameters = pairs;
+        return true;
+    }
+
+    /// <summary>Reads a text item for a caller outside this class.</summary>
+    internal static string TextOf(SecsItem item) => Text(item);
+
+    /// <summary>Reads an unsigned item for a caller outside this class.</summary>
+    internal static uint UInt32Of(SecsItem item) => UInt32(item);
+
+    /// <summary>Writes S4F23's body: a job, its state, and a reason when there is one.</summary>
+    internal static SecsItem TransferJobAlertBody(
+        string jobId,
+        string jobName,
+        MaterialTransferJobState state,
+        uint errorCode,
+        string errorText) => SecsItem.L(
+        SecsItem.A(jobId).Named("TRJOBID"),
+        SecsItem.A(jobName).Named("TRJOBNAME"),
+        SecsItem.U1((byte)state).Named("TRJOBMS"),
+        SecsItem.U4(errorCode).Named("ERRCODE"),
+        SecsItem.A(errorText).Named("ERRTEXT"));
+
+    /// <summary>Reads S4F23's body.</summary>
+    /// <param name="body">The item.</param>
+    /// <param name="alert">The alert.</param>
+    /// <returns><see langword="false"/> when the body is not five items, names no job, or carries a state the reference does not.</returns>
+    /// <remarks>
+    /// <strong>A state outside the table is a refusal, not a fold.</strong> <c>TRJOBMS</c> reserves
+    /// nothing - six codes and nothing above - so there is no catch-all member to put a seventh on,
+    /// and inventing one would report a state the machine never claimed.
+    /// </remarks>
+    internal static bool TryReadTransferJobAlert(SecsItem? body, out MaterialTransferJobAlertEventArgs? alert)
+    {
+        alert = null;
+
+        if (body is not { IsList: true, Count: 5 })
+        {
+            return false;
+        }
+
+        var jobId = Text(body[0]);
+
+        if (jobId.Length == 0 || !TryReadUnsigned(body[2], out var state) || state > (ulong)MaterialTransferJobState.Cancelled)
+        {
+            return false;
+        }
+
+        alert = new MaterialTransferJobAlertEventArgs
+        {
+            JobId = jobId,
+            JobName = Text(body[1]),
+            State = (MaterialTransferJobState)state,
+            ErrorCode = UInt32(body[3]),
+            ErrorText = Text(body[4]),
+        };
+
+        return true;
+    }
+
     /// <summary>Reads S4F27's body.</summary>
     /// <param name="body">The item.</param>
     /// <param name="link">The link.</param>

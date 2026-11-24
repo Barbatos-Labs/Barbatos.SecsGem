@@ -299,28 +299,73 @@ neither tabled either, so both pass through untouched.
 nothing here tracks which commands are outstanding or which links are open. A link is an agreement
 between two ends and this type is one end of it, not a registry.
 
+## Transfer jobs, stream 4's last half
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .AddMaterialHandoff()
+    .AddMaterialTransferJobs();          // the machine's end; AddMaterialTransferJobHost() for a host
+```
+
+```csharp
+// The host. S4F20 is where the identifier is minted, so it comes back from the create.
+var (jobId, result) = await jobs.CreateAsync(new MaterialTransferJobRequest
+{
+    JobName = "JOB-7",
+    Link = link,                         // the same eight items S4F27 announces
+});
+
+await jobs.SendCommandAsync(jobId, "PAUSE", [("REASON", "operator")]);
+
+// The machine, telling the host where a job got to.
+await jobs.AlertAsync(jobId, MaterialTransferJobState.Executing);
+```
+
+**A type of its own, because these four pairs are directional.** `MaterialHandoff`'s seventeen rows
+all travel either way, which is why one list serves both ends; here the host creates, commands and
+inquires, and the machine alerts. So `AddMaterialTransferJobs` declares what a machine answers and
+`AddMaterialTransferJobHost` declares what a host answers - the only split in this stream.
+
+**With these, stream 4 is served whole**: seventeen rows there and eight here, which is every
+primary the reference gives it.
+
+### These rows were refused three times, on three wrong reasons
+
+| the reason given | why it was wrong |
+| --- | --- |
+| a transfer job has no state model anywhere in the reference | `TRJOBMS` names six states, Queued through Cancelled |
+| only S4F19 can mint a `TRLINK` | S4F27 carries one and travels either way |
+| `TRACK` | `TRACK` **is defined** - an `A[n]` - it simply carries no values |
+
+All three were argued from the message rows while the answer sat in the item dictionary, and the
+third is the one worth keeping in view: **untabled is not undefined.** Every one of the twenty item
+names across these four pairs is in the dictionary, which makes this the only capability in this
+package whose rows were clean from the start.
+
+### And neither acknowledgement is interpreted
+
+The third refusal was half right. `TRACK` is an `A` with no values and `ERRCODE` is a `U4` with
+none, so **the row has no tabled item in it at all** - a host cannot read a verdict off either.
+What follows from that is not that the rows stay out; it is that this library does not invent one:
+
+```csharp
+// All three fields, as the machine set them. What they mean together is yours.
+Console.WriteLine(result);     // TRACK=OK ERRCODE=0
+```
+
+That is what this package already says about `ERRCODE` at the S4F33 it serves - "untabled in the
+reference, so nothing here interprets it" - and the first draft of this capability contradicted it
+with an `IsAccepted` reading nought from `ERRCODE`. Where a row *does* carry a tabled item this
+stack reads that and uses `ERRCODE` as the reason beside it; `GemExceptionAbortResult` does exactly
+that with S5F18's `ACKA`. This row has nothing to play that part.
+
+A row is refused for an uninterpretable field only when that field is **the one the message turns
+on** - `ENABLE`, `NRED`, `CHKSUM`. What S4F19 turns on is the job and the link, and both are
+defined.
+
 ## What is not here yet
 
 - **S3F17 to S3F34**, the carrier and storage half of that stream. See above: that is E87's.
-- **S4F19 to S4F22**, stream 4's transfer *jobs* - and the reason here is `TRACK`. Those two rows
-  are the only answers to a job create and a job command, and `TRACK` is the whole of the outcome
-  in both: an `A` with **no table of values**, beside an `ERRCODE` that is a `U4` with none either.
-  So a host cannot tell whether its job was created. That the silence is meaningful rather than a
-  habit is what `TRROLE` settles - an `A` in the same stream that does arrive with its table.
-  S4F23, the alert, is out with them: it reports a job's state and there are no jobs.
-  <br/>This entry used to give a different reason - that "a transfer job has no state machine
-  anywhere in this reference", against E94's and E40's. That is true of the message rows and false
-  of the dictionary: `TRJOBMS` names six states, Queued through Cancelled, and S4F23 carries it.
-  Six state names are not a transition model, which is a reason not to *enforce* a sequence - a
-  choice this package had already made for stream 4 - and not a reason to leave the messages
-  unserved. The measurements are in
-  [`SecsCatalogStream4Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream4Tests.cs).
-- **S4F25 and S4F26**, the multi-block inquire, and its format is not the reason: `DATAID` and
-  `DATALENGTH` are defined and `GRANT` is a tabled item three packages here already read. It is the
-  handshake in front of a message too large for one block, and the only row in this stream large
-  enough to need one is the job create that stays out - and it is the host's alone, where this
-  package's stream 4 type is one type for both ends by design. Reopenable the moment the job half
-  is, and not before.
 - A source that outlives the process. `MaterialInMemorySource` is in memory, as it says; the
   interface is five methods and a database behind it is an afternoon.
 - `QUA` has no code table in the catalogue, so a quantity is a byte and nothing here interprets it.
