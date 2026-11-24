@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace Barbatos.SecsGem.Gem.UnitTests;
 
 /// <summary>
-/// The four pairs of stream 6 the gap measurement let in, driven end to end.
+/// The five pairs of stream 6 that went in after the gapless sweep, driven end to end.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,6 +18,13 @@ namespace Barbatos.SecsGem.Gem.UnitTests;
 /// which is not an invention: S6F11 carries it too and is a row the reference illustrates in full.
 /// <c>CELLNAME</c> and <c>NRED</c> are what their rows are <em>for</em>, so those two stay out.
 /// <c>SecsCatalogStream6Tests</c> holds the measurements.
+/// </para>
+/// <para>
+/// <strong>The fifth went in on a different measure, a chapter later.</strong> S6F25 has no
+/// undefined item at all and was refused over its <em>shape</em>: the reference records it exactly
+/// as it records S6F16, and S6F16 is served here carrying a whole event report. What settled it was
+/// asking why S6F16's body exceeds its record - S6F15 is the Event Report <em>Request</em>, and
+/// nothing asks an S6F25 for anything.
 /// </para>
 /// <para>
 /// <strong>Two of these rows answer a question nothing else here answers.</strong> S6F17 is the
@@ -417,6 +424,155 @@ public class GemStream6Tests
             // defines: a held message that lost it would be delivered as news when the host comes
             // back, and the machine would never learn whether it was taken.
             Assert.True(held.ReplyExpected);
+        }
+    }
+
+    // ----------------------------------------------------------------- S6F25 and S6F26
+
+    [Fact(Timeout = 15_000)]
+    public async Task The_notification_report_carries_the_two_items_its_row_names_and_no_report_list()
+    {
+        await using var link = GemLink.Start(Model);
+        await link.OpenAsync();
+
+        var sent = link.Equipment.SendNotificationReportAsync(1_000, GemLink.Token);
+        using var message = await link.ReceiveAsync();
+
+        Assert.True(await sent);
+        Assert.Equal(6, message.S);
+        Assert.Equal(25, message.F);
+
+        // The whole question this row was refused over, and the only place the answer is visible.
+        // Two items, DATAID and CEID - not three, which is what it would be if the record's
+        // silence about RPTID meant here what it means at S6F16. It does not: S6F15 asked for a
+        // report and nothing asks an S6F25 for anything.
+        Assert.True(message.Item!.IsList);
+        Assert.Equal(2, message.Item.Count);
+        Assert.False(message.Item[0].IsList);
+        Assert.False(message.Item[1].IsList);
+        Assert.Equal(1_000u, message.Item[1].FirstValueOrDefault<uint>());
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task It_is_an_S6F3_item_for_item_and_the_function_is_the_whole_difference()
+    {
+        await using var link = GemLink.Start(Model);
+        await link.OpenAsync();
+
+        var discrete = link.Equipment.SendDiscreteVariableDataAsync(1_000, GemLink.Token);
+        using var three = await link.ReceiveAsync();
+
+        Assert.True(await discrete);
+
+        var notification = link.Equipment.SendNotificationReportAsync(1_000, GemLink.Token);
+        using var twentyFive = await link.ReceiveAsync();
+
+        Assert.True(await notification);
+
+        // Identical in shape, in format and in the CEID. Which is why the row is served rather
+        // than refused as a duplicate: E5 gives the notification report its own request and its
+        // own enable, so the family is real even though the announcement is these same two items.
+        // S1F9 went in on that question asked the other way round - ask what the row you are
+        // calling a duplicate is made of.
+        Assert.Equal(3, three.F);
+        Assert.Equal(25, twentyFive.F);
+        Assert.Equal(three.Item!.Count, twentyFive.Item!.Count);
+        Assert.Equal(three.Item[0].Format, twentyFive.Item[0].Format);
+        Assert.Equal(three.Item[1], twentyFive.Item[1]);
+
+        // DATAID is the one item that differs, because it counts - which is the reason the
+        // comparison above is item by item rather than one assertion on the whole body.
+        Assert.NotEqual(three.Item[0], twentyFive.Item[0]);
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_notification_report_reaches_the_host_naming_its_own_function()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        List<(byte Function, ulong Event, int Reports)> seen = [];
+        pair.Host.EventReportReceived += (_, e) => seen.Add((e.Function, e.EventId, e.Reports.Count));
+
+        Assert.True(await pair.Equipment.SendNotificationReportAsync(1_000, GemPair.Token));
+        await GemPair.WaitUntilAsync(() => seen.Count == 1, "the notification report to reach the host");
+
+        // Four rows arrive on this one event now, and GemEventReportEventArgs.Function is the only
+        // thing that separates them: an S6F11 for an event with nothing linked, an S6F3 and an
+        // S6F25 all arrive carrying no reports at all.
+        Assert.Equal((25, 1_000UL, 0), Assert.Single(seen));
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task It_obeys_the_two_gates_S6F3_obeys_and_the_refusal_comes_back_on_S6F26()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        // An event this machine does not declare, and then one the host switched off. S2F37
+        // disables a CEID and this message names one, so a second way to announce must not be a
+        // way round the host's own instruction.
+        Assert.False(await pair.Equipment.SendNotificationReportAsync(4_242, GemPair.Token));
+
+        Assert.Equal(
+            GemEnableEventAcknowledgement.Accepted,
+            await pair.Host.EnableEventsAsync(false, [1_000UL], GemPair.Token));
+
+        Assert.False(await pair.Equipment.SendNotificationReportAsync(1_000, GemPair.Token));
+        Assert.True(await pair.Equipment.SendNotificationReportAsync(1_001, GemPair.Token));
+
+        // And the host end refuses a body it cannot read through the same handler S6F3 uses. One
+        // handler for two rows is worth asserting from the wire, because the acknowledgement has
+        // to go back on the right function and nothing else in the suite would notice.
+        using var wrong = new SecsMessage(6, 25, replyExpected: true)
+        {
+            Name = "NotificationReportSend",
+            Item = SecsItem.U4(1_000).Named("CEID"),
+        };
+
+        using var reply = await pair.AskHostAsync(wrong);
+
+        Assert.Equal(6, reply.S);
+        Assert.Equal(26, reply.F);
+        Assert.Equal((byte)GemReportAcknowledgement.Error, reply.Item!.FirstValueOrDefault<byte>());
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_notification_report_is_held_for_a_host_that_is_not_there()
+    {
+        var spool = new GemInMemorySpool();
+        var link = GemLink.Start(Model, spool: spool);
+
+        await using (link)
+        {
+            await link.SelectAsync();
+
+            using (await link.EstablishAsync(GemCommunicationAcknowledgement.Denied))
+            {
+            }
+
+            await GemLink.WaitUntilAsync(
+                () => !link.Equipment.IsCommunicating && link.Equipment.IsSpooling,
+                "the equipment to be spooling with nobody to talk to");
+
+            // Spooled like a report, because that is what it is to a host that was away: news it
+            // would have been told. The documented claim is that this row is gated and held
+            // exactly as S6F3 is, and a claim in a remark that no test drives is a claim about
+            // nothing.
+            Assert.False(await link.Equipment.SendNotificationReportAsync(1_000, GemLink.Token));
+            Assert.Equal(1, link.Equipment.SpoolCountActual);
+
+            var held = await spool.TryPeekAsync(GemLink.Token);
+
+            Assert.NotNull(held);
+            Assert.Equal(6, held!.Stream);
+            Assert.Equal(25, held.Function);
+
+            // And the name, which is the only place in this suite one can be read: a message name
+            // never travels on the wire, so a reply's is unobservable - a control that renamed the
+            // host's S6F26 found nothing and could not. A spool keeps it, because a held message
+            // has to come back as itself.
+            Assert.Equal("NotificationReportSend", held.Name);
         }
     }
 }

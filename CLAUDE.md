@@ -285,12 +285,12 @@ are text with no tables named by stream 1 alone - and that is `TRACK`'s mistake 
 are *defined*. Everything still unimplemented is in a stream with gaps, which means **the group
 measure is spent and what is left needs measuring row by row**.
 Stream 2 had seven gaps and stream 6 four; neither could be done as a batch the way the gapless
-streams were. Both are finished now - stream 6 served four of its last seven pairs, stream 2 nine
+streams were. Both are finished now - stream 6 served five of its last seven pairs, stream 2 nine
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about. What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned
-already - stream 4's job half, stream 7's command cancel, four pairs of stream 15 and stream 1's
-material transfer status.
+already - stream 4's job half, stream 7's command cancel, four pairs of stream 15, stream 1's
+material transfer status and stream 6's notification report.
 
 **A refusal with two reasons needs both of them re-read, and the weaker one is usually the one
 that was doing the work.** S1F9/F10 had two. The first was an item argument and wrong the way
@@ -375,11 +375,24 @@ second field to anchor a reading against and the undefined name is the thing the
 row, the names that row's table mentions - and that is not a description of the message. S6F11 is
 recorded with four items and S6F16 with two, and both carry a whole event report; this repository
 builds them from one method. So a row's nesting has always come from a served sibling and never
-from the catalogue, which is fine while the siblings agree. S6F25 is the first row where they do
-not: it is recorded exactly as S6F16 is, so whether a report list follows cannot be settled, and
-**a body guessed wrong is unparseable rather than merely uninterpretable**. That is the first
-refusal here about a *shape* instead of a field, and it ranks below an item gap and above nothing:
-when the siblings agree, serve the row and say which sibling gave the body - three packages do.
+from the catalogue, which is fine while the siblings agree. S6F25 was the one row where they did
+not - recorded exactly as S6F16 is - and it was refused on that, the first refusal here about a
+*shape* instead of a field, on the ground that **a body guessed wrong is unparseable rather than
+merely uninterpretable**.
+
+**The way to break a shape tie is to ask why the sibling's body exceeds its record.** S6F16's does
+because S6F15 is the Event Report *Request*: a reply to a request for a report has to carry one,
+and S6F16 is the only row of the stream served carrying an `RPTID` its own record does not name.
+Nothing asks a primary for anything, and no primary of the stream is served that way - and three
+rows of stream 6 carry S6F25's record, the only secondary among them being the explained one, while
+the primary among them is S6F3, served as exactly those two items since the chapter that measured
+`DVNAME` and `DVVAL`. The second half is the item that would do the carrying: `RPTID` is named by
+S6F11, by S6F13 and - in S6F25's own family - by S6F28, and by none of that family's other three
+rows, which also kills the reading that would have given the row a list of identifiers. So
+**compare a row with the sibling that plays the same part in its pair, and make the odd one explain
+itself**; where nothing explains it the shape really is open. S6F25/F26 is served, which leaves
+**S7F35** as the only refusal anywhere here resting on a shape, and stream 6 down to the two rows
+whose own flag is undefined.
 
 **An undefined item's format is sometimes stated elsewhere and sometimes not, and the difference is
 worth checking before inventing anything.** Stream 8's `CPBODY` has no definition, so

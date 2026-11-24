@@ -295,6 +295,40 @@ carries no acknowledgement to tell them apart - on the wire they are different b
 [`GemStream6Tests`](../../tests/Barbatos.SecsGem.Gem.UnitTests/GemStream6Tests.cs) reads the frames
 to prove it.
 
+## Two ways to say that an event happened
+
+Stream 6 has two rows whose whole body is `DATAID` and `CEID` - S6F3 and **S6F25**, the
+notification report send - and on the wire they are the same two items in the same formats:
+
+```csharp
+await equipment.SendDiscreteVariableDataAsync(1_000);   // S6F3
+await equipment.SendNotificationReportAsync(1_000);     // S6F25
+
+host.EventReportReceived += (_, args) =>
+{
+    // 11, 13, 3 or 25. Nothing in the body can tell the last two apart.
+    Console.WriteLine($"S6F{args.Function}: event {args.EventId}");
+};
+```
+
+**S6F25 was refused over a *shape* rather than a field** - one of only two rows here ever refused
+that way, S7F35 being the other. Its two items are both defined and both already read here; what
+was open is whether a report list follows them, because the reference records this row exactly as
+it records S6F16 - and S6F16 is served here carrying a whole event report. The tie-break is to ask
+*why* S6F16's body exceeds its record:
+**S6F15 is the Event Report _Request_**, and a reply to a request for a report has to carry one.
+Nothing asks an S6F25 for anything, and `RPTID` - the item that makes a report list a report list -
+is named by S6F11's row, by S6F13's and by S6F28's in this very family, but by none of the other
+three rows of that family.
+
+So what keeps the two rows apart is the reference and not their bytes: E5 gives the notification
+report its own request - S6F27, above - and its own enable, S6F29, which stays out because `NRED`
+is the flag that row exists to carry and nothing defines it. **Which form to announce with is the
+application's choice**, since the switch that would choose it is the one message of the family this
+library cannot carry. Both obey the same two gates - the event must be one the machine declares and
+the host must not have disabled it with S2F37 - and both are held for a host that is away, and
+suppressed by row like any other report when a host sends S2F43.
+
 ## Data that is not an event
 
 Everything above hangs off a `CEID`. Two rows of stream 6 have no `CEID` anywhere in them, which
@@ -984,6 +1018,7 @@ rather than an illustration, and each was added by the sweep that closed the las
 | S5F17 | A host asking that a recovery stop | S5F18 (ACKA, with a reason) |
 | S10F7 | A terminal nobody can reach | nothing - the row has no reply |
 | S6F3 | An event happened; no values attached | S6F4 (ACKC6) |
+| S6F25 | The same two items again, as a notification report | S6F26 (ACKC6) |
 | S6F5 | May I send something too big for one block? | S6F6 (GRANT6) |
 | S2F21 | A remote command with no parameters | S2F22 (CMDA) |
 | S2F25 | Send these bytes back to me | S2F26 (ABS) |
@@ -1184,7 +1219,7 @@ the recorded set has to cover `HandledMessages`, `ProcessProgramMessages`,
 | Equipment data - S1F4, S2F14, S6F16, S6F20 | The `SecsMessage`, which **the caller disposes**. A typed wrapper over "whatever this machine calls a value" would be a guess with an API attached |
 
 What the machine says unprompted arrives as an event: `EventReportReceived` (S6F11, S6F13 and
-S6F3), `AlarmReceived` (S5F1), `ExceptionReceived` (S5F9), `TraceDataReceived` (S6F1),
+S6F3 and S6F25), `AlarmReceived` (S5F1), `ExceptionReceived` (S5F9), `TraceDataReceived` (S6F1),
 `MultiBlockInquired` (S6F5) and `ErrorReported` (stream 9). Each carries a settable
 acknowledgement, because whether a host could store what it was sent is the one decision about an
 inbound report that cannot be made for it.
@@ -1215,7 +1250,7 @@ not a wall in front of it.
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
 | Five pairs of stream 7 | Seventeen of its twenty-two primaries are here now, and **stream 7 is where the item list stopped discriminating**: nine of its rows carry `PPID, PPBODY` and six of those are served, and seven of its primaries carry `PPID` alone with six of those served. So "every item in this row is defined" is true of all five refusals and says nothing about any of them - what decides is whether the row's *name* names an action on its fields. **The matrix family**, S7F11 to S7F16, is **write-only**: a send, a load inquire and a verify, and no request and no directory anywhere in the reference, so a matrix program could be stored and never read back - and it would be stored under a `PPID` that S7F5 would hand back as a plain program, because the rows are item for item the plain ones. S7F13 also loses to S7F1, which is a definition where it is an illustration. **S7F21/F22** is `PPID` answered by an `ACKC7`, which is the shape of six served rows - so the shape says nothing and the word "Reference" is all that is left; a handler would be given a program identifier and no action, which is S1F9's position. **S7F35/F36** is a body whose two readings put different bytes on the wire: the two served directory replies say `PPID` alone and S7F26, a definition, says a program reply is a `PPID` and a `PPBODY`. A body guessed wrong is unparseable rather than merely uninterpretable, which is the rule the stream 6 chapter named. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) and [`SecsCatalogStream7RefusalTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7RefusalTests.cs) |
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
-| Three pairs of stream 6 | The rest of the stream is here. **S6F21/F22** and **S6F29/F30** were refused on the field each row turns on: `CELLNAME` is what makes a data cell report a *cell* report rather than the event report it is otherwise identical to, and `NRED` is the enable-or-disable flag S6F29 exists to carry - both undefined, both named by one row, so carrying either untouched would leave this library unable to tell apart the two things its row distinguishes. The same reason S14F23 stays out. **S6F25/F26** was refused on something new: not a field but a **body**. Its two items are both defined and both already read here, and the reference records an item list rather than a nesting - S6F16 is recorded as `DATAID` and `CEID` and carries a whole event report - so the two served rows that could settle whether a report list follows disagree, and a body guessed wrong is unparseable rather than merely uninterpretable. [`SecsCatalogStream6Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream6Tests.cs) pins all three |
+| Two pairs of stream 6 | The rest of the stream is here. **S6F21/F22** and **S6F29/F30** are refused on the field each row turns on: `CELLNAME` is what makes a data cell report a *cell* report rather than the event report it is otherwise identical to, and `NRED` is the enable-or-disable flag S6F29 exists to carry - both undefined, both named by one row, so carrying either untouched would leave this library unable to tell apart the two things its row distinguishes. The same reason S14F23 stays out. **S6F25/F26 was the third and is served now**: it was refused on a *shape* rather than a field, and the tie-break is that S6F16's body exceeds its record because S6F15 is the Event Report *Request*, which is a thing no primary's record has to explain. [`SecsCatalogStream6Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream6Tests.cs) pins both refusals and the measurement that overturned the third |
 | S2F19/F20, reset and initialize | The one row of stream 2 left, and the clearest refusal in the reference: S2F19's **entire body is `RSTC`**, a name nobody wrote down, and `RIACK` is undefined too - the only row in the stream where both halves are gaps. An own gap is carried untouched unless it is the field the message turns on, and a reset code is *which* reset: carrying it opaquely would leave this library unable to tell one reset from another. Strictly worse than S14F23's `ENABLE`, which at least sat beside items that were defined, and there is no second field in the row to anchor a reading against. [`SecsCatalogStream2Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream2Tests.cs) pins it |
 | A trace that outlives a reconnect | Deliberate, and the only part of tracing with no test of its own. Every trace is cancelled where the host's report definitions are reset, on a re-establish - and an in-memory transport pair cannot re-select after a deselect, because the select is driven by the connection's own state machine and nothing public asks it to. The test covers the other side: that a second S1F13 on a live conversation resets nothing |
 | Streams this library does not implement at either end | Stream 3 material status, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |

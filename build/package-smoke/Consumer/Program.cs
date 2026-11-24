@@ -445,6 +445,13 @@ internal static class Program
             GemHost.HandledMessages.Contains(((byte)6, (byte)9)),
             "the host does not declare S6F9, the one stream 6 row the machine pushes without a CEID");
 
+        // S6F25 is the newest of the four rows that reach EventReportReceived, and the only one
+        // whose refusal was about a shape. A packaged host that does not declare it answers S9F5
+        // for a row E5 defines.
+        Assert(
+            GemHost.HandledMessages.Contains(((byte)6, (byte)25)),
+            "the host does not declare S6F25, the notification report send");
+
         // Stream 2, which the stream 2 chapter finished. The counts are here rather than only in
         // the test suite because a ProjectReference build resolves these from bin/ and cannot see
         // a packaging mistake - which is how five chapters running this file caught a declaration

@@ -430,18 +430,21 @@ public sealed class GemEventReportEventArgs : EventArgs
     /// <summary>Gets CEID.</summary>
     public ulong EventId { get; }
 
-    /// <summary>Gets which stream 6 primary carried this - 11, 13 or 3.</summary>
+    /// <summary>Gets which stream 6 primary carried this - 11, 13, 3 or 25.</summary>
     /// <remarks>
     /// <para>
-    /// One event for three messages, and this is how a handler tells them apart. It was added when
+    /// One event for four messages, and this is how a handler tells them apart. It was added when
     /// S6F3 arrived, because <see cref="Reports"/> cannot do it: an S6F3 carries no reports, and
     /// neither does an S6F11 for an event with nothing linked to it. Before that the annotated
     /// report was indistinguishable from the plain one too, which was a smaller version of the
     /// same hole.
     /// </para>
     /// <para>
-    /// 11 is the plain event report, 13 the annotated one, and 3 the discrete variable data send -
-    /// the row whose body the reference gives as <c>DATAID</c> and <c>CEID</c> and nothing else.
+    /// 11 is the plain event report, 13 the annotated one, and 3 and 25 the two rows whose body the
+    /// reference gives as <c>DATAID</c> and <c>CEID</c> and nothing else - the discrete variable
+    /// data send and the notification report send. <strong>Those two are the reason this property
+    /// cannot be replaced by anything read off the body</strong>: they are identical on the wire
+    /// down to the item formats, and the function number is the whole of the difference.
     /// </para>
     /// </remarks>
     public byte Function { get; }

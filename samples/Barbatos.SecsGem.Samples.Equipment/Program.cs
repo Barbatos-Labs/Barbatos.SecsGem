@@ -597,6 +597,19 @@ internal sealed class ChamberRunner(
                 logger.LogInformation("Reported ProcessEnd for {LotId}.", chamber.LotId);
             }
 
+            // And the same event as a notification report - S6F25, whose body is an S6F3's and
+            // whose family is its own. A machine would normally send one form or the other; this
+            // one sends both so a host can show that only the function tells them apart, and it
+            // sends this one only with a host listening. S6F25 spools exactly as S6F11 does, so
+            // holding it too would double what a host finds waiting after a long absence - which
+            // is a thing to demonstrate deliberately rather than as a side effect of a second
+            // call in the same loop.
+            if (equipment.IsCommunicating
+                && await equipment.SendNotificationReportAsync(Program.ProcessEndEvent, stoppingToken).ConfigureAwait(false))
+            {
+                logger.LogInformation("Notified ProcessEnd for {LotId} on S6F25.", chamber.LotId);
+            }
+
             // And the map of what was just probed. Stream 12 runs the other way round from GEM:
             // this end sends and the host answers, so unlike a report there is nothing to spool
             // and nobody to hold it for. With no host there is nothing to send it to, which is

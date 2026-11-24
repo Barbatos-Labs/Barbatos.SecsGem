@@ -759,6 +759,90 @@ public sealed class GemEquipment : IAsyncDisposable
         return delivered;
     }
 
+    /// <summary>Reports that an event happened, as a notification report - S6F25, answered by S6F26.</summary>
+    /// <param name="eventId">The CEID.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns><see langword="true"/> when a report went out, <see langword="false"/> when it was spooled or dropped.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The same two items S6F3 carries</strong> - <c>DATAID</c> and <c>CEID</c>, and
+    /// nothing else. That was the whole question about this row, and it is one of only two this
+    /// repository ever refused over a <em>shape</em> rather than a field: the reference records it
+    /// exactly as it records S6F16, and S6F16 is served here carrying a whole event report, so the
+    /// two siblings that could settle whether a report list follows appeared to disagree.
+    /// </para>
+    /// <para>
+    /// What breaks the tie is asking <em>why</em> S6F16's body exceeds its record. S6F15 is the
+    /// Event Report <strong>Request</strong>, and a reply to a request for a report has to carry
+    /// one; S6F16 is the only row of this stream served carrying an <c>RPTID</c> its own record
+    /// does not name. Nothing asks an S6F25 for anything. And <c>RPTID</c> - the item that makes a
+    /// report
+    /// list a report list - is named by S6F11's row, by S6F13's, and by S6F28's in this very
+    /// family, but not by this one. <c>SecsCatalogStream6Tests</c> pins both measurements.
+    /// </para>
+    /// <para>
+    /// So the bytes are <see cref="SendDiscreteVariableDataAsync"/>'s and the row is still its own:
+    /// E5 gives the notification report its own request - S6F27, served here - and its own enable,
+    /// S6F29, which stays out because <c>NRED</c> is the flag that row exists to carry and nothing
+    /// defines it. A machine implementing that family announces with this function rather than
+    /// with F3, and which form to send is the application's to choose, because the switch that
+    /// would choose it is the one message of the family this library cannot carry. A host reads
+    /// which arrived from <c>GemEventReportEventArgs.Function</c>, the property S6F3 added for
+    /// exactly this reason.
+    /// </para>
+    /// <para>
+    /// Gated and spooled as <see cref="SendDiscreteVariableDataAsync"/> is: the event has to be one
+    /// this machine declares and the host must not have disabled it, since S2F37 disables a
+    /// <em>CEID</em> and this message names one. S2F43 suppresses it by row like any other report.
+    /// </para>
+    /// <para>
+    /// <strong>Both of those conditions are one test here</strong>, which is worth a line because
+    /// the sibling spells them as two and the first of its two is dead: an event the model does not
+    /// hold can never be in the enabled set, since <c>GemEquipmentModel</c> answers S2F37 with
+    /// <c>UnknownEvent</c> rather than enabling an identifier it does not know. A control removed
+    /// the declared-event half and the whole suite stayed green, which is what a condition that
+    /// cannot change the answer looks like from the outside - the same finding, in the same class,
+    /// that <c>OnAnnotatedIndividualReportRequest</c> records about its own sibling.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<bool> SendNotificationReportAsync(
+        uint eventId,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!Model.IsEventEnabled(eventId))
+        {
+            return false;
+        }
+
+        if (!IsCommunicating && !IsSpooling)
+        {
+            return false;
+        }
+
+        var delivered = IsCommunicating;
+
+        using var message = new SecsMessage(6, 25, replyExpected: _options.EventReportsExpectReply)
+        {
+            Name = "NotificationReportSend",
+            Item = SecsItem.L(
+                SecsItem.U4((uint)Interlocked.Increment(ref _dataId)).Named("DATAID"),
+                SecsItem.U4(eventId).Named("CEID")),
+        };
+
+        if (delivered)
+        {
+            await SendReportAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await SpoolAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+
+        return delivered;
+    }
+
     /// <summary>Sends a block of data the host did not ask for - S6F9, answered by S6F10.</summary>
     /// <param name="data">V, as this machine wants it carried. <strong>Consumed by this call.</strong></param>
     /// <param name="cancellationToken">Cancels the send.</param>

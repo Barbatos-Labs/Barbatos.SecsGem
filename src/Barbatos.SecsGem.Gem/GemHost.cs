@@ -119,6 +119,7 @@ public sealed class GemHost : IAsyncDisposable
         (6, 9),    // Unformatted Data Send
         (6, 11),   // Event Report Send
         (6, 13),   // Annotated Event Report Send
+        (6, 25),   // Notification Report Send
 
         // The only two things a machine says first in stream 7. Declared unconditionally, unlike
         // the equipment's stream 7, because a host has no process program capability to opt into -
@@ -281,11 +282,12 @@ public sealed class GemHost : IAsyncDisposable
             (5, 13) => OnExceptionNotice(transaction.Message, GemExceptionStage.Recovering),
             (5, 15) => OnExceptionNotice(transaction.Message, GemExceptionStage.Recovered),
             (6, 1) => OnTraceData(transaction.Message),
-            (6, 3) => OnDiscreteVariableData(transaction.Message),
+            (6, 3) => OnBareEventReport(transaction.Message, 4),
             (6, 5) => OnMultiBlockInquire(transaction.Message),
             (6, 9) => OnUnformattedData(transaction.Message),
             (6, 11) => OnEventReport(transaction.Message, 12),
             (6, 13) => OnEventReport(transaction.Message, 14),
+            (6, 25) => OnBareEventReport(transaction.Message, 26),
             (7, 29) => OnProgramNotice(transaction.Message, 30),
             (7, 39) => OnProgramNotice(transaction.Message, 40),
             (10, 1) => OnTerminalRequest(transaction.Message),
@@ -2670,7 +2672,11 @@ public sealed class GemHost : IAsyncDisposable
         };
     }
 
-    private SecsMessage OnDiscreteVariableData(SecsMessage request)
+    // S6F3 and S6F25, which carry the same two items. One handler rather than two because the
+    // bodies are identical and the reference says so: both rows are recorded as DATAID and CEID,
+    // and neither names RPTID. What differs is the family each belongs to, and the only thing this
+    // end does about that is report which function arrived.
+    private SecsMessage OnBareEventReport(SecsMessage request, byte replyFunction)
     {
         var acknowledgement = GemReportAcknowledgement.Error;
         var dataId = 0u;
@@ -2689,19 +2695,20 @@ public sealed class GemHost : IAsyncDisposable
         }
 
         // Raised on the same event S6F11 raises, with no reports, because a host watching for
-        // "event N happened" wants to hear it however the machine said so. What tells the two
-        // apart is GemEventReportEventArgs.Function, which is why that property exists: an empty
-        // report list cannot, since S6F11 with nothing linked to it is also empty.
-        var args = new GemEventReportEventArgs(dataId, eventId, [], 3)
+        // "event N happened" wants to hear it however the machine said so. What tells them apart
+        // is GemEventReportEventArgs.Function, which is why that property exists: an empty report
+        // list cannot, since S6F11 with nothing linked to it is also empty - and there are four
+        // rows to tell apart now, not three.
+        var args = new GemEventReportEventArgs(dataId, eventId, [], (byte)(replyFunction - 1))
         {
             Acknowledgement = acknowledgement,
         };
 
         EventReportReceived?.Invoke(this, args);
 
-        return new SecsMessage(6, 4, replyExpected: false)
+        return new SecsMessage(6, replyFunction, replyExpected: false)
         {
-            Name = "DiscreteVariableDataAcknowledge",
+            Name = replyFunction == 4 ? "DiscreteVariableDataAcknowledge" : "NotificationReportAcknowledge",
             Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC6"),
         };
     }

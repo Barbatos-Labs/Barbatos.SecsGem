@@ -283,13 +283,75 @@ public class SecsCatalogStream6Tests
         Assert.Equal<string[]>(["DATAID", "CEID"], [.. sixteen.DataItems]);
 
         // So a row recorded as DATAID and CEID may or may not carry reports after them, and S6F25
-        // is recorded exactly that way. Its two items are both defined and both already read here,
-        // and it still cannot be served: the two rows that could settle its nesting disagree, and
-        // a body guessed wrong is unparseable rather than merely uninterpretable. That is a
-        // refusal about a shape and not about a field, which is new in this repository.
+        // is recorded exactly that way. For a chapter that was the end of it: the two rows that
+        // could settle the nesting disagreed, and a body guessed wrong is unparseable rather than
+        // merely uninterpretable. That was the only refusal this repository ever made about a
+        // shape instead of a field, and it was wrong.
         var twentyFive = Assert.Single(stream.Messages, message => message.Function == 25);
 
         Assert.Equal<string[]>(["DATAID", "CEID"], [.. twentyFive.DataItems]);
         Assert.All(twentyFive.DataItems, name => Assert.True(SecsCatalog.TryGetDataItem(name, out _), name));
+
+        // What breaks the tie is asking WHY S6F16's body exceeds its record, and the answer is in
+        // the name of the row that asked for it. A reply to a request for an event report has to
+        // carry one, which is the whole of S6F16's excess - and it is the only row of this stream
+        // served carrying an RPTID its own record does not name. Nothing asks an S6F25 for
+        // anything.
+        var fifteen = Assert.Single(stream.Messages, message => message.Function == 15);
+
+        Assert.Equal("Event Report Request", fifteen.Name);
+        Assert.Equal((byte)16, fifteen.ReplyFunction);
+        Assert.False(sixteen.IsPrimary);
+        Assert.True(twentyFive.IsPrimary);
+
+        // Three rows of this stream carry that record, and the split is the measurement. The only
+        // secondary among them is the one whose served body exceeds it; the other two are
+        // equipment sends, and S6F3 has been served as exactly these two items since the chapter
+        // that measured DVNAME and DVVAL. So the sibling that plays the same part in its pair
+        // agrees with the record, and the one that does not is explained.
+        var recorded = stream.Messages
+            .Where(message => message.DataItems.SequenceEqual<string>(["DATAID", "CEID"]))
+            .ToArray();
+
+        Assert.Equal<byte[]>([3, 16, 25], [.. recorded.Select(message => message.Function)]);
+
+        Assert.Equal<byte[]>(
+            [3, 25],
+            [.. recorded.Where(message => message.IsPrimary).Select(message => message.Function)]);
+    }
+
+    [Fact]
+    public void RPTID_is_named_by_the_notification_familys_own_data_row_and_not_by_its_send()
+    {
+        var stream = Stream();
+
+        // The other half of the tie-break, and the half that rules out the third reading. RPTID is
+        // the item that makes a report list a report list, and this stream names it in seven rows.
+        var naming = stream.Messages
+            .Where(message => message.DataItems.Contains("RPTID", StringComparer.Ordinal))
+            .Select(message => message.Function)
+            .ToArray();
+
+        Assert.Equal<byte[]>([11, 13, 17, 18, 19, 20, 28], [.. naming]);
+
+        // S6F28 is in that list, which is the point: it is S6F25's own family - the Notification
+        // Report *Data* row - and the reference says it carries report identifiers. So the family
+        // does name RPTID where it means one, and the reading that would have given S6F25 a list
+        // of identifiers rather than a list of reports is refused by the very record that looked
+        // like it supported it. The other three rows of the family name no RPTID at all.
+        foreach (var function in new byte[] { 25, 26, 27 })
+        {
+            var row = Assert.Single(stream.Messages, message => message.Function == function);
+
+            Assert.DoesNotContain("RPTID", row.DataItems);
+        }
+
+        // And the row that does is the reply to the request, which is the same relation S6F16 has
+        // to S6F15 - a secondary may carry what its primary asked for. S6F28's record needs no
+        // excess to explain, because it names the item outright.
+        var twentySeven = Assert.Single(stream.Messages, message => message.Function == 27);
+
+        Assert.Equal("Notification Report Request", twentySeven.Name);
+        Assert.Equal((byte)28, twentySeven.ReplyFunction);
     }
 }

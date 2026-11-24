@@ -1405,6 +1405,12 @@ internal static class Program
             // GemEventReportEventArgs.Function, since both can arrive carrying no reports.
             ok &= await equipment.SendDiscreteVariableDataAsync(ProcessEndEvent, cancellationToken);
 
+            // S6F25: the same two items again. The reference gives the notification report its own
+            // request and its own enable, so the row is its own even though the announcement is
+            // byte for byte an S6F3 - and the function is the only thing that separates them,
+            // which is what the handler below prints rather than hard-coding an 11.
+            ok &= await equipment.SendNotificationReportAsync(ProcessEndEvent, cancellationToken);
+
             // And the handshake in front of a send too big for one block. A question rather than
             // news, so it is never spooled: permission nobody is there to give is not permission.
             var grant = await equipment.InquireMultiBlockAsync(70_000, cancellationToken);
@@ -3799,9 +3805,10 @@ internal static class Program
                 values += report.Values.Count;
             }
 
-            // e.Function, not a hard-coded 11. One event serves S6F11, S6F13 and S6F3, and the
-            // report list cannot tell them apart: an S6F3 carries no reports, and neither does an
-            // S6F11 for an event with nothing linked to it.
+            // e.Function, not a hard-coded 11. One event serves S6F11, S6F13, S6F3 and S6F25, and
+            // the report list cannot tell them apart: an S6F3 and an S6F25 carry no reports, and
+            // neither does an S6F11 for an event with nothing linked to it. The last two are the
+            // same two items on the wire, so for those the function is all there is.
             Reports.Enqueue(
                 $"S6F{e.Function} arrived: CEID={e.EventId}, {e.Reports.Count} report(s), {values} value(s)");
         };

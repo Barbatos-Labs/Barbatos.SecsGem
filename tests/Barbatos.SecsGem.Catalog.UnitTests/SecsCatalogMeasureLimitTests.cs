@@ -145,13 +145,13 @@ public class SecsCatalogMeasureLimitTests
         // routing table claims - and those are the only three kinds of reason left anywhere in
         // the repository:
         //
-        //   S6F25                shape - its item list is S6F16's, which is served carrying a
-        //                        whole event report, so whether a report list follows cannot be
-        //                        settled from the record
         //   S7F11, F13, F15      a family with no request and no directory anywhere, so a matrix
         //                        program could be written and never read
         //   S7F21                a name that names no action on the row's fields
-        //   S7F35                shape - two readings that put different bytes out
+        //   S7F35                shape - two readings that put different bytes out, and the only
+        //                        one of these left on a shape: S6F25 was the other, and the
+        //                        chapter after this sweep served it by asking why its sibling's
+        //                        body exceeds its record
         //   S17F9, S17F13        a routing table is a claim about the stream, and four of this
         //                        stream's seven primaries are somebody's extrapolation
         //   S20F17, S20F33       rows this repository already serves under stream 15's numbers
@@ -162,8 +162,9 @@ public class SecsCatalogMeasureLimitTests
         Assert.Equal(22, Stream(7).Messages.Count(message => message.IsPrimary));
         Assert.Equal(22, CleanPairs(7).Count());
 
-        // Stream 6 has seven, and S6F25 is the only one of them refused - S6F27 beside it is
-        // served, with the identical item list, which is why the shape had to decide.
+        // Stream 6 has seven and every one is served now. S6F25 was the last out and the figure
+        // is why: S6F27 beside it has the identical item list and was already served, so nothing
+        // the dictionary says could separate them and the shape had to decide.
         Assert.Equal<byte[]>([1, 3, 5, 15, 19, 25, 27], [.. CleanPairs(6)]);
 
         // Streams 17 and 20 have two each and all four are refused, on the two stream-level
