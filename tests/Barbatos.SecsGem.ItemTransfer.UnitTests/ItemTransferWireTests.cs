@@ -617,6 +617,13 @@ public sealed class ItemTransferWireTests
         await pair.LeftLink.PostAsync(primary, ItemPair.Token);
         await ItemPair.WaitUntilAsync(() => pair.AskedRight.Count > 0, "the right end to be asked");
 
+        // And then for the LOG, which is what the assertion below reads. The harness records
+        // the message before the handler runs, so a wait on that queue is a wait on the wrong
+        // thing: the suite won the race almost every time and lost it once under load.
+        await ItemPair.WaitUntilAsync(
+            () => pair.RightLog.From(LogLevel.Warning).Count > 0,
+            "the right end to say why");
+
         Assert.Null(pair.RightStore.Find("ITEM"));
 
         // The log is the whole effect, so it is the whole assertion: nothing else distinguishes a
@@ -641,6 +648,13 @@ public sealed class ItemTransferWireTests
 
         await pair.LeftLink.PostAsync(primary, ItemPair.Token);
         await ItemPair.WaitUntilAsync(() => pair.AskedRight.Count > 0, "the right end to be asked");
+
+        // And then for the LOG, which is what the assertion below reads. The harness records
+        // the message before the handler runs, so a wait on that queue is a wait on the wrong
+        // thing: the suite won the race almost every time and lost it once under load.
+        await ItemPair.WaitUntilAsync(
+            () => pair.RightLog.From(LogLevel.Warning).Count > 0,
+            "the right end to say why");
 
         Assert.Equal(0, pair.RightStore.Count);
 

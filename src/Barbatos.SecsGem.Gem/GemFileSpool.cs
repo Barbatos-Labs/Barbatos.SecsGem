@@ -5,6 +5,7 @@
 
 using System.Globalization;
 using System.Text;
+using Barbatos.SecsGem.Internal;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -60,6 +61,7 @@ public sealed class GemFileSpool : IGemSpool
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Queue<long> _order = new();
+    private readonly DurableRecordDirectory _records;
     private readonly ILogger _logger;
     private long _next;
 
@@ -96,46 +98,31 @@ public sealed class GemFileSpool : IGemSpool
         Overflow = overflow;
         _logger = logger ?? NullLogger<GemFileSpool>.Instance;
 
-        Directory = System.IO.Directory.CreateDirectory(directory).FullName;
+        // The directory mechanics are DurableRecordDirectory's: it creates the directory, sweeps
+        // what a half-finished write left, and lists the records in sequence order. The record
+        // FORMAT stays here - the header below, and the reader - because a spool is a queue and
+        // not a keyed store, so none of that class's field-and-tail framing fits. The partial
+        // extension is passed because this spool publishes its own.
+        _records = new DurableRecordDirectory(directory, RecordExtension, _logger, PartialExtension);
 
-        List<long> found = [];
-
-        foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*" + RecordExtension))
-        {
-            if (TryReadSequence(path, out var sequence))
-            {
-                found.Add(sequence);
-            }
-        }
-
-        found.Sort();
-
-        foreach (var sequence in found)
+        foreach (var (sequence, _) in _records.Records())
         {
             _order.Enqueue(sequence);
             _next = sequence + 1;
         }
 
-        var partial = 0;
-
-        foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*" + PartialExtension))
-        {
-            TryDelete(path);
-            partial++;
-        }
-
-        if (_order.Count > 0 || partial > 0)
+        if (_order.Count > 0 || _records.Swept > 0)
         {
             _logger.LogInformation(
                 "Spool directory {Directory} opened with {Held} message(s) held and {Partial} unfinished write(s) removed.",
                 Directory,
                 _order.Count,
-                partial);
+                _records.Swept);
         }
     }
 
     /// <summary>Gets the directory the records live in, as a full path.</summary>
-    public string Directory { get; }
+    public string Directory => _records.Path;
 
     /// <summary>Gets how many messages this spool will hold.</summary>
     public int Capacity { get; }
@@ -200,7 +187,7 @@ public sealed class GemFileSpool : IGemSpool
                     return false;
                 }
 
-                TryDelete(PathFor(_order.Dequeue()));
+                _records.Delete(_order.Dequeue());
                 Discarded++;
             }
 
@@ -236,7 +223,7 @@ public sealed class GemFileSpool : IGemSpool
             while (_order.Count > 0)
             {
                 var sequence = _order.Peek();
-                var path = PathFor(sequence);
+                var path = _records.PathFor(sequence);
                 var message = await TryReadRecordAsync(path, cancellationToken).ConfigureAwait(false);
 
                 if (message is not null)
@@ -246,7 +233,7 @@ public sealed class GemFileSpool : IGemSpool
 
                 _order.Dequeue();
                 Unreadable++;
-                TryDelete(path);
+                _records.Delete(sequence);
 
                 _logger.LogError(
                     "Spool record {Path} could not be read back and has been dropped; {Held} message(s) still held.",
@@ -280,7 +267,7 @@ public sealed class GemFileSpool : IGemSpool
                 return false;
             }
 
-            TryDelete(PathFor(sequence));
+            _records.Delete(sequence);
             return true;
         }
         finally
@@ -298,7 +285,7 @@ public sealed class GemFileSpool : IGemSpool
         {
             while (_order.TryDequeue(out var sequence))
             {
-                TryDelete(PathFor(sequence));
+                _records.Delete(sequence);
             }
         }
         finally
@@ -306,13 +293,6 @@ public sealed class GemFileSpool : IGemSpool
             _gate.Release();
         }
     }
-
-    private static bool TryReadSequence(string path, out long sequence)
-        => long.TryParse(
-            Path.GetFileNameWithoutExtension(path.AsSpan()),
-            NumberStyles.None,
-            CultureInfo.InvariantCulture,
-            out sequence);
 
     private static void WriteHeader(Span<byte> header, GemSpooledMessage message, int nameLength)
     {
@@ -459,35 +439,12 @@ public sealed class GemFileSpool : IGemSpool
         return new GemSpooledMessage(stream, function, replyExpected, body, spooledAt, name);
     }
 
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // Deliberately not propagated. Every caller has already decided the record is no longer
-            // held, and throwing here would turn a file that will not delete into a transmit that
-            // never finishes. RemoveHeadAsync documents what the leftover costs.
-        }
-    }
-
-    private string PathFor(long sequence) => Path.Combine(
-        Directory,
-        sequence.ToString("D19", CultureInfo.InvariantCulture) + RecordExtension);
-
-    private string PartialPathFor(long sequence) => Path.Combine(
-        Directory,
-        sequence.ToString("D19", CultureInfo.InvariantCulture) + PartialExtension);
-
     private async ValueTask WriteRecordAsync(
         long sequence,
         GemSpooledMessage message,
         int nameLength,
         CancellationToken cancellationToken)
     {
-        var partial = PartialPathFor(sequence);
         var prefixLength = HeaderLength + (nameLength == NoName ? 0 : nameLength);
         var prefix = ArrayPool<byte>.Shared.Rent(prefixLength);
 
@@ -500,42 +457,17 @@ public sealed class GemFileSpool : IGemSpool
                 Encoding.UTF8.GetBytes(message.Name, prefix.AsSpan(HeaderLength));
             }
 
-            var options = new FileStreamOptions
-            {
-                Mode = FileMode.Create,
-                Access = FileAccess.Write,
-                Share = FileShare.None,
-                Options = FileOptions.Asynchronous | FileOptions.WriteThrough,
-                PreallocationSize = prefixLength + message.Body.Length,
-            };
-
-            await using (var file = new FileStream(partial, options))
-            {
-                await file.WriteAsync(prefix.AsMemory(0, prefixLength), cancellationToken).ConfigureAwait(false);
-
-                if (!message.Body.IsEmpty)
-                {
-                    // Straight from the message's own memory rather than copied in beside the
-                    // header: a trace report or a recipe of a megabyte would otherwise need a
-                    // megabyte buffer, and anything over 85 KB of it is a large object heap
-                    // allocation that lives until a gen 2 collection.
-                    await file.WriteAsync(message.Body, cancellationToken).ConfigureAwait(false);
-                }
-
-                await file.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            // The commit. Atomic within one directory, which is what makes a half-written record
-            // impossible rather than merely unlikely.
-            File.Move(partial, PathFor(sequence), overwrite: true);
-        }
-        catch
-        {
-            // A write that failed leaves no record, so it leaves no file either. The constructor
-            // would clear this on the next start, but a spool filling a disk should not need a
-            // restart to stop littering.
-            TryDelete(partial);
-            throw;
+            // The write-through, the temporary name and the rename are DurableRecordDirectory's,
+            // and the header above is this spool's: the disk mechanics are shared across five
+            // packages and the record format is not. The partial is named by appending this
+            // spool's own PartialExtension to the record's name, so it reads
+            // `<sequence>.spool.spooling` where it used to read `<sequence>.spooling` - a name
+            // nothing can observe except by looking during a write, and both shapes are swept.
+            await _records.WriteAtomicAsync(
+                sequence.ToString("D19", CultureInfo.InvariantCulture) + RecordExtension,
+                prefix.AsMemory(0, prefixLength),
+                message.Body,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {

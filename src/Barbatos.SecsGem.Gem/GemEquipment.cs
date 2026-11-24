@@ -148,14 +148,25 @@ public sealed class GemEquipment : IAsyncDisposable
     /// with a default is source-compatible and rearranging them is not.
     /// </para>
     /// <para>
-    /// <strong>This paragraph used to say the next one wants a record of capabilities instead</strong>
-    /// - that five optional stores is where the argument-at-a-time habit stops paying for itself -
-    /// and the chapter that added the sixth did not do it. The reason is worth recording rather
-    /// than leaving as a signpost somebody walks past again: a capabilities record changes a public
-    /// constructor, which is a chapter of its own with an <c>[Obsolete]</c> overload and every
-    /// caller moved, and riding it along with three rows of stream 7 would make one change that
-    /// cannot be reviewed as either. <c>AddGemEquipment</c> is still the only caller that has to
-    /// know, and the record is still the right shape; it is now overdue rather than next.
+    /// <strong>This paragraph used to call a capabilities record overdue, and the chapter that
+    /// went to write one measured it instead and stopped.</strong> The hazard it was reaching for -
+    /// six adjacent nullable parameters a caller could transpose - <em>is not there</em>: the six
+    /// are six different interface types, so swapping any two is a compile error, and the one
+    /// caller that passes them positionally (<c>AddGemEquipment</c>) is checked by the compiler
+    /// like anybody else. What a record would really buy is that the <strong>next</strong>
+    /// capability becomes a property instead of another parameter on a public constructor. That is
+    /// worth something and not much: appending an optional parameter is source-compatible, and the
+    /// cost is two constructors for ever, one of them <c>[Obsolete]</c>, plus an ambiguity to
+    /// navigate - the new fourth parameter would be a <c>GemEquipmentCapabilities?</c> where the
+    /// old one is a <c>TimeProvider?</c>, so a three-argument call or a literal <c>null</c> would
+    /// not resolve, and the capabilities would have to be <em>required</em> with something like a
+    /// <c>None</c> for a machine that has none.
+    /// </para>
+    /// <para>
+    /// So: not refused, and no longer called overdue. It is a change worth making the day a seventh
+    /// capability arrives, when the parameter it would have added pays for the obsolete overload -
+    /// and the paragraph says what was measured so the next chapter does not re-derive the part
+    /// that was wrong.
     /// </para>
     /// </remarks>
     public GemEquipment(

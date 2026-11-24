@@ -587,6 +587,14 @@ checksum. A file per message replaces all three with a rename. The record is wri
 either entirely a record or not a record at all. The price is a directory entry per held message,
 which `SpoolCapacity` bounds.
 
+Those three steps - write through, temporary name, rename - are **shared source** with the seven
+keyed stores in this repository (`src/Shared/DurableRecordDirectory.cs`), and this spool uses
+exactly that part of it: the **record format stays its own**, because a spool is a queue with a head
+and a capacity rather than a store you look things up in. A partial is therefore named by appending,
+`0000000000000000017.spool.spooling`, and the sweep that clears one is a pattern on the extension -
+so a directory written by an older version, where a partial was `0000000000000000017.spooling`, is
+swept just the same.
+
 ```
 spool/
   0000000000000000017.spool     a held message

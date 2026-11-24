@@ -258,6 +258,33 @@ public class GemFileSpoolTests
     }
 
     [Fact(Timeout = 15_000)]
+    public async Task And_the_shape_a_partial_has_since_the_write_was_shared_is_litter_too()
+    {
+        using var temporary = new TempDirectory();
+        var token = TestContext.Current.CancellationToken;
+
+        // The write is `DurableRecordDirectory`'s now, and it names a partial by appending this
+        // spool's own extension to the record's name - so a partial reads `<sequence>.spool.spooling`
+        // where it used to read `<sequence>.spooling`. The sweep is a pattern on the extension, so
+        // it catches both, and the test above is what keeps the older shape covered: a directory
+        // written by an earlier version of this library is exactly where one would be found.
+        var partial = Path.Combine(
+            temporary.Path,
+            2.ToString("D19", CultureInfo.InvariantCulture) + GemFileSpool.RecordExtension + GemFileSpool.PartialExtension);
+
+        await File.WriteAllBytesAsync(partial, new byte[] { 1, 2, 3 }, token);
+
+        var spool = new GemFileSpool(temporary.Path);
+
+        Assert.Equal(0, await spool.CountAsync(token));
+        Assert.False(File.Exists(partial));
+
+        // And it is not mistaken for a record either, which is the other half: `.spool.spooling`
+        // ends in the partial extension, so a listing of `*.spool` must not match it.
+        Assert.Null(await spool.TryPeekAsync(token));
+    }
+
+    [Fact(Timeout = 15_000)]
     public async Task A_file_this_spool_did_not_write_is_left_where_it_is()
     {
         using var temporary = new TempDirectory();

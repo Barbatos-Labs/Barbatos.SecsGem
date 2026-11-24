@@ -326,6 +326,13 @@ public sealed class DataSetWireTests
         await pair.HostLink.PostAsync(primary, DataSetPair.Token);
         await DataSetPair.WaitUntilAsync(() => pair.Asked.Count > 0, "the equipment to be asked");
 
+        // And then for the LOG, which is what the assertion below reads. The harness records
+        // the message before the handler runs, so a wait on that queue is a wait on the wrong
+        // thing: the suite won the race almost every time and lost it once under load.
+        await DataSetPair.WaitUntilAsync(
+            () => pair.Log.From(LogLevel.Warning).Count > 0,
+            "the equipment to say why");
+
         // What the branch changes is the explanation an operator reads, and nothing else: the store
         // is untouched and no reply went out.
         Assert.Contains((byte)13, pair.Asked.Select(asked => asked.Stream));
@@ -352,6 +359,13 @@ public sealed class DataSetWireTests
 
         await pair.HostLink.PostAsync(primary, DataSetPair.Token);
         await DataSetPair.WaitUntilAsync(() => pair.Asked.Count > 0, "the equipment to be asked");
+
+        // And then for the LOG, which is what the assertion below reads. The harness records
+        // the message before the handler runs, so a wait on that queue is a wait on the wrong
+        // thing: the suite won the race almost every time and lost it once under load.
+        await DataSetPair.WaitUntilAsync(
+            () => pair.Log.From(LogLevel.Warning).Count > 0,
+            "the equipment to say why");
 
         Assert.Contains(
             pair.Log.From(LogLevel.Warning),

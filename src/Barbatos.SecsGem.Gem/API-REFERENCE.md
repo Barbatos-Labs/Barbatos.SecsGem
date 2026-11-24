@@ -769,7 +769,7 @@ A spool that survives the equipment's own restart, by keeping each held message 
 | `Discarded` | `int { get; }` | Dropped because the spool was full. |
 | `Unreadable` | `int { get; }` | Dropped because the record could not be read back. |
 | `RecordExtension` | `const string` | `.spool` |
-| `PartialExtension` | `const string` | `.spooling` - a record being written. |
+| `PartialExtension` | `const string` | `.spooling` - appended to a record's name while it is being written, so a partial reads `<sequence>.spool.spooling`. A directory written before the atomic write became shared source holds `<sequence>.spooling` instead, and the sweep - a pattern on the extension - clears either. |
 
 **One file per message, not one append-only log.** Removing the head of a log needs a read cursor
 as durable as the log itself, the log needs compacting, and a record half written when the power

@@ -235,17 +235,23 @@ sharing rather than copying is not taste either - the first draft of `RecipeFile
 caught `IOException` where `GemFileSpool`'s catches `UnauthorizedAccessException` too, which is a
 read-only file throwing out of a transaction in one store and not the other.
 
-**The spool keeps its own copy, and the reason was re-read when the Gem package linked the shared
-file.** The structural half still holds: a spool is a queue with an order, a head, a capacity and an
-overflow policy that never parses a record to know what it holds, where the seven parse every record
-on the way in because the key is inside it - so the keyed-record layer is no use to it. What that
-argument never covered is the atomic write and the directory scan, which are identical, and are now
-duplicated *inside one assembly*. The measured obstacle is small and real: the spool's partial
-extension is `.spooling`, a **public const**, and its partial path *replaces* the record extension
-where the shared write *appends* one. Reusing the shared write therefore means parameterising it and
-changing a file-naming convention, or changing a published constant, and neither buys a byte of
-behaviour. So the duplication stays, deliberately, with that as its reason rather than the
-hand-wave - and if a later chapter wants it gone, the move is the parameter and not the constant.
+**The spool shares the bottom half of it and not the top, which took two re-reads to get right.**
+The structural argument holds and always did: a spool is a queue with an order, a head, a capacity
+and an overflow policy that never parses a record to know what it holds, where the seven keyed
+stores parse every record on the way in because the key is inside it. So **the record format stays
+the spool's own** - a twenty-four byte header, its own reader - and none of the field-and-tail layer
+is any use to it. What that argument never covered is the **atomic write and the directory scan**,
+which are identical, and which the spool duplicated for two chapters. It takes `Records()`,
+`PathFor`, `Delete` and `WriteAtomicAsync` now, and is eighty lines shorter for it. The line to draw
+is therefore: **the disk mechanics are shared, the record format is not.**
+
+The move cost exactly what the previous re-read said it would, which is why that paragraph was worth
+writing down: `GemFileSpool.PartialExtension` is `.spooling` and **public**, so the shared directory
+took an optional `partialExtension` parameter rather than the constant being changed. One
+consequence is visible on a disk and nowhere else - a partial is named by appending, so it reads
+`<sequence>.spool.spooling` where it used to read `<sequence>.spooling`. Both shapes are swept,
+because the sweep is a pattern on the extension, and a test covers each: the older one is what a
+directory written by an earlier version of this library contains.
 
 **A record is a list of fields and an optional payload, which is what lets one format serve four
 stores.** A control program is an identifier and a revision, a data set a number and a declared
@@ -744,6 +750,15 @@ has never once been caught by the bound someone remembered to write. Put the att
 test project from the start, and on an old one the first time it bites. **And bound the control
 runner's own `dotnet build` and test exe**, because a hung run makes the runner sit forever: mine
 sat for fifty minutes before anybody looked.
+
+**A wait on the harness's record of a message is not a wait on the handler's log**, and that is a
+flake eight tests in four packages were carrying. The pair helpers enqueue `(stream, function)` in
+the route *before* calling the end under test, so a test that waits for `Asked.Count > 0` and then
+asserts a warning is asserting something the handler may not have written yet. The suite won that
+race every time for months and lost it once under load, in a full 24-project sweep - which is the
+only place it can be found, because each file passes on its own however often it is run. **Wait for
+the thing the assertion reads.** Every one of those waits now has a second one after it, on the
+log's own count.
 
 **A log assertion matched on a short identifier can be satisfied by the temporary directory's own
 name.** The durable stores log the identifier they could not read, and the shared record directory

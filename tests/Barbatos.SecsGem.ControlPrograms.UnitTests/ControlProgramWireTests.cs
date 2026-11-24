@@ -507,6 +507,13 @@ public sealed class ControlProgramWireTests
         await pair.HostLink.PostAsync(primary, ControlProgramPair.Token);
         await ControlProgramPair.WaitUntilAsync(() => pair.Asked.Count > 0, "the equipment to be asked");
 
+        // And then for the LOG, which is what the assertion below reads. The harness records
+        // the message before the handler runs, so a wait on that queue is a wait on the wrong
+        // thing: the suite won the race almost every time and lost it once under load.
+        await ControlProgramPair.WaitUntilAsync(
+            () => pair.Log.From(LogLevel.Warning).Count > 0,
+            "the equipment to say why");
+
         Assert.Contains(
             pair.Log.From(LogLevel.Warning),
             message => message.Contains("S8F7", StringComparison.Ordinal)
@@ -529,6 +536,13 @@ public sealed class ControlProgramWireTests
 
         await pair.HostLink.PostAsync(primary, ControlProgramPair.Token);
         await ControlProgramPair.WaitUntilAsync(() => pair.Asked.Count > 0, "the equipment to be asked");
+
+        // And then for the LOG, which is what the assertion below reads. The harness records
+        // the message before the handler runs, so a wait on that queue is a wait on the wrong
+        // thing: the suite won the race almost every time and lost it once under load.
+        await ControlProgramPair.WaitUntilAsync(
+            () => pair.Log.From(LogLevel.Warning).Count > 0,
+            "the equipment to say why");
 
         Assert.Contains(
             pair.Log.From(LogLevel.Warning),

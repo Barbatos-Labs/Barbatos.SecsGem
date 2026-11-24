@@ -37,12 +37,16 @@ namespace Barbatos.SecsGem.Internal;
 /// thrown out of a transaction in one store and not the other.
 /// </para>
 /// <para>
-/// <strong>What is not here is the GEM spool</strong>, which is the fifth durable thing in this
-/// repository and deliberately keeps its own copy. A spool is a queue with an order, a head, a
-/// capacity and an overflow policy, and it never parses a record to find out what it holds - it
-/// sorts sequence numbers and enqueues them. This is a keyed store: it parses every record on the
-/// way in, because the key is inside the record. Forcing one onto the other would be the sharing
-/// mistake in the other direction.
+/// <strong>The GEM spool uses the bottom half of this and not the top.</strong> A spool is a queue
+/// with an order, a head, a capacity and an overflow policy, and it never parses a record to find
+/// out what it holds - it sorts sequence numbers and enqueues them, where a keyed store parses
+/// every record on the way in because the key is inside it. So the spool takes
+/// <see cref="Records"/>, <see cref="PathFor"/>, <see cref="Delete"/> and
+/// <see cref="WriteAtomicAsync"/>, keeps its own record header and its own reader, and uses none of
+/// the field-and-tail framing. That is the line worth drawing: <strong>the disk mechanics are
+/// shared, the record format is not</strong>. It kept a whole copy of both for two chapters, on the
+/// argument that it is structurally a different thing - which was true of the framing and never of
+/// the write.
 /// </para>
 /// <para>
 /// <strong>The record is a list of entries, which is what lets one format serve four stores.</strong>
@@ -65,33 +69,52 @@ namespace Barbatos.SecsGem.Internal;
 /// </remarks>
 internal sealed class DurableRecordDirectory
 {
-    /// <summary>The extension appended to any file while it is being written.</summary>
+    /// <summary>The extension appended to any file while it is being written, unless one is given.</summary>
     internal const string PartialExtension = ".writing";
 
     private const byte FormatVersion = 1;
     private const int HeaderLength = 8;
 
     private readonly string _recordExtension;
+    private readonly string _partialExtension;
     private readonly ILogger _logger;
 
     /// <summary>Opens a directory, creating it and clearing anything half-written.</summary>
     /// <param name="directory">Where the records live.</param>
     /// <param name="recordExtension">What a finished record is called, including the dot.</param>
     /// <param name="logger">Diagnostics.</param>
+    /// <param name="partialExtension">
+    /// What a file in the middle of being written is called, including the dot.
+    /// <see cref="PartialExtension"/> unless a store has published one of its own.
+    /// </param>
     /// <exception cref="IOException">The directory cannot be created or read.</exception>
     /// <remarks>
+    /// <para>
     /// The directory is created and swept here rather than on first use, so a path that is wrong
     /// fails where an operator is looking and not when a host finally sends something. A leftover
     /// partial is deleted: its write never finished, so nothing was ever told the record arrived.
+    /// </para>
+    /// <para>
+    /// <paramref name="partialExtension"/> exists for exactly one caller and is the whole price of
+    /// the spool joining this: <c>GemFileSpool.PartialExtension</c> is <c>.spooling</c> and is
+    /// <strong>public</strong>, so it could not be quietly changed to <c>.writing</c>. A parameter
+    /// was the cheaper of the two moves - the other was changing a published constant - and it
+    /// costs this class nothing, since the sweep and the write use whatever they are given.
+    /// </para>
     /// </remarks>
-    internal DurableRecordDirectory(string directory, string recordExtension, ILogger logger)
+    internal DurableRecordDirectory(
+        string directory,
+        string recordExtension,
+        ILogger logger,
+        string partialExtension = PartialExtension)
     {
         _recordExtension = recordExtension;
+        _partialExtension = partialExtension;
         _logger = logger;
 
         Path = System.IO.Directory.CreateDirectory(directory).FullName;
 
-        foreach (var path in System.IO.Directory.EnumerateFiles(Path, "*" + PartialExtension))
+        foreach (var path in System.IO.Directory.EnumerateFiles(Path, "*" + _partialExtension))
         {
             TryDelete(path);
             Swept++;
@@ -384,13 +407,32 @@ internal sealed class DurableRecordDirectory
     internal static uint? Number(byte[] entry)
         => entry.Length == 4 ? BinaryPrimitives.ReadUInt32BigEndian(entry) : null;
 
-    private async ValueTask WriteAtomicAsync(
+    /// <summary>Writes a file under a temporary name and commits it with a rename.</summary>
+    /// <param name="name">What the finished file is called, inside this directory.</param>
+    /// <param name="prefix">
+    /// Everything before the payload: a header, fields, whatever the caller frames with. A
+    /// <see cref="ReadOnlyMemory{T}"/> rather than an array so a caller framing into a rented
+    /// buffer can hand over the used part of it, which is what the GEM spool does.
+    /// </param>
+    /// <param name="body">The payload, written straight from the caller's memory. Empty for none.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>A task that completes once the file is committed.</returns>
+    /// <exception cref="IOException">The write failed. Nothing was committed, and the partial is gone.</exception>
+    /// <remarks>
+    /// <strong>Internal rather than private because a store with its own record format still wants
+    /// this.</strong> The GEM spool frames its records with a twenty-four byte header of its own
+    /// and reads them back itself, so none of the field-and-tail layer is any use to it - but the
+    /// write-through, the temporary name and the rename are exactly the same three things, and one
+    /// copy of those per assembly is the point of this file. A caller using this directly is
+    /// responsible for its own naming: nothing here parses <paramref name="name"/>.
+    /// </remarks>
+    internal async ValueTask WriteAtomicAsync(
         string name,
-        byte[] prefix,
+        ReadOnlyMemory<byte> prefix,
         ReadOnlyMemory<byte> body,
         CancellationToken cancellationToken)
     {
-        var partial = System.IO.Path.Combine(Path, name + PartialExtension);
+        var partial = System.IO.Path.Combine(Path, name + _partialExtension);
 
         try
         {

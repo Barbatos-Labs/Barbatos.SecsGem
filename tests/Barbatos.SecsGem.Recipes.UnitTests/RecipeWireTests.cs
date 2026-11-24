@@ -751,6 +751,13 @@ public sealed class RecipeWireTests
         await pair.HostLink.PostAsync(primary, RecipePair.Token);
         await RecipePair.WaitUntilAsync(() => pair.Asked.Count > 0, "the machine to be asked");
 
+        // And then for the LOG, which is what the assertion below reads. The harness records
+        // the message before the handler runs, so a wait on that queue is a wait on the wrong
+        // thing: the suite won the race almost every time and lost it once under load.
+        await RecipePair.WaitUntilAsync(
+            () => pair.EquipmentLog.From(LogLevel.Warning).Count > 0,
+            "the equipment to say why");
+
         Assert.Contains(
             pair.EquipmentLog.From(LogLevel.Warning),
             message => message.Contains("S15F3", StringComparison.Ordinal)
@@ -771,6 +778,13 @@ public sealed class RecipeWireTests
 
         await pair.HostLink.PostAsync(primary, RecipePair.Token);
         await RecipePair.WaitUntilAsync(() => pair.Asked.Count > 0, "the machine to be asked");
+
+        // And then for the LOG, which is what the assertion below reads. The harness records
+        // the message before the handler runs, so a wait on that queue is a wait on the wrong
+        // thing: the suite won the race almost every time and lost it once under load.
+        await RecipePair.WaitUntilAsync(
+            () => pair.EquipmentLog.From(LogLevel.Warning).Count > 0,
+            "the equipment to say why");
 
         // Without the stream being checked, function 1 of any stream would be read as a namespace
         // request and answered as S15F2 - so this assertion is what holds the check in place.
