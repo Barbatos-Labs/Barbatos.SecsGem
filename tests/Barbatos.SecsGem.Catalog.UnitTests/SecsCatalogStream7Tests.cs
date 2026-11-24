@@ -196,7 +196,7 @@ public class SecsCatalogStream7Tests
     }
 
     [Fact]
-    public void The_other_three_refusals_are_each_a_row_the_reference_does_not_settle()
+    public void The_one_refusal_outside_the_matrix_family_is_a_row_the_reference_does_not_settle()
     {
         var stream = Stream(7);
 
@@ -209,20 +209,21 @@ public class SecsCatalogStream7Tests
         Assert.Equal("Process Program Reference Send", Row(21).Name);
         Assert.Equal<string[]>(["PPID"], [.. Row(21).DataItems]);
 
-        // S7F36 is a directory reply that carries bodies. Either the reference abbreviated and it
-        // is PPID alone, like S7F8 and S7F20, or a directory request really does return every
-        // formatted program whole - which is not a directory. The two readings put different bytes
-        // on the wire and nothing here chooses between them.
+        // This test used to hold two more, and both have since been served - which is why it is
+        // worth keeping the names here rather than only the measurements. S7F43 was refused for
+        // needing "a register of commands in flight", an argument about what an application must
+        // track rather than about what the row carries; it is item for item S7F37.
+        Assert.Equal<string[]>(["PPID", "RCMD"], [.. Row(43).DataItems]);
+        Assert.Equal<string[]>(["PPID", "RCMD"], [.. Row(37).DataItems]);
+
+        // And S7F36 was refused for a shape: either the reference abbreviated and the formatted
+        // directory is PPID alone, like S7F8 and S7F20, or it returns every formatted program
+        // whole. It returns them whole, because its record names PPBODY and theirs do not -
+        // SecsCatalogStream7RefusalTests holds that measurement.
         Assert.Equal("Formatted Process Program Directory Data", Row(36).Name);
         Assert.Equal<string[]>(["PPID", "PPBODY"], [.. Row(36).DataItems]);
         Assert.Equal<string[]>(["PPID"], [.. Row(8).DataItems]);
         Assert.Equal<string[]>(["PPID"], [.. Row(20).DataItems]);
-
-        // S7F43 cancels a command sent earlier, which needs a register of commands in flight.
-        // Neither this library nor the reference has one: the items are a PPID and an RCMD, with
-        // nothing to say which earlier command is meant when the same one was sent twice.
-        Assert.Equal<string[]>(["PPID", "RCMD"], [.. Row(43).DataItems]);
-        Assert.Equal<string[]>(["PPID", "RCMD"], [.. Row(37).DataItems]);
     }
 
     /// <summary>A copy of GEM's ACKC7 member this test can name without referencing that package.</summary>

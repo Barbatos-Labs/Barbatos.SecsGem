@@ -2364,6 +2364,76 @@ public sealed class GemHost : IAsyncDisposable
         return program;
     }
 
+    /// <summary>Asks for every formatted process program the equipment holds - S7F35.</summary>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The programs, in the order the equipment gave them. Empty when it holds none.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Not <see cref="ListProcessProgramsAsync"/> with the bodies attached.</strong> S7F19
+    /// asks what a machine holds and is answered for both halves of stream 7 at once; this asks the
+    /// formatted half alone, and is the only way a host can tell which of a machine's programs are
+    /// structured. The reference records this reply with <c>PPID</c> <em>and</em> <c>PPBODY</c>
+    /// where it records the other two directories with <c>PPID</c> alone, which is why each entry
+    /// is a whole program rather than a name.
+    /// </para>
+    /// <para>
+    /// <strong>This end writes one reading and reads two.</strong> The nesting is an inference -
+    /// the reference records an item list and no shape - so a machine that answers with a single
+    /// unwrapped program is understood as well, and that cannot be confused with a directory of
+    /// four: a program's first item is text where a directory's is a list. Entries that read as
+    /// neither are counted and logged rather than guessed at, which is what a machine answering
+    /// this row with identifiers alone looks like from here.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<GemFormattedProcessProgram>> RequestFormattedProcessProgramDirectoryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(7, 35, replyExpected: true)
+            {
+                Name = "FormattedProcessProgramDirectoryRequest",
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (GemFormattedProcessProgramCodec.TryRead(reply.Item, out var single) is GemProcessProgramAcknowledgement.Accepted
+            && single is not null)
+        {
+            return [single];
+        }
+
+        List<GemFormattedProcessProgram> programs = [];
+        var unreadable = 0;
+
+        if (reply.Item is { IsList: true } body)
+        {
+            foreach (var entry in body.Items)
+            {
+                GemFormattedProcessProgramCodec.TryRead(entry, out var program);
+
+                if (program is not null)
+                {
+                    programs.Add(program);
+                }
+                else
+                {
+                    unreadable++;
+                }
+            }
+        }
+
+        if (unreadable > 0)
+        {
+            // Logged rather than thrown, because S7F36 carries no acknowledgement item: there is
+            // nowhere to tell the machine its directory was unreadable, and the programs that did
+            // read are still worth having.
+            _logger.LogWarning(
+                "S7F36 carried {Count} entries this host could not read as a formatted process program.",
+                unreadable);
+        }
+
+        return programs;
+    }
+
     /// <summary>Stops listening to the connection.</summary>
     /// <returns>A completed task.</returns>
     /// <remarks>The connection is not owned here, and is not disposed.</remarks>

@@ -452,6 +452,16 @@ internal static class Program
             GemHost.HandledMessages.Contains(((byte)6, (byte)25)),
             "the host does not declare S6F25, the notification report send");
 
+        // S7F35 is the formatted half's own directory and the fifth message of that capability, so
+        // a packaging mistake would show as a list that is one short.
+        Assert(
+            GemEquipment.FormattedProcessProgramMessages.Count == 5,
+            $"the packed formatted half declares {GemEquipment.FormattedProcessProgramMessages.Count} primaries, not five");
+
+        Assert(
+            GemEquipment.FormattedProcessProgramMessages.Contains(((byte)7, (byte)35)),
+            "the formatted half does not declare S7F35, its own directory");
+
         // Stream 2, which the stream 2 chapter finished. The counts are here rather than only in
         // the test suite because a ProjectReference build resolves these from bin/ and cannot see
         // a packaging mistake - which is how five chapters running this file caught a declaration

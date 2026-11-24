@@ -148,10 +148,10 @@ public class SecsCatalogMeasureLimitTests
         //   S7F11, F13, F15      a family with no request and no directory anywhere, so a matrix
         //                        program could be written and never read
         //   S7F21                a name that names no action on the row's fields
-        //   S7F35                shape - two readings that put different bytes out, and the only
-        //                        one of these left on a shape: S6F25 was the other, and the
-        //                        chapter after this sweep served it by asking why its sibling's
-        //                        body exceeds its record
+        //
+        // Two of the ten were refused on a SHAPE and both have since been served, so that kind of
+        // reason is gone from the repository: S6F25 by asking why its sibling's body exceeds its
+        // record, and S7F35 by asking which item its own row names where its siblings' do not.
         //   S17F9, S17F13        a routing table is a claim about the stream, and four of this
         //                        stream's seven primaries are somebody's extrapolation
         //   S20F17, S20F33       rows this repository already serves under stream 15's numbers

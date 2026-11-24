@@ -1573,6 +1573,14 @@ internal static class Program
         Console.WriteLine($"   S7F7  -> {string.Join(", ", programDirectory)}");
         ok &= programDirectory.Contains("RECIPE-7");
 
+        // And the one directory that is per-format, which answers with the programs rather than
+        // their names: the reference records this reply with PPBODY where it records S7F8's and
+        // S7F20's with PPID alone. Nothing else here lets a host ask which programs are structured.
+        var formattedDirectory = await host.RequestFormattedProcessProgramDirectoryAsync(cancellationToken);
+
+        Console.WriteLine($"   S7F35 -> {string.Join("; ", formattedDirectory)}");
+        ok &= formattedDirectory.Any(program => program.Id == "RECIPE-7" && program.Commands.Count == 2);
+
         // And a command about that program. S2F41 with a PPID in front, run from the same command
         // table - the recipe reaches the handler as context.ProcessProgramId.
         var programCmda = await host.SendProgramCommandAsync(

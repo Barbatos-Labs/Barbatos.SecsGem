@@ -143,15 +143,21 @@ public sealed class GemFormattedProcessProgram
 /// and a store for structured recipes rarely wants to be the same code as a store for opaque ones.
 /// </para>
 /// <para>
-/// There is no <c>InquireAsync</c>. The formatted load inquire is S7F33, which SEMI E5 does not
-/// define with the confidence it defines S7F1 - the reference this repository's catalogue was built
-/// from flags it as representative - so it is not implemented rather than guessed at.
+/// There is no <c>InquireAsync</c>, and the row that would want one is served without it. S7F33,
+/// the formatted load inquire, is answered from <see cref="LoadAsync"/> - it asks whether an
+/// identifier may be sent, which is a question about what is already stored, and a new method here
+/// would break every store anybody has written. The reason recorded in this paragraph used to be
+/// that the reference flags S7F33 as representative: that is true, and it is no veto. Saying so is
+/// the finding of the chapter that served S7F33, and of the one that served S7F35 after it.
 /// </para>
 /// <para>
 /// <see cref="DeleteAsync"/>, <see cref="DeleteAllAsync"/> and <see cref="ListAsync"/> exist
 /// because S7F17 and S7F19 are not per-format: a host deleting <c>RECIPE-7</c> or asking what is
 /// stored means both halves. The equipment merges whichever stores it has, so a formatted program
-/// appears in S7F20 beside the unformatted ones.
+/// appears in S7F20 beside the unformatted ones. <see cref="ListAsync"/> has a second reader that
+/// <em>is</em> per-format - S7F35, the formatted directory - and there it is paired with
+/// <see cref="LoadAsync"/>, because that row answers with the programs themselves rather than with
+/// their names.
 /// </para>
 /// <para>
 /// Every method may be called from the connection's dispatch loop, so a slow one holds up every

@@ -289,8 +289,8 @@ streams were. Both are finished now - stream 6 served five of its last seven pai
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about. What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned
-already - stream 4's job half, stream 7's command cancel, four pairs of stream 15, stream 1's
-material transfer status and stream 6's notification report.
+already - stream 4's job half, stream 7's command cancel and its formatted directory, four pairs of
+stream 15, stream 1's material transfer status and stream 6's notification report.
 
 **A refusal with two reasons needs both of them re-read, and the weaker one is usually the one
 that was doing the work.** S1F9/F10 had two. The first was an item argument and wrong the way
@@ -338,6 +338,20 @@ would hand a provider an identifier and nothing to do. And a family can be refus
 no rows for: the matrix pairs are a send, a load inquire and a verify with **no request and no
 directory anywhere**, so a matrix program could be written and never read, under a `PPID` the plain
 request would hand back as a plain program.
+
+**And the item measures were not spent in that stream after all - the question was which item, not
+whether it is defined.** S7F35's reply names `PPBODY` where the reference's other two directory
+replies name `PPID` alone, and all three primaries are the same row three times: no items at all.
+`PPBODY` is named by nine rows of stream 7 and seven are served, in every one of them carrying the
+program - three unformatted rows carrying bytes and four formatted ones, where this library writes
+`PPID`, `MDLN`, `SOFTREV` and a list of commands under that one recorded name. So the record speaks
+at this row and is silent at its siblings, and the silence is evidence about them. The other
+reading would have refused the row instead of shaping it: a formatted directory of identifiers
+alone does the job S7F20 does, S7F20 is a definition where this is an illustration, and the firmer
+source wins - so **a reading that makes a row redundant is a reading to doubt**, because the
+reference wrote the row anyway. Being flagged representative is no veto, and this stream settled
+that too: S7F33 was left out for exactly that reason, and the paragraph saying so sat in
+`IGemFormattedProcessProgramStore`'s remarks for chapters after the row was served.
 
 **A routing table is a claim about the stream, not about the row.** This is what keeps the last
 serveable rows out of streams 17 and 20 once the item measures have run out of objections. S17F13
@@ -390,9 +404,9 @@ the primary among them is S6F3, served as exactly those two items since the chap
 S6F11, by S6F13 and - in S6F25's own family - by S6F28, and by none of that family's other three
 rows, which also kills the reading that would have given the row a list of identifiers. So
 **compare a row with the sibling that plays the same part in its pair, and make the odd one explain
-itself**; where nothing explains it the shape really is open. S6F25/F26 is served, which leaves
-**S7F35** as the only refusal anywhere here resting on a shape, and stream 6 down to the two rows
-whose own flag is undefined.
+itself**; where nothing explains it the shape really is open. S6F25/F26 is served, and S7F35 one
+chapter later, so **no refusal anywhere here rests on a shape any more** - stream 6 is down to the
+two rows whose own flag is undefined, and stream 7 to the matrix family and the reference send.
 
 **An undefined item's format is sometimes stated elsewhere and sometimes not, and the difference is
 worth checking before inventing anything.** Stream 8's `CPBODY` has no definition, so

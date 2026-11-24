@@ -6,7 +6,7 @@
 namespace Barbatos.SecsGem.Catalog.UnitTests;
 
 /// <summary>
-/// Stream 7's six refusals, re-read - and the stream where the item list stopped discriminating.
+/// Stream 7's refusals, re-read twice - and the stream where the item list stopped discriminating.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,8 +18,15 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// </para>
 /// <para>
 /// What decides instead is whether the row's <em>name</em> names an action on its fields. S7F43
-/// does - cancel the command that <c>PPID</c> and <c>RCMD</c> named - and it went in. The other
-/// five name a kind of program, a word, or a body nobody can pin down.
+/// does - cancel the command that <c>PPID</c> and <c>RCMD</c> named - and it went in.
+/// </para>
+/// <para>
+/// <strong>S7F35 went in two chapters later, and on the item list after all.</strong> Not on
+/// whether its items are defined - that question is the silent one here - but on <em>which</em>
+/// item its row names: the reference records the formatted directory's reply with <c>PPBODY</c>
+/// where it records the other two directories with <c>PPID</c> alone, and <c>PPBODY</c> has never
+/// once been a name without a body behind it. Four refusals are left, and all four are the matrix
+/// family and the reference send.
 /// </para>
 /// </remarks>
 public class SecsCatalogStream7RefusalTests
@@ -51,8 +58,9 @@ public class SecsCatalogStream7RefusalTests
 
         Assert.Equal<byte[]>([3, 6, 9, 11, 15, 23, 26, 27, 36], [.. shared.Select(m => m.Function)]);
 
-        // Two of the nine are the matrix family's and one is the formatted directory's reply -
-        // which is to say three of this stream's six refusals are in a list with six served rows.
+        // Two of the nine are the matrix family's, and they are all that is left out: seven of the
+        // nine are served, which is to say two of this stream's four refusals sit in a list with
+        // seven rows this repository carries.
         Assert.All(
             shared,
             message => Assert.All(
@@ -128,12 +136,12 @@ public class SecsCatalogStream7RefusalTests
     }
 
     [Fact]
-    public void The_formatted_directory_reply_has_two_readings_that_put_different_bytes_on_the_wire()
+    public void The_formatted_directory_names_PPBODY_where_the_other_two_directories_do_not()
     {
-        // S7F35's refusal, which predates the rule it belongs to: a body whose readings disagree is
-        // unparseable rather than merely uninterpretable, which the stream 6 chapter named when it
-        // refused S6F25. The two served directory replies say PPID alone; S7F26, a definition, says
-        // a program reply is a PPID and a PPBODY. S7F36 is recorded with both names and no nesting.
+        // S7F35's refusal, overturned. It said the row has two readings that put different bytes
+        // out: the two served directory replies say PPID alone, while S7F26 - a definition - says a
+        // program reply is a PPID and a PPBODY, and S7F36 is recorded with both names and no
+        // nesting. All of that is true and none of it is a tie.
         Assert.Empty(Row(35).DataItems);
         Assert.Equal<string[]>(["PPID", "PPBODY"], [.. Row(36).DataItems]);
 
@@ -141,6 +149,48 @@ public class SecsCatalogStream7RefusalTests
         Assert.Equal<string[]>(["PPID"], [.. Row(20).DataItems]);
         Assert.Equal<string[]>(["PPID", "PPBODY"], [.. Row(26).DataItems]);
         Assert.False(Row(26).IsRepresentative);
+
+        // What breaks it is that the three directory requests are the same row three times - no
+        // items at all, in all three - and only this one's REPLY names a body. The silence of the
+        // other two is evidence about them, not about a row that speaks.
+        foreach (var function in new byte[] { 7, 19, 35 })
+        {
+            Assert.Empty(Row(function).DataItems);
+            Assert.True(Row(function).IsPrimary);
+        }
+
+        Assert.DoesNotContain("PPBODY", Row(8).DataItems);
+        Assert.DoesNotContain("PPBODY", Row(20).DataItems);
+        Assert.Contains("PPBODY", Row(36).DataItems);
+    }
+
+    [Fact]
+    public void And_PPBODY_is_a_body_in_every_row_of_this_stream_that_anybody_reads()
+    {
+        // The measurement that serves the row, and it is about the item rather than the stream.
+        // PPBODY is defined, and as a B with no length - which is not the whole story, because the
+        // formatted half of this stream carries the same recorded name as the structure E5 gives
+        // it rather than as bytes. So what PPBODY is to a row has to be read off the rows that
+        // carry it, and nine rows do.
+        Assert.True(SecsCatalog.TryGetDataItem("PPBODY", out var body));
+        Assert.Equal("B", body!.FormatToken);
+        Assert.Equal<byte[]>([3, 6, 9, 11, 15, 23, 26, 27, 36], [.. Sharing("PPID,PPBODY").Select(m => m.Function)]);
+
+        // Seven of the nine are served now: three unformatted rows carrying bytes, and - this is
+        // the half that decides S7F36 - four formatted ones, where this library writes PPID, MDLN,
+        // SOFTREV and a list of commands under that one recorded name. In every served row of
+        // either half the item is the program itself. Not one row anywhere names PPBODY and
+        // carries nothing, which is why a directory that names it returns programs rather than
+        // names. The two left out are the matrix family's, refused for having no request and no
+        // directory rather than for a shape.
+        Assert.Equal<string[]>(["PPID", "PPBODY"], [.. Row(6).DataItems]);
+        Assert.Equal<string[]>(["PPID", "PPBODY"], [.. Row(23).DataItems]);
+        Assert.False(Row(6).IsRepresentative);
+        Assert.True(Row(36).IsRepresentative);
+
+        // And being an illustration is no veto, which this stream settled before this chapter:
+        // S7F33 was left out for exactly that reason and is served now.
+        Assert.True(Row(33).IsRepresentative);
     }
 
     [Fact]

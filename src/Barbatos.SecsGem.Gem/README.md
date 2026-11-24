@@ -312,7 +312,8 @@ host.EventReportReceived += (_, args) =>
 ```
 
 **S6F25 was refused over a *shape* rather than a field** - one of only two rows here ever refused
-that way, S7F35 being the other. Its two items are both defined and both already read here; what
+that way, S7F35 being the other, and both are served now. Its two items are both defined and both
+already read here; what
 was open is whether a report list follows them, because the reference records this row exactly as
 it records S6F16 - and S6F16 is served here carrying a whole event report. The tie-break is to ask
 *why* S6F16's body exceeds its record:
@@ -829,7 +830,7 @@ services.AddSecsGem(builder.Configuration)
     .UseTcp()
     .AddGemEquipment(model => { /* ... */ })
     .AddGemProcessPrograms()                     // the unformatted half, and S7F17/S7F19 with it
-    .AddGemFormattedProcessPrograms()            // S7F23, S7F25, and the verify and inquire
+    .AddGemFormattedProcessPrograms()            // S7F23, S7F25, the verify, the inquire, the directory
     .RunAsHostedService();
 ```
 
@@ -839,6 +840,7 @@ services.AddSecsGem(builder.Configuration)
 | S7F25 | Send that one back | S7F26 - the same four items, or a zero-length list |
 | S7F27 | Is this structure the one you hold? | S7F28 (ACKC7) |
 | S7F33 | May I send you this one? | S7F34 (PPGNT) |
+| S7F35 | What structured recipes do you hold? | S7F36 - every one of them, whole |
 
 The second pair are S7F9's and S7F1's twins for this half, and each has a difference worth
 knowing. **The verify compares the whole structure** - the model name and the software revision as
@@ -859,6 +861,37 @@ stores: a formatted program appears in S7F20 beside the unformatted ones, an ide
 in both is listed once, and an S7F17 naming a program only one store has is still ACKC7 0 - saying
 "no such program" because the other half had not heard of it would be refusing something that just
 happened.
+
+**S7F35 is the one directory that is per-format**, which is why it belongs to this half and why it
+is worth having at all: nothing else here lets a host ask which of a machine's programs are
+structured, let alone fetch them in one message.
+
+```csharp
+foreach (var program in await host.RequestFormattedProcessProgramDirectoryAsync())
+{
+    Console.WriteLine(program);        // RECIPE-7 (BRBTOS-1 0.1.0, 2 commands)
+}
+```
+
+**It answers with the programs and not with their names**, and that was refused for a dozen chapters
+as a body whose readings disagree - the reference's other two directory requests, S7F7 and S7F19,
+are answered with a list of `PPID` and nothing else. What settles it is *which* item each row
+names: S7F8 and S7F20 name `PPID` alone, S7F36 names `PPID` **and** `PPBODY`, and `PPBODY` is named
+by nine rows of this stream of which seven are served - in every one of the seven it is the program
+itself. Three of the seven are unformatted rows carrying bytes and four are formatted ones carrying
+the structure, this row among them. The silence of the other two directories is evidence about
+them, not about a row that speaks.
+
+And the other reading would have refused the row rather than shaped it: a formatted directory
+returning identifiers alone does the job S7F20 does, S7F20 is one of the reference's definitions
+where this row is one of its illustrations, and the firmer source wins. **A reading that makes a
+row redundant is a reading to doubt**, because the reference wrote the row anyway.
+
+A host reads both shapes even though this end writes one, since the nesting is an inference: a
+single unwrapped program is understood too, and cannot be confused with a directory of four
+because a program's first item is text where a directory's is a list. Entries that read as neither
+are counted and logged - S7F36 has no acknowledgement item, so there is nowhere to tell a machine
+its directory was unreadable.
 
 A formatted program arrives as data rather than as a window onto the message, so
 `IGemFormattedProcessProgramStore` has nothing to say about copying:
@@ -1248,7 +1281,7 @@ not a wall in front of it.
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
-| Five pairs of stream 7 | Seventeen of its twenty-two primaries are here now, and **stream 7 is where the item list stopped discriminating**: nine of its rows carry `PPID, PPBODY` and six of those are served, and seven of its primaries carry `PPID` alone with six of those served. So "every item in this row is defined" is true of all five refusals and says nothing about any of them - what decides is whether the row's *name* names an action on its fields. **The matrix family**, S7F11 to S7F16, is **write-only**: a send, a load inquire and a verify, and no request and no directory anywhere in the reference, so a matrix program could be stored and never read back - and it would be stored under a `PPID` that S7F5 would hand back as a plain program, because the rows are item for item the plain ones. S7F13 also loses to S7F1, which is a definition where it is an illustration. **S7F21/F22** is `PPID` answered by an `ACKC7`, which is the shape of six served rows - so the shape says nothing and the word "Reference" is all that is left; a handler would be given a program identifier and no action, which is S1F9's position. **S7F35/F36** is a body whose two readings put different bytes on the wire: the two served directory replies say `PPID` alone and S7F26, a definition, says a program reply is a `PPID` and a `PPBODY`. A body guessed wrong is unparseable rather than merely uninterpretable, which is the rule the stream 6 chapter named. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) and [`SecsCatalogStream7RefusalTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7RefusalTests.cs) |
+| Four pairs of stream 7 | Eighteen of its twenty-two primaries are here now, and **stream 7 is where the item list stopped discriminating**: nine of its rows carry `PPID, PPBODY` and seven of those are served, and seven of its primaries carry `PPID` alone with six of those served. So "every item in this row is defined" is true of all four refusals and says nothing about any of them - what decides is whether the row's *name* names an action on its fields. **The matrix family**, S7F11 to S7F16, is **write-only**: a send, a load inquire and a verify, and no request and no directory anywhere in the reference, so a matrix program could be stored and never read back - and it would be stored under a `PPID` that S7F5 would hand back as a plain program, because the rows are item for item the plain ones. S7F13 also loses to S7F1, which is a definition where it is an illustration. **S7F21/F22** is `PPID` answered by an `ACKC7`, which is the shape of six served rows - so the shape says nothing and the word "Reference" is all that is left; a handler would be given a program identifier and no action, which is S1F9's position. **S7F35/F36** was the fifth and is served now: it was refused as a body whose two readings put different bytes on the wire, and what settles it is which item each row names - S7F8 and S7F20 name `PPID` alone where S7F36 names `PPBODY` too, and no row in this stream names `PPBODY` and carries nothing. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) and [`SecsCatalogStream7RefusalTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7RefusalTests.cs) |
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
 | Two pairs of stream 6 | The rest of the stream is here. **S6F21/F22** and **S6F29/F30** are refused on the field each row turns on: `CELLNAME` is what makes a data cell report a *cell* report rather than the event report it is otherwise identical to, and `NRED` is the enable-or-disable flag S6F29 exists to carry - both undefined, both named by one row, so carrying either untouched would leave this library unable to tell apart the two things its row distinguishes. The same reason S14F23 stays out. **S6F25/F26 was the third and is served now**: it was refused on a *shape* rather than a field, and the tie-break is that S6F16's body exceeds its record because S6F15 is the Event Report *Request*, which is a thing no primary's record has to explain. [`SecsCatalogStream6Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream6Tests.cs) pins both refusals and the measurement that overturned the third |
 | S2F19/F20, reset and initialize | The one row of stream 2 left, and the clearest refusal in the reference: S2F19's **entire body is `RSTC`**, a name nobody wrote down, and `RIACK` is undefined too - the only row in the stream where both halves are gaps. An own gap is carried untouched unless it is the field the message turns on, and a reset code is *which* reset: carrying it opaquely would leave this library unable to tell one reset from another. Strictly worse than S14F23's `ENABLE`, which at least sat beside items that were defined, and there is no second field in the row to anchor a reading against. [`SecsCatalogStream2Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream2Tests.cs) pins it |

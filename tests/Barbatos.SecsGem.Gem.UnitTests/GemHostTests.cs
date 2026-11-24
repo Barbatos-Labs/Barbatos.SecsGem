@@ -147,6 +147,7 @@ public class GemHostTests
             new GemFormattedProcessProgram("SHAPED", "BRBTOS-1", "0.1.0", []),
             token);
         await host.RequestFormattedProcessProgramAsync("SHAPED", token);
+        await host.RequestFormattedProcessProgramDirectoryAsync(token);
         await host.InquireFormattedProcessProgramAsync("SHAPED", 3, token);
         await host.VerifyFormattedProcessProgramAsync(
             new GemFormattedProcessProgram("SHAPED", "BRBTOS-1", "0.1.0", []),
@@ -168,7 +169,9 @@ public class GemHostTests
         await host.ResetSpoolingAsync([new GemSpoolStreamReset(6, [11])], token);
 
         // And the last row of stream 1, in five chapters after the gapless sweep left it out: this
-        // test is what caught its absence from the host the moment the equipment declared it.
+        // test is what caught its absence from the host the moment the equipment declared it. It
+        // did the same for S7F35 two chapters later, which is the whole value of a sweep written
+        // against the declaration rather than against a list somebody maintains.
         await host.RequestMaterialTransferStatusAsync(token);
 
         List<(byte Stream, byte Function)> declared =

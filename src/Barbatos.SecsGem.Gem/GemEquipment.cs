@@ -282,6 +282,13 @@ public sealed class GemEquipment : IAsyncDisposable
     /// whichever stores are configured. Equipment that offers only formatted programs and wants the
     /// delete and directory messages registers both capabilities.
     /// </para>
+    /// <para>
+    /// <strong>S7F35 is here rather than there</strong>, which is the one place the two directories
+    /// part company: S7F19 asks what a machine holds and gets one answer for both halves, and this
+    /// row asks the formatted half on its own. That is the whole reason it is worth serving -
+    /// nothing else here lets a host ask which of a machine's programs are structured, let alone
+    /// fetch them in one message.
+    /// </para>
     /// </remarks>
     public static IReadOnlyList<(byte Stream, byte Function)> FormattedProcessProgramMessages { get; } =
     [
@@ -289,6 +296,7 @@ public sealed class GemEquipment : IAsyncDisposable
         (7, 25),   // Formatted Process Program Request
         (7, 27),   // Formatted Process Program Verify Send
         (7, 33),   // Formatted Process Program Load Inquire
+        (7, 35),   // Formatted Process Program Directory Request
     ];
 
     /// <summary>The spooling messages, answered only when a spool is configured and enabled.</summary>
@@ -1587,6 +1595,7 @@ public sealed class GemEquipment : IAsyncDisposable
             (7, 27) => await OnFormattedProgramVerifyAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 31) => await OnProgramAvailableAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 33) => await OnFormattedProgramInquireAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 35) => await OnFormattedProgramDirectoryAsync(cancellationToken).ConfigureAwait(false),
             (7, 37) => await OnProgramCommandAsync(transaction.Message, 38, cancellationToken).ConfigureAwait(false),
             (7, 41) => await OnProgramCommandAsync(transaction.Message, 42, cancellationToken).ConfigureAwait(false),
             (7, 43) => await OnProgramCommandCancelAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
@@ -3143,6 +3152,63 @@ public sealed class GemEquipment : IAsyncDisposable
             // A zero-length list for "no such program", the refusal S7F6 uses for the same reason:
             // S7F26 has no acknowledgement code either, so the empty body is the refusal.
             Item = program is null ? SecsItem.L() : GemFormattedProcessProgramCodec.Write(program),
+        };
+    }
+
+    /// <summary>Answers S7F35 with every formatted program this machine holds, each one whole.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This row was refused for a shape, and the record is what overturned it.</strong> The
+    /// reference's other two directory requests - S7F7 and S7F19, both carrying no items at all,
+    /// exactly as this one does - are answered with a list of <c>PPID</c> and nothing else, so the
+    /// obvious reading of a third directory is a third list of identifiers. But this row's record
+    /// names <c>PPBODY</c> where neither of theirs does, and <c>PPBODY</c> is named by nine rows of
+    /// this stream; six of those are served here and in every one of the six it carries the
+    /// program. The item has never once been noise. <c>SecsCatalogStream7Tests</c> pins the count.
+    /// </para>
+    /// <para>
+    /// The other reading would refuse the row rather than shape it: a formatted directory returning
+    /// identifiers alone does the job S7F20 does, S7F20 is one of the reference's definitions where
+    /// this row is one of its illustrations, and the firmer source wins. <strong>A reading that
+    /// makes a row redundant is a reading to doubt</strong>, because the reference wrote the row
+    /// anyway.
+    /// </para>
+    /// <para>
+    /// So the nesting comes from a served sibling, which is how every body in this library is
+    /// settled: each entry is what S7F26 carries one program in - <c>PPID</c>, <c>MDLN</c>,
+    /// <c>SOFTREV</c> and the commands - and S7F26 is a definition rather than an illustration.
+    /// Being flagged representative is no veto, and this stream is where that was settled: S7F33
+    /// was left out for exactly that reason and then served.
+    /// </para>
+    /// <para>
+    /// The formatted store only, and an identifier that <c>ListAsync</c> gave but <c>LoadAsync</c>
+    /// no longer has is skipped rather than sent as an empty program: a directory is what is there
+    /// now, and a program with no commands is a real answer that must not also mean "gone".
+    /// </para>
+    /// </remarks>
+    private async ValueTask<SecsMessage?> OnFormattedProgramDirectoryAsync(CancellationToken cancellationToken)
+    {
+        if (_formatted is null)
+        {
+            return null;
+        }
+
+        var entries = new List<SecsItem>();
+
+        foreach (var id in await _formatted.ListAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var program = await _formatted.LoadAsync(id, cancellationToken).ConfigureAwait(false);
+
+            if (program is not null)
+            {
+                entries.Add(GemFormattedProcessProgramCodec.Write(program));
+            }
+        }
+
+        return new SecsMessage(7, 36, replyExpected: false)
+        {
+            Name = "FormattedProcessProgramDirectoryData",
+            Item = SecsItem.L(entries),
         };
     }
 

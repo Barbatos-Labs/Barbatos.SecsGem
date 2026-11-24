@@ -5,6 +5,7 @@
 
 using Barbatos.SecsGem.Hsms;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Barbatos.SecsGem.Gem.UnitTests;
 
@@ -54,9 +55,9 @@ public class GemFormattedProcessProgramTests
             Assert.DoesNotContain(pair, GemEquipment.ProcessProgramMessages);
         }
 
-        // Four: the two the reference documents, plus the verify and the load inquire it
-        // illustrates - S7F9's and S7F1's twins for this half of the stream.
-        Assert.Equal(4, GemEquipment.FormattedProcessProgramMessages.Count);
+        // Five: the two the reference documents, plus the verify, the load inquire and the
+        // directory it illustrates - S7F9's, S7F1's and S7F19's twins for this half of the stream.
+        Assert.Equal(5, GemEquipment.FormattedProcessProgramMessages.Count);
         Assert.All(GemEquipment.FormattedProcessProgramMessages, p => Assert.Equal(7, p.Stream));
         Assert.All(GemEquipment.FormattedProcessProgramMessages, p => Assert.True(p.Function % 2 == 1));
     }
@@ -531,6 +532,234 @@ public class GemFormattedProcessProgramTests
     }
 
     // ----------------------------------------------------------------- the types on their own
+
+    // ----------------------------------------------------------------- S7F35 and S7F36
+
+    [Fact(Timeout = 15_000)]
+    public async Task The_formatted_directory_carries_every_program_whole()
+    {
+        await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
+        await link.OpenAsync();
+
+        foreach (var id in new[] { "RECIPE-1", "RECIPE-2" })
+        {
+            using var sent = await link.RequestAsync(new SecsMessage(7, 23, replyExpected: true)
+            {
+                Item = Program(id, Command(12, "SETPOINT", "350.0")),
+            });
+
+            Assert.Equal((byte)GemProcessProgramAcknowledgement.Accepted, sent.Item!.FirstValueOrDefault<byte>());
+        }
+
+        using var listed = await link.RequestAsync(new SecsMessage(7, 35, replyExpected: true));
+
+        // The whole question this row was refused over, and the only place the answer is visible.
+        // Each entry is what S7F26 carries one program in, because the reference records this row
+        // with PPBODY where it records S7F8 and S7F20 with PPID alone.
+        Assert.Equal(36, listed.F);
+        Assert.Equal(2, listed.Item!.Count);
+
+        foreach (var entry in listed.Item.Items)
+        {
+            Assert.Equal(4, entry.Count);
+            Assert.StartsWith("RECIPE-", entry[0].GetString(), StringComparison.Ordinal);
+            Assert.Equal("BRBTOS", entry[1].GetString());
+            Assert.Equal("1.0.0", entry[2].GetString());
+            Assert.Equal(1, entry[3].Count);
+            Assert.Equal((byte)12, entry[3][0][0].FirstValueOrDefault<byte>());
+        }
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task The_formatted_directory_is_the_formatted_half_alone()
+    {
+        await using var link = GemLink.Start(
+            Model,
+            programs: new GemInMemoryProcessProgramStore(),
+            formatted: new GemInMemoryFormattedProcessProgramStore());
+
+        await link.OpenAsync();
+
+        using var plain = await link.RequestAsync(new SecsMessage(7, 3, replyExpected: true)
+        {
+            Item = SecsItem.L(SecsItem.A("PLAIN"), SecsItem.B(1, 2, 3)),
+        });
+
+        Assert.Equal((byte)GemProcessProgramAcknowledgement.Accepted, plain.Item!.FirstValueOrDefault<byte>());
+
+        using var shaped = await link.RequestAsync(new SecsMessage(7, 23, replyExpected: true)
+        {
+            Item = Program("SHAPED", Command(1, "A")),
+        });
+
+        Assert.Equal((byte)GemProcessProgramAcknowledgement.Accepted, shaped.Item!.FirstValueOrDefault<byte>());
+
+        // S7F19 is not per-format and answers for both halves. This row is per-format, which is
+        // the whole reason it is worth serving: nothing else here lets a host ask which of a
+        // machine's programs are structured.
+        using var both = await link.RequestAsync(new SecsMessage(7, 19, replyExpected: true));
+
+        Assert.Equal(2, both.Item!.Count);
+
+        using var formattedOnly = await link.RequestAsync(new SecsMessage(7, 35, replyExpected: true));
+
+        Assert.Equal(1, formattedOnly.Item!.Count);
+        Assert.Equal("SHAPED", formattedOnly.Item[0][0].GetString());
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_machine_holding_no_formatted_programs_answers_an_empty_directory()
+    {
+        await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
+        await link.OpenAsync();
+
+        using var listed = await link.RequestAsync(new SecsMessage(7, 35, replyExpected: true));
+
+        // An empty directory is a true answer and the row has no acknowledgement to say anything
+        // else with - the same position S7F8 and S7F20 are in. What it must not be is absent: a
+        // machine with a formatted store declares the row whether or not anything is in it.
+        Assert.Equal(36, listed.F);
+        Assert.True(listed.Item!.IsList);
+        Assert.Equal(0, listed.Item.Count);
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task An_identifier_the_store_loses_between_the_list_and_the_load_is_left_out()
+    {
+        await using var link = GemLink.Start(Model, formatted: new ForgetfulStore());
+        await link.OpenAsync();
+
+        using var listed = await link.RequestAsync(new SecsMessage(7, 35, replyExpected: true));
+
+        // A directory is what is there now. The alternative would be an entry with no commands,
+        // which is a real answer for a real program - A_program_with_no_commands_is_still_a_program
+        // above - so it must not also mean "this one went away".
+        Assert.Equal(1, listed.Item!.Count);
+        Assert.Equal("HERE", listed.Item[0][0].GetString());
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task The_host_reads_the_directory_as_programs()
+    {
+        await using var pair = GemPair.Start(formatted: new GemInMemoryFormattedProcessProgramStore());
+        await pair.OpenAsync();
+
+        foreach (var id in new[] { "RECIPE-1", "RECIPE-2" })
+        {
+            Assert.Equal(
+                GemProcessProgramAcknowledgement.Accepted,
+                await pair.Host.SendFormattedProcessProgramAsync(
+                    new GemFormattedProcessProgram(id, "BRBTOS", "1.0.0", [new GemProcessProgramCommand(12, ["SETPOINT"])]),
+                    GemPair.Token));
+        }
+
+        var directory = await pair.Host.RequestFormattedProcessProgramDirectoryAsync(GemPair.Token);
+
+        Assert.Equal(2, directory.Count);
+        Assert.Equal<string[]>(["RECIPE-1", "RECIPE-2"], [.. directory.Select(program => program.Id).Order()]);
+        Assert.All(directory, program => Assert.Equal("SETPOINT", Assert.Single(Assert.Single(program.Commands).Parameters)));
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task One_unwrapped_program_is_read_too_and_four_wrapped_ones_are_not_mistaken_for_one()
+    {
+        // The nesting here is an inference - the reference records an item list and no shape - so
+        // this end writes one reading and reads two. The four-program case is the one that could
+        // go wrong, because a single program is also a list of four: what separates them is that a
+        // program's first item is text where a directory's is a list.
+        var single = GemPair.Start(
+            formatted: new GemInMemoryFormattedProcessProgramStore(),
+            answerEquipment: transaction => transaction.Message is { S: 7, F: 35 }
+                ? new SecsMessage(7, 36, replyExpected: false)
+                {
+                    Item = Program("ALONE", Command(1, "A")),
+                }
+                : null);
+
+        await using (single)
+        {
+            await single.OpenAsync();
+
+            var one = await single.Host.RequestFormattedProcessProgramDirectoryAsync(GemPair.Token);
+
+            Assert.Equal("ALONE", Assert.Single(one).Id);
+        }
+
+        var four = GemPair.Start(
+            formatted: new GemInMemoryFormattedProcessProgramStore(),
+            answerEquipment: transaction => transaction.Message is { S: 7, F: 35 }
+                ? new SecsMessage(7, 36, replyExpected: false)
+                {
+                    Item = SecsItem.L(
+                        Program("A", Command(1, "P")),
+                        Program("B", Command(1, "P")),
+                        Program("C", Command(1, "P")),
+                        Program("D", Command(1, "P"))),
+                }
+                : null);
+
+        await using (four)
+        {
+            await four.OpenAsync();
+
+            var all = await four.Host.RequestFormattedProcessProgramDirectoryAsync(GemPair.Token);
+
+            Assert.Equal<string[]>(["A", "B", "C", "D"], [.. all.Select(program => program.Id)]);
+        }
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_directory_of_identifiers_reads_as_nothing_and_the_log_says_how_many()
+    {
+        var log = new RecordingLogger<GemHost>();
+
+        await using var pair = GemPair.Start(
+            formatted: new GemInMemoryFormattedProcessProgramStore(),
+            hostLogger: log,
+            answerEquipment: transaction => transaction.Message is { S: 7, F: 35 }
+                ? new SecsMessage(7, 36, replyExpected: false)
+                {
+                    Item = Text("RECIPE-1", "RECIPE-2"),
+                }
+                : null);
+
+        await pair.OpenAsync();
+
+        // What the reading this chapter rejected looks like from here. S7F36 has no
+        // acknowledgement item, so there is nowhere to tell the machine its directory was
+        // unreadable - which makes the log the only place the two empty answers differ, and
+        // asserting it is the only thing that stops the warning being deleted.
+        Assert.Empty(await pair.Host.RequestFormattedProcessProgramDirectoryAsync(GemPair.Token));
+
+        Assert.Contains(
+            log.From(LogLevel.Warning),
+            message => message.Contains("S7F36", StringComparison.Ordinal)
+                && message.Contains('2', StringComparison.Ordinal));
+    }
+
+    /// <summary>A store that lists an identifier it will not load, which is a delete racing a directory.</summary>
+    private sealed class ForgetfulStore : IGemFormattedProcessProgramStore
+    {
+        public ValueTask<GemProcessProgramAcknowledgement> SaveAsync(
+            GemFormattedProcessProgram program,
+            CancellationToken cancellationToken)
+            => ValueTask.FromResult(GemProcessProgramAcknowledgement.Accepted);
+
+        public ValueTask<GemFormattedProcessProgram?> LoadAsync(string id, CancellationToken cancellationToken)
+            => ValueTask.FromResult<GemFormattedProcessProgram?>(
+                id == "HERE"
+                    ? new GemFormattedProcessProgram("HERE", "BRBTOS", "1.0.0", [])
+                    : null);
+
+        public ValueTask<GemProcessProgramAcknowledgement> DeleteAsync(string id, CancellationToken cancellationToken)
+            => ValueTask.FromResult(GemProcessProgramAcknowledgement.Accepted);
+
+        public ValueTask<GemProcessProgramAcknowledgement> DeleteAllAsync(CancellationToken cancellationToken)
+            => ValueTask.FromResult(GemProcessProgramAcknowledgement.Accepted);
+
+        public ValueTask<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken)
+            => ValueTask.FromResult<IReadOnlyList<string>>(["HERE", "GONE"]);
+    }
 
     [Fact(Timeout = 15_000)]
     public void A_program_owns_its_commands()
