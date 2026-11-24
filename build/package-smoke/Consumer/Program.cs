@@ -394,6 +394,7 @@ internal static class Program
             // may be declared only once, so an overlap would throw while the router was built.
             .AddGemProcessPrograms()
             .AddGemFormattedProcessPrograms()
+            .AddGemProcessProgramMatrices()
             .AddGemTerminal()
             .AddGemTraces()
             .AddGemLimits()
@@ -461,6 +462,34 @@ internal static class Program
         Assert(
             GemEquipment.FormattedProcessProgramMessages.Contains(((byte)7, (byte)35)),
             "the formatted half does not declare S7F35, its own directory");
+
+        // And stream 7's third capability, which is the newest list in the package: three rows and
+        // a store of its own. A packaging mistake here would leave a resolved matrix store with
+        // nothing routed to it.
+        Assert(
+            GemEquipment.ProcessProgramMatrixMessages.Count == 3,
+            $"the packed matrix capability declares {GemEquipment.ProcessProgramMatrixMessages.Count} primaries, not three");
+
+        foreach (var (stream, function) in GemEquipment.ProcessProgramMatrixMessages)
+        {
+            Assert(
+                router.TryGetHandler(stream, function, out _),
+                $"S{stream}F{function} is declared and never reached the routing table");
+        }
+
+        Assert(
+            provider.GetService<IGemProcessProgramMatrixStore>() is not null,
+            "the matrix store did not resolve from the packaged assembly");
+
+        // The separation the capability exists for: a matrix is not a process program, so none of
+        // its three rows may appear in the lists that answer for programs.
+        foreach (var pair in GemEquipment.ProcessProgramMatrixMessages)
+        {
+            Assert(
+                !GemEquipment.ProcessProgramMessages.Contains(pair)
+                    && !GemEquipment.FormattedProcessProgramMessages.Contains(pair),
+                $"S{pair.Stream}F{pair.Function} is declared by more than one capability");
+        }
 
         // Stream 2, which the stream 2 chapter finished. The counts are here rather than only in
         // the test suite because a ProjectReference build resolves these from bin/ and cannot see

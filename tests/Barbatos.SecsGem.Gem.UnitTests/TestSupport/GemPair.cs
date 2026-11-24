@@ -109,7 +109,8 @@ internal sealed class GemPair : IAsyncDisposable
         bool limits = false,
         RecordingLogger<GemHost>? hostLogger = null,
         IGemServiceProgramStore? servicePrograms = null,
-        Func<SecsTransaction, SecsMessage?>? answerEquipment = null)
+        Func<SecsTransaction, SecsMessage?>? answerEquipment = null,
+        IGemProcessProgramMatrixStore? matrices = null)
     {
         var options = new SecsGemOptions
         {
@@ -173,6 +174,11 @@ internal sealed class GemPair : IAsyncDisposable
         if (servicePrograms is not null)
         {
             declared.AddRange(GemEquipment.ServiceProgramMessages);
+        }
+
+        if (matrices is not null)
+        {
+            declared.AddRange(GemEquipment.ProcessProgramMatrixMessages);
         }
 
         if (traces)
@@ -239,7 +245,8 @@ internal sealed class GemPair : IAsyncDisposable
             spool,
             formatted,
             terminal,
-            servicePrograms);
+            servicePrograms,
+            matrices);
 
         pendingHost = new GemHost(hostOptions, hostLink, clock, hostLogger);
 

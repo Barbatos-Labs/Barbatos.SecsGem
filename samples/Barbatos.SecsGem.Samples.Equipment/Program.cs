@@ -233,6 +233,7 @@ internal static class Program
             // commands - where S7F3 carries one as bytes this machine happens to understand.
             // Equipment may offer either half, both, or neither.
             .AddGemFormattedProcessPrograms()
+            .AddGemProcessProgramMatrices()
 
             // Terminal services: the host can put text in front of whoever is standing at the
             // machine. GemInMemoryTerminal keeps the messages and shows them to nobody, which is

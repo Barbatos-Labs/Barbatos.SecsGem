@@ -61,11 +61,17 @@ public class GemReservedAcknowledgementTests
             host => host.DeleteProcessProgramsAsync(["PP-1"], GemPair.Token),
             (byte)GemProcessProgramAcknowledgement.Other);
 
-        // ACKC7 is read at three sites and the first version of this test drove one of them, so a
-        // control that moved the boundary at another found nothing. All three now, which is the
-        // whole point of driving rather than only comparing.
+        // ACKC7 is read at SEVEN sites and the first version of this test drove one of them, so a
+        // control that moved the boundary at another found nothing. The rule is per site and not
+        // per item, and counting them is how this file earns its keep: when the matrix chapter
+        // added two readers it also found two that had never been driven at all - the plain verify
+        // and the formatted one, both written chapters earlier, both passing every comparison.
         await DriveAsync(7, 3, 4, "ACKC7",
             host => host.SendProcessProgramAsync("PP-1", new byte[] { 1, 2 }, GemPair.Token),
+            (byte)GemProcessProgramAcknowledgement.Other);
+
+        await DriveAsync(7, 9, 10, "ACKC7",
+            host => host.VerifyProcessProgramAsync("PP-1", new byte[] { 1, 2 }, GemPair.Token),
             (byte)GemProcessProgramAcknowledgement.Other);
 
         await DriveAsync(7, 23, 24, "ACKC7",
@@ -73,6 +79,37 @@ public class GemReservedAcknowledgementTests
                 new GemFormattedProcessProgram("PP-1", "BRBTOS", "1.0", []),
                 GemPair.Token),
             (byte)GemProcessProgramAcknowledgement.Other);
+
+        await DriveAsync(7, 27, 28, "ACKC7",
+            host => host.VerifyFormattedProcessProgramAsync(
+                new GemFormattedProcessProgram("PP-1", "BRBTOS", "1.0", []),
+                GemPair.Token),
+            (byte)GemProcessProgramAcknowledgement.Other);
+
+        // The matrix family's two, which is what brought the count to seven.
+        await DriveAsync(7, 11, 12, "ACKC7",
+            host => host.SendProcessProgramMatrixAsync("MATRIX-1", new byte[] { 1, 2 }, GemPair.Token),
+            (byte)GemProcessProgramAcknowledgement.Other);
+
+        await DriveAsync(7, 15, 16, "ACKC7",
+            host => host.VerifyProcessProgramMatrixAsync("MATRIX-1", new byte[] { 1, 2 }, GemPair.Token),
+            (byte)GemProcessProgramAcknowledgement.Other);
+
+        // And PPGNT's four, which were in the same state: one driven, three not. S7F31 and S7F33
+        // read the item for a question it was not written for - availability, and a formatted
+        // load - so a reserved code reaching either of them is exactly as unnamed as it is at
+        // S7F1, and nothing was checking.
+        await DriveAsync(7, 13, 14, "PPGNT",
+            host => host.InquireProcessProgramMatrixAsync("MATRIX-1", 16, GemPair.Token),
+            (byte)GemProcessProgramGrant.Other);
+
+        await DriveAsync(7, 31, 32, "PPGNT",
+            host => host.IsProcessProgramAvailableAsync("PP-1", GemPair.Token),
+            (byte)GemProcessProgramGrant.Other);
+
+        await DriveAsync(7, 33, 34, "PPGNT",
+            host => host.InquireFormattedProcessProgramAsync("PP-1", 16, GemPair.Token),
+            (byte)GemProcessProgramGrant.Other);
 
         // And the rest, so every reader with a reserved range is exercised at least once. ACKC10
         // is read at three sites too; one stands for them because they share a line.

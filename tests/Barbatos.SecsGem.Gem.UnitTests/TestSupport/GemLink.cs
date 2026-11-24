@@ -101,7 +101,8 @@ internal sealed class GemLink : IAsyncDisposable
         bool limits = false,
         OutputGate? outputGate = null,
         ILogger<GemEquipment>? logger = null,
-        IGemServiceProgramStore? servicePrograms = null)
+        IGemServiceProgramStore? servicePrograms = null,
+        IGemProcessProgramMatrixStore? matrices = null)
     {
         var linkOptions = new SecsGemOptions
         {
@@ -165,6 +166,11 @@ internal sealed class GemLink : IAsyncDisposable
             declared.AddRange(GemEquipment.ServiceProgramMessages);
         }
 
+        if (matrices is not null)
+        {
+            declared.AddRange(GemEquipment.ProcessProgramMatrixMessages);
+        }
+
         if (traces)
         {
             declared.AddRange(GemEquipment.TraceMessages);
@@ -197,7 +203,8 @@ internal sealed class GemLink : IAsyncDisposable
             spool,
             formatted,
             terminal,
-            servicePrograms);
+            servicePrograms,
+            matrices);
 
         return new GemLink(transport, connection, equipment, linkOptions, gemOptions, clock);
     }

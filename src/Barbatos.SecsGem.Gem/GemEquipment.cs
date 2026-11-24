@@ -54,6 +54,7 @@ public sealed class GemEquipment : IAsyncDisposable
     private readonly ILogger _logger;
     private readonly IGemProcessProgramStore? _programs;
     private readonly IGemFormattedProcessProgramStore? _formatted;
+    private readonly IGemProcessProgramMatrixStore? _matrices;
     private readonly IGemSpool? _spool;
     private readonly IGemTerminal? _terminal;
     private readonly IGemServiceProgramStore? _servicePrograms;
@@ -132,12 +133,30 @@ public sealed class GemEquipment : IAsyncDisposable
     /// Where this equipment keeps its service programs. <see langword="null"/> means it has none,
     /// and S2F1 to S2F11 are not answered - see <see cref="ServiceProgramMessages"/>.
     /// </param>
+    /// <param name="processProgramMatrices">
+    /// Where this equipment keeps its process program matrices. <see langword="null"/> means it
+    /// does not manage them, and S7F11, S7F13 and S7F15 are not answered - see
+    /// <see cref="ProcessProgramMatrixMessages"/>. Independent of
+    /// <paramref name="processPrograms"/> and <paramref name="formattedProcessPrograms"/>, and
+    /// deliberately not covered by S7F17, S7F19 or S7F31: a matrix is not a process program, and
+    /// the whole reason these rows were refused for a dozen chapters is that one sharing a store
+    /// with the plain half would come back from S7F5 as a plain program.
+    /// </param>
     /// <remarks>
-    /// Four optional capabilities now, each appended rather than grouped, because adding a
-    /// parameter with a default is source-compatible and rearranging them is not. The next one
-    /// wants a record of capabilities instead: five optional stores on a constructor is where the
-    /// argument-at-a-time habit stops paying for itself, and <c>AddGemEquipment</c> is the only
-    /// caller that has to know.
+    /// <para>
+    /// Six optional capabilities now, each appended rather than grouped, because adding a parameter
+    /// with a default is source-compatible and rearranging them is not.
+    /// </para>
+    /// <para>
+    /// <strong>This paragraph used to say the next one wants a record of capabilities instead</strong>
+    /// - that five optional stores is where the argument-at-a-time habit stops paying for itself -
+    /// and the chapter that added the sixth did not do it. The reason is worth recording rather
+    /// than leaving as a signpost somebody walks past again: a capabilities record changes a public
+    /// constructor, which is a chapter of its own with an <c>[Obsolete]</c> overload and every
+    /// caller moved, and riding it along with three rows of stream 7 would make one change that
+    /// cannot be reviewed as either. <c>AddGemEquipment</c> is still the only caller that has to
+    /// know, and the record is still the right shape; it is now overdue rather than next.
+    /// </para>
     /// </remarks>
     public GemEquipment(
         GemOptions options,
@@ -149,7 +168,8 @@ public sealed class GemEquipment : IAsyncDisposable
         IGemSpool? spool = null,
         IGemFormattedProcessProgramStore? formattedProcessPrograms = null,
         IGemTerminal? terminal = null,
-        IGemServiceProgramStore? servicePrograms = null)
+        IGemServiceProgramStore? servicePrograms = null,
+        IGemProcessProgramMatrixStore? processProgramMatrices = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         Model = model ?? throw new ArgumentNullException(nameof(model));
@@ -161,6 +181,7 @@ public sealed class GemEquipment : IAsyncDisposable
         _spool = spool;
         _terminal = terminal;
         _servicePrograms = servicePrograms;
+        _matrices = processProgramMatrices;
 
         _communication = options.CommunicationEnabled
             ? GemCommunicationState.WaitingToRetry
@@ -297,6 +318,30 @@ public sealed class GemEquipment : IAsyncDisposable
         (7, 27),   // Formatted Process Program Verify Send
         (7, 33),   // Formatted Process Program Load Inquire
         (7, 35),   // Formatted Process Program Directory Request
+    ];
+
+    /// <summary>The process program matrix messages, answered only when a matrix store is configured.</summary>
+    /// <remarks>
+    /// <para>
+    /// The third capability of stream 7, and the smallest: a load inquire, a send and a verify.
+    /// E5 gives the matrix no request and no directory, so this list has three primaries where the
+    /// other two have more, and <see cref="IGemProcessProgramMatrixStore"/> has three methods.
+    /// </para>
+    /// <para>
+    /// <strong>S7F17, S7F19 and S7F31 are not here and do not cover this store</strong>, which is
+    /// the opposite of how the formatted half works and is deliberate. Those three rows say
+    /// <em>process program</em>, and the matrix rows are item for item the plain ones - so letting
+    /// a matrix identifier into S7F20's directory, or letting S7F17 delete one or S7F31 report one,
+    /// would hand a host back a matrix as though it were a program. That confusion is what these
+    /// rows were refused over for a dozen chapters, and keeping the store out of those three
+    /// answers is what makes it not happen.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<(byte Stream, byte Function)> ProcessProgramMatrixMessages { get; } =
+    [
+        (7, 11),   // Process Program Matrix Send
+        (7, 13),   // Process Program Matrix Load Inquire
+        (7, 15),   // Process Program Matrix Verify Send
     ];
 
     /// <summary>The spooling messages, answered only when a spool is configured and enabled.</summary>
@@ -1588,6 +1633,9 @@ public sealed class GemEquipment : IAsyncDisposable
             (7, 5) => await OnProgramRequestAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 7) => await OnProgramListAsync(8, cancellationToken).ConfigureAwait(false),
             (7, 9) => await OnProgramVerifyAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 11) => await OnMatrixSendAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 13) => await OnMatrixInquireAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            (7, 15) => await OnMatrixVerifyAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 17) => await OnProgramDeleteAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 19) => await OnProgramListAsync(20, cancellationToken).ConfigureAwait(false),
             (7, 23) => await OnFormattedProgramSendAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
@@ -3209,6 +3257,141 @@ public sealed class GemEquipment : IAsyncDisposable
         {
             Name = "FormattedProcessProgramDirectoryData",
             Item = SecsItem.L(entries),
+        };
+    }
+
+    /// <summary>Answers S7F13: may the host send this matrix?</summary>
+    /// <remarks>
+    /// S7F1's two items and S7F1's answer, asked of the matrix store instead - which is the second
+    /// reason these rows were refused: where two rows do one job the firmer source wins, and S7F1
+    /// is one of the reference's definitions where this is one of its illustrations. They do not do
+    /// one job once the matrix has a store of its own, and carrying the illustration flag is no
+    /// veto: S7F33 and S7F35 both went in carrying it.
+    /// </remarks>
+    private async ValueTask<SecsMessage?> OnMatrixInquireAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_matrices is null)
+        {
+            return null;
+        }
+
+        var grant = GemProcessProgramGrant.InvalidId;
+
+        if (request.Item is { IsList: true, Count: 2 } body
+            && body[0].Format.IsText()
+            && TryReadId(body[1], out var length))
+        {
+            grant = await _matrices
+                .InquireAsync(body[0].GetString().TrimEnd(), (int)Math.Min(length, int.MaxValue), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new SecsMessage(7, 14, replyExpected: false)
+        {
+            Name = "ProcessProgramMatrixLoadGrant",
+            Item = SecsItem.B((byte)grant).Named("PPGNT"),
+        };
+    }
+
+    /// <summary>Answers S7F11, which carries a matrix.</summary>
+    /// <remarks>
+    /// The same guard S7F3 has and for the same reason: handing the store <c>default</c> for a
+    /// <c>PPBODY</c> that arrived as text would save a matrix of zero bytes and answer ACKC7 0,
+    /// telling the host its matrix landed when what landed was nothing. The memory is the inbound
+    /// message's and lives only for this call, which is what
+    /// <see cref="IGemProcessProgramMatrixStore.SaveAsync"/> says.
+    /// </remarks>
+    private async ValueTask<SecsMessage?> OnMatrixSendAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_matrices is null)
+        {
+            return null;
+        }
+
+        var acknowledgement = GemProcessProgramAcknowledgement.LengthError;
+
+        if (request.Item is { IsList: true, Count: 2 } body
+            && body[0].Format.IsText()
+            && body[1].Format == SecsFormat.Binary)
+        {
+            acknowledgement = await _matrices
+                .SaveAsync(body[0].GetString().TrimEnd(), body[1].GetMemory<byte>(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new SecsMessage(7, 12, replyExpected: false)
+        {
+            Name = "ProcessProgramMatrixAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC7"),
+        };
+    }
+
+    /// <summary>Answers S7F15: is this the matrix you hold?</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This row is the matrix family's read-back</strong>, and finding it is what overturned
+    /// the refusal. That refusal searched the family for a name containing Request or Directory,
+    /// found neither, and concluded a matrix can be written and never read - but the host already
+    /// has the bytes, so what it needs is not a copy, it is an answer to "do you hold these". This
+    /// library values exactly that at the formatted half, where S7F27 is served for it.
+    /// </para>
+    /// <para>
+    /// S7F9's comparison, down to the two refusals that are not refusals of the comparison:
+    /// <c>NotFound</c> for an identifier this machine has no matrix under, and <c>LengthError</c>
+    /// for bodies of different lengths, which is cheaper than comparing and says more. A mismatch
+    /// of equal length has no code at all in <c>ACKC7</c>, so it is answered
+    /// <c>PermissionNotGranted</c> and the log line is the only record of what actually happened.
+    /// </para>
+    /// </remarks>
+    private async ValueTask<SecsMessage?> OnMatrixVerifyAsync(SecsMessage request, CancellationToken cancellationToken)
+    {
+        if (_matrices is null)
+        {
+            return null;
+        }
+
+        var acknowledgement = GemProcessProgramAcknowledgement.LengthError;
+
+        if (request.Item is { IsList: true, Count: 2 } body
+            && body[0].Format.IsText()
+            && body[1].Format == SecsFormat.Binary)
+        {
+            var id = body[0].GetString().TrimEnd();
+            var offered = body[1].GetMemory<byte>();
+
+            var held = id.Length == 0
+                ? null
+                : await _matrices.LoadAsync(id, cancellationToken).ConfigureAwait(false);
+
+            if (held is null)
+            {
+                acknowledgement = GemProcessProgramAcknowledgement.NotFound;
+            }
+            else if (held.Value.Length != offered.Length)
+            {
+                acknowledgement = GemProcessProgramAcknowledgement.LengthError;
+            }
+            else if (held.Value.Span.SequenceEqual(offered.Span))
+            {
+                acknowledgement = GemProcessProgramAcknowledgement.Accepted;
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "S7F15 offered {Length} byte(s) for matrix '{Id}' that are not the bytes held. ACKC7 has no "
+                        + "code for a mismatch, so the answer is {Code} and this line is the only record of why.",
+                    offered.Length,
+                    id,
+                    GemProcessProgramAcknowledgement.PermissionNotGranted);
+
+                acknowledgement = GemProcessProgramAcknowledgement.PermissionNotGranted;
+            }
+        }
+
+        return new SecsMessage(7, 16, replyExpected: false)
+        {
+            Name = "ProcessProgramMatrixVerifyAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC7"),
         };
     }
 

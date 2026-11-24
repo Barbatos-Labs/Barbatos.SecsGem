@@ -6,7 +6,8 @@
 namespace Barbatos.SecsGem.Catalog.UnitTests;
 
 /// <summary>
-/// Stream 7's refusals, re-read twice - and the stream where the item list stopped discriminating.
+/// Stream 7's refusals, re-read three times - and the stream where the item list stopped
+/// discriminating.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,8 +26,15 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// whether its items are defined - that question is the silent one here - but on <em>which</em>
 /// item its row names: the reference records the formatted directory's reply with <c>PPBODY</c>
 /// where it records the other two directories with <c>PPID</c> alone, and <c>PPBODY</c> has never
-/// once been a name without a body behind it. Four refusals are left, and all four are the matrix
-/// family and the reference send.
+/// once been a name without a body behind it.
+/// </para>
+/// <para>
+/// <strong>And the matrix family went in the chapter after that</strong>, which leaves S7F21 as the
+/// stream's one refusal. Both of its reasons were answered by the same thing: the matrix is a
+/// capability of its own with a store of its own, so S7F5 never hands one back as a plain program
+/// and S7F13 is not S7F1's job under another number. What the refusal had actually measured was
+/// whether the family contains a row whose name says Request or Directory - and S7F15, the verify,
+/// is the read-back E5 gives a matrix.
 /// </para>
 /// </remarks>
 public class SecsCatalogStream7RefusalTests
@@ -58,9 +66,9 @@ public class SecsCatalogStream7RefusalTests
 
         Assert.Equal<byte[]>([3, 6, 9, 11, 15, 23, 26, 27, 36], [.. shared.Select(m => m.Function)]);
 
-        // Two of the nine are the matrix family's, and they are all that is left out: seven of the
-        // nine are served, which is to say two of this stream's four refusals sit in a list with
-        // seven rows this repository carries.
+        // All nine are served now, the matrix family's two among them - which is the end of the
+        // road for this measure in this stream: no refusal left anywhere in it carries this item
+        // list, so there is nothing for the list to discriminate.
         Assert.All(
             shared,
             message => Assert.All(
@@ -82,10 +90,11 @@ public class SecsCatalogStream7RefusalTests
     }
 
     [Fact]
-    public void The_matrix_family_can_be_written_and_never_read()
+    public void The_matrix_familys_read_back_is_its_verify_and_the_refusal_looked_for_a_request()
     {
-        // The refusal this chapter replaces. It used to say no item in the reference is named for a
-        // matrix, which is true and is not the reason - the rows carry no undefined name at all.
+        // The refusal, and what it actually measured. Six rows: a send, a load inquire and a
+        // verify, with their three acknowledgements - and no row whose name says Request or
+        // Directory, which is true and is what was taken for "can be written and never read".
         var matrix = SecsCatalog.Messages
             .Where(message => message.Name.Contains("Matrix", StringComparison.Ordinal))
             .ToArray();
@@ -93,31 +102,49 @@ public class SecsCatalogStream7RefusalTests
         Assert.Equal<byte[]>([11, 12, 13, 14, 15, 16], [.. matrix.Select(message => message.Function)]);
         Assert.All(matrix, message => Assert.Equal((byte)7, message.Stream));
 
-        // Six rows: a send, a load inquire and a verify, with their three acknowledgements. No
-        // request and no directory anywhere in the reference - so a matrix process program can be
-        // sent, have its room asked about and be verified, and never once be read back.
         Assert.DoesNotContain(matrix, message => message.Name.Contains("Request", StringComparison.Ordinal));
         Assert.DoesNotContain(matrix, message => message.Name.Contains("Directory", StringComparison.Ordinal));
 
-        // Which is what makes serving them impossible rather than merely unwise: they are
-        // item-for-item the plain rows, so a matrix program would be stored under a PPID that
-        // S7F5 would then hand back as a plain one. A store nothing can read from is not a store.
+        // But one of the six says Verify, and a verify is a read: the host holds the bytes already,
+        // so what it needs answered is whether the machine holds the same ones. The reference gives
+        // the plain half and the formatted half the same row for the same purpose, and this
+        // repository serves both of those - S7F9 and S7F27.
+        Assert.Contains(
+            matrix,
+            message => message.Function == 15 && message.Name.Contains("Verify", StringComparison.Ordinal));
+
+        Assert.Contains("Verify", Row(9).Name, StringComparison.Ordinal);
+        Assert.Contains("Verify", Row(27).Name, StringComparison.Ordinal);
+
+        // The rows being item for item the plain ones was the second reason, and it is a fact about
+        // a SHARED store rather than about the rows: a matrix kept in the plain store would come
+        // back from S7F5 under its own PPID as a plain program. The matrix store is its own
+        // capability, and GemProcessProgramMatrixTests drives the three answers that prove S7F5,
+        // S7F19 and S7F31 cannot see it.
         Assert.Equal<string[]>([.. Row(3).DataItems], [.. Row(11).DataItems]);
         Assert.Equal<string[]>([.. Row(1).DataItems], [.. Row(13).DataItems]);
         Assert.Equal<string[]>([.. Row(9).DataItems], [.. Row(15).DataItems]);
     }
 
     [Fact]
-    public void And_the_matrix_load_inquire_loses_to_a_definition_as_well()
+    public void And_the_load_inquire_loses_to_a_definition_only_if_they_do_one_job()
     {
-        // The second reason, which the stream 17 chapter's tie-break supplies: where two rows do
-        // one job, the firmer source wins. S7F1 is one of the reference's definitions and S7F13 is
-        // one of its illustrations, with the same two items in the same order.
+        // The other half of the second reason, from the stream 17 chapter's tie-break: where two
+        // rows do one job, the firmer source wins, and S7F1 is one of the reference's definitions
+        // where S7F13 is one of its illustrations.
         Assert.False(Row(1).IsRepresentative);
         Assert.True(Row(13).IsRepresentative);
 
         Assert.Equal<string[]>(["PPID", "LENGTH"], [.. Row(13).DataItems]);
         Assert.Equal<string[]>(["PPGNT"], [.. Row(14).DataItems]);
+
+        // They do not do one job. S7F1 asks room for a process program and S7F13 asks room for a
+        // matrix, which are two objects in two stores - and the tie-break only ever applied on the
+        // reading where they share one. Being an illustration is no veto on its own: S7F9, S7F33
+        // and S7F35 all carry that flag and all three are served.
+        Assert.True(Row(9).IsRepresentative);
+        Assert.True(Row(33).IsRepresentative);
+        Assert.True(Row(35).IsRepresentative);
     }
 
     [Fact]

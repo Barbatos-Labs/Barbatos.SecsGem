@@ -128,7 +128,12 @@ public static class GemServiceCollectionExtensions
             // Service programs, opt-in like the rest. Null here leaves S2F1 to S2F11 undeclared,
             // so the connection answers S9F5 - the function, not the stream, because stream 2 is
             // understood whatever this machine does with service programs.
-            provider.GetService<IGemServiceProgramStore>()));
+            provider.GetService<IGemServiceProgramStore>(),
+
+            // Stream 7's third capability, opt-in independently of the other two and sharing
+            // nothing with them: a matrix that lived in the plain store would come back from S7F5
+            // as a plain program, which is what these rows were refused over.
+            provider.GetService<IGemProcessProgramMatrixStore>()));
 
         // Every GEM message, registered as a factory - and the equipment is resolved inside the
         // handler rather than inside the factory. That distinction is the whole game.
@@ -317,6 +322,61 @@ public static class GemServiceCollectionExtensions
 
         builder.Services.TryAddSingleton(store);
         return DeclareFormattedProcessPrograms(builder);
+    }
+
+    /// <summary>Adds process program matrix management, backed by the in-memory store.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// <para>
+    /// The third capability of stream 7: S7F13 asks whether a matrix may be sent, S7F11 sends it
+    /// and S7F15 asks whether the machine holds the one the host has. Independent of
+    /// <see cref="AddGemProcessPrograms(ISecsGemBuilder)"/> and
+    /// <see cref="AddGemFormattedProcessPrograms(ISecsGemBuilder)"/> - equipment may offer any of
+    /// the three, all of them, or none.
+    /// </para>
+    /// <para>
+    /// <strong>Unlike the formatted half, this one is not covered by S7F17, S7F19 or S7F31.</strong>
+    /// Those rows say <em>process program</em>, and the reference gives the matrix neither a delete
+    /// nor a directory - so a matrix stays out of the directory a host reads and out of the
+    /// availability question it asks. Mixing them is exactly what these rows were refused over.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemProcessProgramMatrices(this ISecsGemBuilder builder)
+        => builder.AddGemProcessProgramMatrices<GemInMemoryProcessProgramMatrixStore>();
+
+    /// <summary>Adds process program matrix management, backed by a store of your own.</summary>
+    /// <typeparam name="TStore">The store.</typeparam>
+    /// <param name="builder">The builder.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <remarks>
+    /// Calling it twice is harmless: its set goes in through the builder's <c>DeclareOnce</c>,
+    /// which declares a capability's messages once however many times it is asked for.
+    /// </remarks>
+    public static ISecsGemBuilder AddGemProcessProgramMatrices<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStore>(
+        this ISecsGemBuilder builder)
+        where TStore : class, IGemProcessProgramMatrixStore
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.TryAddSingleton<IGemProcessProgramMatrixStore, TStore>();
+        return DeclareProcessProgramMatrices(builder);
+    }
+
+    /// <summary>Adds process program matrix management, backed by a store you have already built.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="store">The store.</param>
+    /// <returns>The builder, for chaining.</returns>
+    public static ISecsGemBuilder AddGemProcessProgramMatrices(
+        this ISecsGemBuilder builder,
+        IGemProcessProgramMatrixStore store)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(store);
+
+        builder.Services.TryAddSingleton(store);
+        return DeclareProcessProgramMatrices(builder);
     }
 
     /// <summary>Adds spooling, backed by a bounded in-memory spool sized from the options.</summary>
@@ -610,6 +670,14 @@ public static class GemServiceCollectionExtensions
     private static ISecsGemBuilder DeclareFormattedProcessPrograms(ISecsGemBuilder builder)
     {
         builder.DeclareOnce(GemEquipment.FormattedProcessProgramMessages, static provider =>
+            (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
+
+        return builder;
+    }
+
+    private static ISecsGemBuilder DeclareProcessProgramMatrices(ISecsGemBuilder builder)
+    {
+        builder.DeclareOnce(GemEquipment.ProcessProgramMatrixMessages, static provider =>
             (transaction, token) => provider.GetRequiredService<GemEquipment>().HandleAsync(transaction, token));
 
         return builder;

@@ -95,8 +95,9 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | --- | --- | --- |
 | ctor | `GemEquipment(GemOptions options, GemEquipmentModel model, HsmsConnection connection, TimeProvider? timeProvider = null, ILogger<GemEquipment>? logger = null, IGemProcessProgramStore? processPrograms = null, IGemSpool? spool = null, IGemFormattedProcessProgramStore? formattedProcessPrograms = null)` | `null` provider means `TimeProvider.System`; `null` logger discards diagnostics. The last three are the opt-in capabilities, and `null` in each leaves its messages undeclared rather than declared and refused. |
 | `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The twenty-four core pairs. Registering them is how the equipment declares its capability - see below. |
-| `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The ten unformatted stream 7 pairs - S7F1, S7F3, S7F5, S7F7, S7F9, S7F31, S7F37, S7F41, and the S7F17/S7F19 both halves share - registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn, which is also why the two program-related remote commands are here rather than with the core set that owns their command table. |
+| `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The eleven unformatted stream 7 pairs - S7F1, S7F3, S7F5, S7F7, S7F9, S7F31, S7F37, S7F41, S7F43, and the S7F17/S7F19 that every half of stream 7 shares - registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn, which is also why the two program-related remote commands are here rather than with the core set that owns their command table. |
 | `FormattedProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F23, S7F25, S7F27, S7F33 and S7F35, registered only when a formatted store is configured. Independent of `ProcessProgramMessages`, and disjoint from it: a stream and function may be declared only once. |
+| `ProcessProgramMatrixMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F11, S7F13 and S7F15, registered only when a matrix store is configured. Stream 7's third capability and the smallest: E5 gives the matrix no request, no directory and no delete, so the list is three primaries and `IGemProcessProgramMatrixStore` is three methods. **Not covered by S7F17, S7F19 or S7F31** - those rows say *process program*, and the matrix rows are item for item the plain ones, so letting a matrix into the directory a host reads is exactly the confusion these rows were refused over. |
 | `SpoolMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S6F23 and S2F43, registered only when a spool is configured. Equipment that does not spool answers S9F5 rather than RSDA 1 - "I do not do that" and "no, not now" are different answers to a host deciding whether to wait. |
 | `SpoolableMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The nine messages that *get* spooled, where `SpoolMessages` is the two a host sends about spooling. The list exists because S2F43 lets a host name a whole stream, and that has to mean something concrete. Everything on it is news rather than a question, which is the rule for membership: a grant nobody is there to give is not permission and is never held. |
 | `ServiceProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S2F1 to S2F11, registered only when a service program store is configured. **S9F5 and not S9F3**, which is how this differs from stream 7: stream 2 is understood by every piece of GEM equipment, so the refusal names the function rather than the stream. |
@@ -1048,9 +1049,10 @@ the builder's `DeclareOnce`.
 
 ## Process programs
 
-Everything here is opt-in, and in two halves. Without `AddGemProcessPrograms` the unformatted
-messages are not in the routing table; without `AddGemFormattedProcessPrograms` the formatted ones
-are not; without either, stream 7 is unknown and the connection answers S9F3 for all of it.
+Everything here is opt-in, and in three capabilities. Without `AddGemProcessPrograms` the
+unformatted messages are not in the routing table; without `AddGemFormattedProcessPrograms` the
+formatted ones are not; without `AddGemProcessProgramMatrices` the matrix rows are not; without any
+of the three, stream 7 is unknown and the connection answers S9F3 for all of it.
 
 ### `IGemProcessProgramStore`
 
@@ -1130,6 +1132,46 @@ of it into strings before the call, so there is no copy to remember to make.
 
 Replacing an existing program is not a new slot, so it still fits at capacity. An empty or
 over-long identifier - over `GemInMemoryProcessProgramStore.MaxIdLength` - is `NotFound`.
+
+### `IGemProcessProgramMatrixStore`
+
+`public interface IGemProcessProgramMatrixStore`
+
+Where the equipment keeps its process program matrices - stream 7's third capability.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `InquireAsync` | `ValueTask<GemProcessProgramGrant> InquireAsync(string id, int length, CancellationToken cancellationToken)` | The PPGNT to answer S7F13 with. |
+| `SaveAsync` | `ValueTask<GemProcessProgramAcknowledgement> SaveAsync(string id, ReadOnlyMemory<byte> body, CancellationToken cancellationToken)` | The ACKC7 to answer S7F11 with. `body` belongs to the inbound message - **copy what you keep**. |
+| `LoadAsync` | `ValueTask<ReadOnlyMemory<byte>?> LoadAsync(string id, CancellationToken cancellationToken)` | The body, or `null` for no such matrix. Nothing on the wire calls it directly: it serves S7F15 and the application that owns the matrix. |
+
+**Three methods, because the reference gives the matrix three transactions.** There is no
+`ListAsync` and no `DeleteAsync`: E5 has no matrix request, no matrix directory and no matrix
+delete, and S7F17, S7F19 and S7F31 say *process program* - so they do not reach this store, which
+is what keeps a matrix from coming back out of S7F5 as a plain program. That was half of the
+refusal these rows carried for a dozen chapters; the other half was that they can be "written and
+never read", which missed S7F15 - a verify is a read, and it is the only one a matrix has.
+
+`LoadAsync` returning `null` is worth one line of care, and the first draft of the in-memory store
+got it wrong: `TryGetValue(id, out var body) ? body : null` has the type `byte[]`, so the null goes
+through the implicit conversion to `ReadOnlyMemory<byte>`, becomes an **empty** memory, and is
+wrapped in a non-null nullable. "No such matrix" then reaches S7F15 as "a matrix of zero bytes" and
+the verify answers `LengthError` where it owes `NotFound`.
+
+### `GemInMemoryProcessProgramMatrixStore`
+
+`public sealed class GemInMemoryProcessProgramMatrixStore : IGemProcessProgramMatrixStore`
+
+| Member | Signature | Default |
+| --- | --- | --- |
+| `MaxIdLength` | `const int` | `120` - E5's cap on a PPID |
+| `Capacity` | `int { get; set; }` | `64` matrices |
+| `MaxBodyLength` | `int { get; set; }` | 1 MiB |
+| `Count` | `int { get; }` | |
+
+Replacing a matrix is not a new slot, so it still fits at capacity - which matters more here than
+in the program stores, because a matrix has no delete and resending is the only way to change one.
+`AlreadyHave` from the inquire is therefore not a refusal.
 
 ### `GemFormattedProcessProgram`
 
@@ -1223,12 +1265,17 @@ non-zero member already covered the whole range:
 | `RSPACK` | 0 | 1-63 | `GemSpoolResetAcknowledgement.Error` |
 | `STRACK` | 0 | 1-63 | `GemSpoolResetAcknowledgement.Error` |
 
-`ACKC7` is read at **four** sites now, `CMDA` at **four** and `GRANT` at **two**, and the counts
-matter more than the
-table above: the stream 7 sweep added two `CMDA` readers, a control moved the boundary at one of
-them, and the whole suite stayed green. The same hole `ACKC7` had when one of its three sites was
-driven. Every site is driven now, which is the only check that catches this - a boundary that is
-right in the enum and right in the table and unused in *one* reader passes every comparison.
+`ACKC7` is read at **seven** sites now, `PPGNT` at **four**, `CMDA` at **four** and `GRANT` at
+**two**, and the counts matter more than the table above: the stream 7 sweep added two `CMDA`
+readers, a control moved the boundary at one of them, and the whole suite stayed green. The same
+hole `ACKC7` had when one of its three sites was driven.
+
+**The matrix chapter counted them again and found four readers that had never been driven at
+all** - the plain verify, the formatted verify, the availability question and the formatted load
+inquire, all written chapters earlier, all passing every comparison because a comparison looks at
+the enum and not at the call. None of them was wrong; what was missing was the proof. Every site is
+driven now, which is the only check that catches this - a boundary that is right in the enum and
+right in the table and unused in *one* reader passes everything else.
 
 `GemHost` folds the whole reserved range onto that member and logs the arriving code, which is the
 only place it survives. **Twelve of the first thirteen used to cast the code straight to its
@@ -1360,6 +1407,9 @@ table claiming it.
 | `ListProcessProgramsAsync` | S7F19 | `IReadOnlyList<string>` |
 | `SendFormattedProcessProgramAsync(program)` | S7F23 | `GemProcessProgramAcknowledgement` |
 | `RequestFormattedProcessProgramAsync(id)` | S7F25 | `GemFormattedProcessProgram?` |
+| `InquireProcessProgramMatrixAsync(id, length)` | S7F13 | `GemProcessProgramGrant`. **S7F1's question asked of a different store**: the matrix is stream 7's third capability and is declared separately, so a machine that answers S7F1 may answer S9F5 to this and mean it |
+| `SendProcessProgramMatrixAsync(id, body)` | S7F11 | `GemProcessProgramAcknowledgement` |
+| `VerifyProcessProgramMatrixAsync(id, body)` | S7F15 | `GemProcessProgramAcknowledgement`. **The matrix family's read-back, and the row that got the family served.** There is no matrix request anywhere in the reference, so what goes up comes back only as an answer to "do you hold these" - which is a read, and is what the refusal missed by searching the family for a name containing Request or Directory. Only `Accepted` means yes; `ACKC7` has no code for a mismatch, so one of equal length comes back `PermissionNotGranted` |
 | `RequestFormattedProcessProgramDirectoryAsync()` | S7F35 | `IReadOnlyList<GemFormattedProcessProgram>` - the formatted half's own directory, **with the programs in it**. Not `ListProcessProgramsAsync` plus the bodies: S7F19 is not per-format and answers for both halves at once, so this is the only way a host can tell which of a machine's programs are structured. The reference records this reply with `PPID` *and* `PPBODY` where it records the other two directories with `PPID` alone, which is why each entry is a whole program. **This end writes one reading and reads two**: a single unwrapped program is understood as well, and cannot be confused with a directory of four because a program's first item is text where a directory's is a list. Entries that read as neither are counted and logged, because S7F36 carries no acknowledgement item to refuse with |
 | `DefineVariableLimitsAsync(definitions)` | S2F45 | `GemVariableLimitReply`: VLAACK, and the answer per variable and per band. Throws `SecsException` when S2F46 was not the shape E5 defines |
 | `DeleteAllVariableLimitsAsync` | S2F45, empty | `GemVariableLimitReply` |
@@ -1566,16 +1616,40 @@ public static ISecsGemBuilder AddGemProcessPrograms<TStore>(this ISecsGemBuilder
 public static ISecsGemBuilder AddGemProcessPrograms(this ISecsGemBuilder builder, IGemProcessProgramStore store)
 ```
 
-Registers the store and, with it, the five pairs in `GemEquipment.ProcessProgramMessages` - S7F1,
-S7F3 and S7F5, plus the S7F17 and S7F19 both halves of stream 7 share. The parameterless overload
-uses `GemInMemoryProcessProgramStore`.
+Registers the store and, with it, the eleven pairs in `GemEquipment.ProcessProgramMessages` - S7F1,
+S7F3, S7F5, S7F7, S7F9 and S7F31, the three program-related remote commands, and the S7F17 and
+S7F19 that every capability of stream 7 shares. The parameterless overload uses
+`GemInMemoryProcessProgramStore`.
 
 Omit it and the connection reports S9F3 for anything in stream 7, unless
-`AddGemFormattedProcessPrograms` declared the other half. Calling it twice is harmless: the pairs go in
-through the builder's `DeclareOnce`, which declares a set once however many times it is asked for.
+`AddGemFormattedProcessPrograms` or `AddGemProcessProgramMatrices` declared one of the other two.
+Calling it twice is harmless: the pairs go in through the builder's `DeclareOnce`, which declares a
+set once however many times it is asked for.
 
 Order does not matter relative to `AddGemEquipment`. The equipment resolves its store with
 `GetService`, so it is `null` when nothing registered one.
+
+### `AddGemProcessProgramMatrices`
+
+```csharp
+public static ISecsGemBuilder AddGemProcessProgramMatrices(this ISecsGemBuilder builder)
+public static ISecsGemBuilder AddGemProcessProgramMatrices<TStore>(this ISecsGemBuilder builder)
+    where TStore : class, IGemProcessProgramMatrixStore
+public static ISecsGemBuilder AddGemProcessProgramMatrices(this ISecsGemBuilder builder, IGemProcessProgramMatrixStore store)
+```
+
+Declares `GemEquipment.ProcessProgramMatrixMessages` - S7F11, S7F13 and S7F15 - and registers the
+store. The parameterless overload uses `GemInMemoryProcessProgramMatrixStore`.
+
+**Independent of the other two capabilities of stream 7, and sharing nothing with them.** A matrix
+kept in the unformatted store would come back from S7F5 under its own `PPID` as a plain process
+program, which is half of what these rows were refused over for a dozen chapters; the other half
+was that the family has no request and no directory, which is true and is not the same as having no
+read-back - S7F15 is the read, in the only form E5 offers one.
+
+So S7F17, S7F19 and S7F31 do **not** reach this store. The reference gives the matrix no delete and
+no directory, and those three rows say *process program*: a host that wants a matrix gone sends
+another one.
 
 ### `AddGemServicePrograms`
 

@@ -145,8 +145,6 @@ public class SecsCatalogMeasureLimitTests
         // routing table claims - and those are the only three kinds of reason left anywhere in
         // the repository:
         //
-        //   S7F11, F13, F15      a family with no request and no directory anywhere, so a matrix
-        //                        program could be written and never read
         //   S7F21                a name that names no action on the row's fields
         //
         // Two of the ten were refused on a SHAPE and both have since been served, so that kind of

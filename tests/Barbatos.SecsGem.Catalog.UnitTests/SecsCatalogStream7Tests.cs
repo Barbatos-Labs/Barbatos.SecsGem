@@ -196,7 +196,7 @@ public class SecsCatalogStream7Tests
     }
 
     [Fact]
-    public void The_one_refusal_outside_the_matrix_family_is_a_row_the_reference_does_not_settle()
+    public void The_streams_one_refusal_is_a_row_the_reference_does_not_settle()
     {
         var stream = Stream(7);
 
@@ -209,10 +209,10 @@ public class SecsCatalogStream7Tests
         Assert.Equal("Process Program Reference Send", Row(21).Name);
         Assert.Equal<string[]>(["PPID"], [.. Row(21).DataItems]);
 
-        // This test used to hold two more, and both have since been served - which is why it is
-        // worth keeping the names here rather than only the measurements. S7F43 was refused for
-        // needing "a register of commands in flight", an argument about what an application must
-        // track rather than about what the row carries; it is item for item S7F37.
+        // This test used to hold two more, and the matrix family went in the chapter after that -
+        // which is why it is worth keeping the names here rather than only the measurements. S7F43
+        // was refused for needing "a register of commands in flight", an argument about what an
+        // application must track rather than about what the row carries; it is item for item S7F37.
         Assert.Equal<string[]>(["PPID", "RCMD"], [.. Row(43).DataItems]);
         Assert.Equal<string[]>(["PPID", "RCMD"], [.. Row(37).DataItems]);
 

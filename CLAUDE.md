@@ -289,8 +289,8 @@ streams were. Both are finished now - stream 6 served five of its last seven pai
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about. What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned
-already - stream 4's job half, stream 7's command cancel and its formatted directory, four pairs of
-stream 15, stream 1's material transfer status and stream 6's notification report.
+already - stream 4's job half, stream 7's command cancel, formatted directory and matrix family,
+four pairs of stream 15, stream 1's material transfer status and stream 6's notification report.
 
 **A refusal with two reasons needs both of them re-read, and the weaker one is usually the one
 that was doing the work.** S1F9/F10 had two. The first was an item argument and wrong the way
@@ -334,10 +334,26 @@ served, seven of its primaries carry `PPID` alone and six are served. So "every 
 defined" was true of all six of its refusals and discriminated none of them. What decides is
 whether the name names an **action on the row's fields**: S7F43's does - cancel the command that
 `PPID` and `RCMD` named - and it went in; S7F21's does not - `PPID` and the word "Reference", which
-would hand a provider an identifier and nothing to do. And a family can be refused for what it has
-no rows for: the matrix pairs are a send, a load inquire and a verify with **no request and no
-directory anywhere**, so a matrix program could be written and never read, under a `PPID` the plain
-request would hand back as a plain program.
+would hand a provider an identifier and nothing to do, and it is the one row of the stream still
+out.
+
+**A family was also refused for what it has no rows for, and that one was wrong - because a verify
+is a read.** The matrix pairs are a send, a load inquire and a verify with **no request and no
+directory anywhere**, which was taken for "a matrix can be written and never read". But the refusal
+had measured whether any row's *name* says Request or Directory; S7F15 says Verify, and a verify
+answers the only question a host that already holds the bytes has. The plain and formatted halves
+are served for exactly that row, at S7F9 and S7F27 - and a capability with no read-back at all has
+been here since stream 10, where `IGemTerminal` has one method and nothing reads a terminal. So ask
+what the family's rows *do* before concluding nothing can come back out of it.
+
+**The second half of that refusal was true of a shared store and not of the rows.** A matrix kept
+in the plain store would come back from S7F5 under its own `PPID` as a plain program, because the
+rows are item for item the plain ones. Giving the matrix its own store, its own opt-in list and no
+place in S7F17, S7F19 or S7F31 is what makes that not happen - the same separation the formatted
+half has had since it was written, and the reason `GemEquipment` now takes six optional
+capabilities. So **a duplicate body is a reason to separate the stores, not to refuse the rows**;
+and once they are separate, S7F13 and S7F1 no longer do one job, which is what the firmer-source
+tie-break had been applied to.
 
 **And the item measures were not spent in that stream after all - the question was which item, not
 whether it is defined.** S7F35's reply names `PPBODY` where the reference's other two directory
@@ -495,6 +511,14 @@ wrong is one package reading it both ways, or either side not mentioning the oth
 `Barbatos.SecsGem.Catalog` while the libraries do not and must not - the dependency is the test's,
 not the layer's.
 
+**And counting the reader sites is the only thing that finds an undriven one.** The matrix chapter
+added two `ACKC7` readers and one `PPGNT` reader, counted what was there, and found **four readers
+that had never been driven at all**: the plain verify, the formatted verify, the availability
+question and the formatted load inquire. None of them was wrong - a comparison of enum against
+table passes whether or not a call exists - so what was missing was the proof, and four chapters
+had each added a reader without adding its line. The counts are in the Gem package's API reference
+so a sweep can check them: `ACKC7` at seven sites, `PPGNT` at four, `CMDA` at four, `GRANT` at two.
+
 **An acknowledgement item with a reserved range needs a member at the first reserved code**, and the
 reader has to fold the range onto it rather than casting. Sixteen of GEM's sixteen such items do;
 twelve of them did not until a sweep found them all at once, and `(SomeAcknowledgement)ReadCode(...)`
@@ -515,9 +539,9 @@ a control moved the boundary at one of them with the whole suite green. ACKC7 ha
 once, with one of three sites driven. The rule is per site and not per item - `ReadNamedCode` and
 its siblings are easy to grep for, and `GemReservedAcknowledgementTests` is where each new one gets
 a line, and the stream 6 chapter found one that had been undriven since it was written - the spool
-reply's, which no drive had ever covered. The count is in that package's API reference, so a sweep
-can check it: ACKC7 is read at
-four sites, CMDA at four and GRANT at two.
+reply's, which no drive had ever covered, and the matrix chapter then found four at once. The
+counts live in that package's API reference so a sweep can check them, and in the paragraph that
+records how those four were found.
 
 **And `GemReservedAcknowledgementTests` could itself hang rather than fail**, which the stream 7
 chapter found the way everything here gets found: a control made a host send the wrong function, the

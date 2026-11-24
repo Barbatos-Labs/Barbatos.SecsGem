@@ -84,7 +84,8 @@ public class GemHostTests
             formatted: new GemInMemoryFormattedProcessProgramStore(),
             spool: new GemInMemorySpool(),
             terminal: new GemInMemoryTerminal(),
-            servicePrograms: new GemInMemoryServiceProgramStore());
+            servicePrograms: new GemInMemoryServiceProgramStore(),
+            matrices: new GemInMemoryProcessProgramMatrixStore());
 
         await pair.OpenAsync();
 
@@ -148,6 +149,9 @@ public class GemHostTests
             token);
         await host.RequestFormattedProcessProgramAsync("SHAPED", token);
         await host.RequestFormattedProcessProgramDirectoryAsync(token);
+        await host.InquireProcessProgramMatrixAsync("MATRIX-1", 2, token);
+        await host.SendProcessProgramMatrixAsync("MATRIX-1", new byte[] { 1, 2 }, token);
+        await host.VerifyProcessProgramMatrixAsync("MATRIX-1", new byte[] { 1, 2 }, token);
         await host.InquireFormattedProcessProgramAsync("SHAPED", 3, token);
         await host.VerifyFormattedProcessProgramAsync(
             new GemFormattedProcessProgram("SHAPED", "BRBTOS-1", "0.1.0", []),
@@ -179,6 +183,7 @@ public class GemHostTests
             .. GemEquipment.HandledMessages,
             .. GemEquipment.ProcessProgramMessages,
             .. GemEquipment.FormattedProcessProgramMessages,
+            .. GemEquipment.ProcessProgramMatrixMessages,
             .. GemEquipment.SpoolMessages,
             .. GemEquipment.TerminalMessages,
             .. GemEquipment.ServiceProgramMessages,

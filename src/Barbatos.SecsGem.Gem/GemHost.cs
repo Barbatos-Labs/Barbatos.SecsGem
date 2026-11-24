@@ -1982,6 +1982,105 @@ public sealed class GemHost : IAsyncDisposable
         return (GemProcessProgramAcknowledgement)ReadNamedCode(reply, 7, "ACKC7");
     }
 
+    /// <summary>Asks whether the equipment will accept a process program matrix - S7F13.</summary>
+    /// <param name="id">PPID.</param>
+    /// <param name="length">How many bytes the body will be.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>PPGNT.</returns>
+    /// <remarks>
+    /// <strong>S7F1's question asked of a different store.</strong> The matrix is stream 7's third
+    /// capability and the equipment declares it separately, so a machine that answers S7F1 may
+    /// answer S9F5 to this one and mean it.
+    /// </remarks>
+    public async ValueTask<GemProcessProgramGrant> InquireProcessProgramMatrixAsync(
+        string id,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(7, 13, replyExpected: true)
+            {
+                Name = "ProcessProgramMatrixLoadInquire",
+                Item = SecsItem.L(SecsItem.A(id).Named("PPID"), SecsItem.U4((uint)length).Named("LENGTH")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemProcessProgramGrant)ReadNamedCode(reply, 6, "PPGNT");
+    }
+
+    /// <summary>Sends a process program matrix - S7F11.</summary>
+    /// <param name="id">PPID.</param>
+    /// <param name="body">PPBODY - the matrix, as bytes. Copied onto the message.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC7.</returns>
+    /// <remarks>
+    /// <strong>There is no matrix request anywhere in the reference</strong>, so what goes up this
+    /// way comes back only through
+    /// <see cref="VerifyProcessProgramMatrixAsync"/> - which is a comparison rather than a copy,
+    /// and is the whole of the read-back E5 offers for a matrix.
+    /// </remarks>
+    public async ValueTask<GemProcessProgramAcknowledgement> SendProcessProgramMatrixAsync(
+        string id,
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(7, 11, replyExpected: true)
+            {
+                Name = "ProcessProgramMatrixSend",
+                Item = SecsItem.L(
+                    SecsItem.A(id).Named("PPID"),
+                    SecsItem.B(body.ToArray()).Named("PPBODY")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemProcessProgramAcknowledgement)ReadNamedCode(reply, 7, "ACKC7");
+    }
+
+    /// <summary>Asks whether the equipment holds this matrix - S7F15.</summary>
+    /// <param name="id">PPID.</param>
+    /// <param name="body">PPBODY - the matrix the host believes the machine holds. Copied onto the message.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC7. Only <c>Accepted</c> means yes.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The matrix family's read-back, and the row that got the family served.</strong> The
+    /// refusal said a matrix can be written and never read, having searched the family for a name
+    /// containing Request or Directory. This is the read: the host holds the bytes already, so what
+    /// it needs answered is whether the machine holds the same ones.
+    /// </para>
+    /// <para>
+    /// <c>ACKC7</c> has no code for "those bytes are not these bytes", so a mismatch of equal
+    /// length comes back as <c>PermissionNotGranted</c> - the table's nearest word for "I will not
+    /// confirm that", the same reading <see cref="VerifyProcessProgramAsync"/> documents. Treat
+    /// anything but <c>Accepted</c> as "not verified" rather than reading a reason out of the code.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemProcessProgramAcknowledgement> VerifyProcessProgramMatrixAsync(
+        string id,
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(7, 15, replyExpected: true)
+            {
+                Name = "ProcessProgramMatrixVerifySend",
+                Item = SecsItem.L(
+                    SecsItem.A(id).Named("PPID"),
+                    SecsItem.B(body.ToArray()).Named("PPBODY")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (GemProcessProgramAcknowledgement)ReadNamedCode(reply, 7, "ACKC7");
+    }
+
     /// <summary>Asks whether a program is on the machine at all - S7F31, answered by S7F32.</summary>
     /// <param name="id">PPID.</param>
     /// <param name="cancellationToken">Cancels the work.</param>

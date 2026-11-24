@@ -352,6 +352,14 @@ internal static class Program
             equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
         }
 
+        // And the matrix, stream 7's third capability: three rows, its own store, and no place in
+        // S7F17, S7F19 or S7F31 - which is what keeps a matrix from coming back out of S7F5 as a
+        // plain program.
+        foreach (var (stream, function) in GemEquipment.ProcessProgramMatrixMessages)
+        {
+            equipmentRoutes.OnPrimary(stream, function, (transaction, token) => pendingEquipment!.HandleAsync(transaction, token));
+        }
+
         // And terminal services, so the host below can put something in front of an operator.
         foreach (var (stream, function) in GemEquipment.TerminalMessages)
         {
@@ -581,7 +589,8 @@ internal static class Program
             servicePrograms: new GemInMemoryServiceProgramStore
             {
                 Run = (id, text) => $"SPID {id}: {text.Length} characters, exit 0",
-            });
+            },
+            processProgramMatrices: new GemInMemoryProcessProgramMatrixStore());
         // What S1F10 reports. Two strings with no vocabulary anywhere in the reference, so these
         // are this machine's own words - the same freedom E87 gives CARRIERSTATUS, on an item that
         // at least has a format. Set here rather than beside the other delegates further down,
@@ -1580,6 +1589,28 @@ internal static class Program
 
         Console.WriteLine($"   S7F35 -> {string.Join("; ", formattedDirectory)}");
         ok &= formattedDirectory.Any(program => program.Id == "RECIPE-7" && program.Commands.Count == 2);
+
+        // And stream 7's third capability, refused for a dozen chapters as write-only. A verify is
+        // a read - it is the only one a matrix has - and the matrix lives in a store of its own, so
+        // the directory above and the availability question below never see it.
+        var matrix = new byte[] { 0x10, 0x20, 0x30, 0x40 };
+
+        var matrixGrant = await host.InquireProcessProgramMatrixAsync("MATRIX-1", matrix.Length, cancellationToken);
+        Console.WriteLine($"   S7F13 -> PPGNT={matrixGrant}");
+        ok &= matrixGrant == GemProcessProgramGrant.Ok;
+
+        var matrixAck = await host.SendProcessProgramMatrixAsync("MATRIX-1", matrix, cancellationToken);
+        Console.WriteLine($"   S7F11 -> ACKC7={matrixAck}");
+        ok &= matrixAck == GemProcessProgramAcknowledgement.Accepted;
+
+        var matrixHeld = await host.VerifyProcessProgramMatrixAsync("MATRIX-1", matrix, cancellationToken);
+        Console.WriteLine($"   S7F15 -> ACKC7={matrixHeld}");
+        ok &= matrixHeld == GemProcessProgramAcknowledgement.Accepted;
+
+        // The separation, on the wire: a matrix is not a process program, so S7F31 does not know it.
+        var matrixAsProgram = await host.IsProcessProgramAvailableAsync("MATRIX-1", cancellationToken);
+        Console.WriteLine($"   S7F31 -> PPGNT={matrixAsProgram} for the matrix, which is not a program");
+        ok &= matrixAsProgram == GemProcessProgramGrant.InvalidId;
 
         // And a command about that program. S2F41 with a PPID in front, run from the same command
         // table - the recipe reaches the handler as context.ProcessProgramId.

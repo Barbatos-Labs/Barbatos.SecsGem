@@ -818,7 +818,7 @@ One thing the interface insists on: **the body you are handed is only valid for 
 call.** It is a window onto the message that arrived, and that message is disposed as soon as the
 handler returns. Copy what you keep - the in-memory store does.
 
-### Formatted recipes, the other half of stream 7
+### Formatted recipes, the second capability of stream 7
 
 An unformatted process program is a PPBODY: bytes the equipment stores and hands back, whose
 meaning is between the host and the machine. A **formatted** one is structure E5 defines, and S7F23
@@ -842,6 +842,43 @@ services.AddSecsGem(builder.Configuration)
 | S7F33 | May I send you this one? | S7F34 (PPGNT) |
 | S7F35 | What structured recipes do you hold? | S7F36 - every one of them, whole |
 
+### The matrix, stream 7's third capability
+
+A process program matrix is E5's third object in this stream, with three transactions of its own and
+nothing else: S7F13 asks whether one may be sent, S7F11 sends it, S7F15 asks whether the machine
+holds the one the host has. There is **no matrix request and no matrix directory** anywhere in the
+reference.
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => { /* ... */ })
+    .AddGemProcessProgramMatrices()               // S7F11, S7F13, S7F15 - and nothing else
+    .RunAsHostedService();
+```
+
+```csharp
+var grant = await host.InquireProcessProgramMatrixAsync("MATRIX-1", matrix.Length);
+await host.SendProcessProgramMatrixAsync("MATRIX-1", matrix);
+
+// The read-back, and the only one a matrix has: the host already holds the bytes.
+var held = await host.VerifyProcessProgramMatrixAsync("MATRIX-1", matrix);
+```
+
+**These three rows were refused for a dozen chapters, on two reasons, and both were answered by one
+decision.** The first was that a matrix "could be written and never read" - which had searched the
+family for a row whose name says Request or Directory and found neither. **S7F15 is the read**: the
+host holds the bytes, so what it needs is not a copy but an answer to "do you hold these", and this
+library serves exactly that row for the plain half at S7F9 and the formatted half at S7F27. A
+capability with no read-back at all is already here too, and has been since stream 10 - `IGemTerminal`
+has one method and nothing reads a terminal.
+
+The second was that the matrix rows are item for item the plain ones, so a matrix would be stored
+under a `PPID` that S7F5 hands back as a plain program. True of a shared store, and this one is not
+shared: **the matrix is its own capability with its own store and its own opt-in list**, and S7F5,
+S7F19 and S7F31 have never seen it. There is no delete either, because the reference gives the
+family none - a host that wants a matrix gone sends another one.
+
 The second pair are S7F9's and S7F1's twins for this half, and each has a difference worth
 knowing. **The verify compares the whole structure** - the model name and the software revision as
 well as the commands - because a program whose commands match but which was written for another
@@ -854,9 +891,10 @@ accepted, and the acknowledgement to *that* message remains the one that decides
 and discarded: read, because a body that does not carry it is not this message; discarded, because
 acting on it would mean inventing a capacity the store never declared.
 
-The two halves are independent: equipment may offer either, both, or neither. **S7F17 and S7F19
-come with the unformatted half**, because a stream and function may be declared only once and
-deleting or listing a program is not per-format. Register both and those two handlers cover both
+The two program halves are independent: equipment may offer either, both, or neither - and the
+matrix below is a third, independent of them again. **S7F17 and S7F19 come with the unformatted
+half**, because a stream and function may be declared only once and deleting or listing a program
+is not per-format. Register both and those two handlers cover both
 stores: a formatted program appears in S7F20 beside the unformatted ones, an identifier that exists
 in both is listed once, and an S7F17 naming a program only one store has is still ACKC7 0 - saying
 "no such program" because the other half had not heard of it would be refusing something that just
@@ -1281,7 +1319,7 @@ not a wall in front of it.
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
-| Four pairs of stream 7 | Eighteen of its twenty-two primaries are here now, and **stream 7 is where the item list stopped discriminating**: nine of its rows carry `PPID, PPBODY` and seven of those are served, and seven of its primaries carry `PPID` alone with six of those served. So "every item in this row is defined" is true of all four refusals and says nothing about any of them - what decides is whether the row's *name* names an action on its fields. **The matrix family**, S7F11 to S7F16, is **write-only**: a send, a load inquire and a verify, and no request and no directory anywhere in the reference, so a matrix program could be stored and never read back - and it would be stored under a `PPID` that S7F5 would hand back as a plain program, because the rows are item for item the plain ones. S7F13 also loses to S7F1, which is a definition where it is an illustration. **S7F21/F22** is `PPID` answered by an `ACKC7`, which is the shape of six served rows - so the shape says nothing and the word "Reference" is all that is left; a handler would be given a program identifier and no action, which is S1F9's position. **S7F35/F36** was the fifth and is served now: it was refused as a body whose two readings put different bytes on the wire, and what settles it is which item each row names - S7F8 and S7F20 name `PPID` alone where S7F36 names `PPBODY` too, and no row in this stream names `PPBODY` and carries nothing. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) and [`SecsCatalogStream7RefusalTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7RefusalTests.cs) |
+| One pair of stream 7 | Twenty-one of its twenty-two primaries are here now, and **stream 7 is where the item list stopped discriminating**: nine of its rows carry `PPID, PPBODY` and every one of the nine is served, and seven of its primaries carry `PPID` alone with six of those served. So "every item in this row is defined" was true of all six of its refusals and said nothing about any of them - what decides is whether the row's *name* names an action on its fields. **The matrix family**, S7F11 to S7F16, was refused as write-only and is served now: a verify *is* a read, and the family has one. It is the third capability of stream 7, with its own store - which is what stops a matrix coming back from S7F5 as a plain program, the other half of that refusal. **S7F21/F22** is `PPID` answered by an `ACKC7`, which is the shape of six served rows - so the shape says nothing and the word "Reference" is all that is left; a handler would be given a program identifier and no action, which is S1F9's position. **S7F35/F36** was served the chapter before the matrix family: it was refused as a body whose two readings put different bytes on the wire, and what settles it is which item each row names - S7F8 and S7F20 name `PPID` alone where S7F36 names `PPBODY` too, and no row in this stream names `PPBODY` and carries nothing. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) and [`SecsCatalogStream7RefusalTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7RefusalTests.cs) |
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
 | Two pairs of stream 6 | The rest of the stream is here. **S6F21/F22** and **S6F29/F30** are refused on the field each row turns on: `CELLNAME` is what makes a data cell report a *cell* report rather than the event report it is otherwise identical to, and `NRED` is the enable-or-disable flag S6F29 exists to carry - both undefined, both named by one row, so carrying either untouched would leave this library unable to tell apart the two things its row distinguishes. The same reason S14F23 stays out. **S6F25/F26 was the third and is served now**: it was refused on a *shape* rather than a field, and the tie-break is that S6F16's body exceeds its record because S6F15 is the Event Report *Request*, which is a thing no primary's record has to explain. [`SecsCatalogStream6Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream6Tests.cs) pins both refusals and the measurement that overturned the third |
 | S2F19/F20, reset and initialize | The one row of stream 2 left, and the clearest refusal in the reference: S2F19's **entire body is `RSTC`**, a name nobody wrote down, and `RIACK` is undefined too - the only row in the stream where both halves are gaps. An own gap is carried untouched unless it is the field the message turns on, and a reset code is *which* reset: carrying it opaquely would leave this library unable to tell one reset from another. Strictly worse than S14F23's `ENABLE`, which at least sat beside items that were defined, and there is no second field in the row to anchor a reading against. [`SecsCatalogStream2Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream2Tests.cs) pins it |
