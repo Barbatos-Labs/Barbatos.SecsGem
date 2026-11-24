@@ -83,10 +83,30 @@ public class SecsCatalogStream7RefusalTests
 
         Assert.Equal<byte[]>([5, 17, 21, 25, 29, 31, 39], [.. shared.Select(m => m.Function)]);
 
-        // S7F21 is the refusal among them, and the company it keeps is the argument: a request, a
-        // delete, two notices and an availability question all carry exactly what it carries.
-        Assert.Equal("Process Program Reference Send", Row(21).Name);
+        // S7F21 is the refusal among them, and the company it keeps is the argument - but not the
+        // way the first version of this test put it. Split the seven by what answers them and six
+        // fall into three kinds, none of which S7F21 is in: THREE are requests whose reply carries
+        // the answer, TWO are news the machine sends unprompted, and ONE is the delete, whose name
+        // says what it does to the store.
+        foreach (var function in new byte[] { 5, 25, 31 })
+        {
+            Assert.Equal(SecsMessageDirection.HostToEquipment, Row(function).Direction);
+            Assert.True(Row((byte)(function + 1)).DataItems.Count >= 1);
+            Assert.DoesNotContain("ACKC7", Row((byte)(function + 1)).DataItems);
+        }
+
+        foreach (var function in new byte[] { 29, 39 })
+        {
+            Assert.Equal(SecsMessageDirection.EquipmentToHost, Row(function).Direction);
+        }
+
         Assert.Equal("Delete Process Program Send", Row(17).Name);
+
+        // So S7F21 is the only one of the seven that the host sends, that is answered by nothing
+        // but an acknowledgement, and whose name's object is not something the stream explains.
+        Assert.Equal("Process Program Reference Send", Row(21).Name);
+        Assert.Equal(SecsMessageDirection.HostToEquipment, Row(21).Direction);
+        Assert.Equal<string[]>(["ACKC7"], [.. Row(22).DataItems]);
     }
 
     [Fact]
@@ -148,18 +168,66 @@ public class SecsCatalogStream7RefusalTests
     }
 
     [Fact]
-    public void The_reference_send_names_no_action_on_the_one_field_it_carries()
+    public void The_reference_sends_object_is_a_word_the_reference_uses_nowhere_else()
     {
-        // S7F21's refusal, sharpened. The shape is six served rows' shape, so the shape says
-        // nothing; what is left is the word "Reference", and a handler given a PPID and that word
-        // has been told an identifier and no action. The same position S1F9 is in - a pass-through
-        // whose meaning nobody states would be an API with nothing behind it.
+        // S7F21's refusal, re-argued from the dictionary rather than from a reading of its name.
+        // Both of its items are defined, so the item measures are silent here as they are
+        // everywhere in this stream.
         Assert.Equal<string[]>(["PPID"], [.. Row(21).DataItems]);
         Assert.Equal<string[]>(["ACKC7"], [.. Row(22).DataItems]);
 
         Assert.All(
             Row(21).DataItems.Concat(Row(22).DataItems),
             name => Assert.True(SecsCatalog.TryGetDataItem(name, out _), name));
+
+        // The name has a verb - Send - so "it names no action" was never quite the fault. What it
+        // has no second instance of is its OBJECT: of the reference's 524 rows, exactly two name a
+        // reference, and they are this row and its own acknowledgement. There is no sibling
+        // anywhere to read the word off, which is what the matrix family had three of.
+        var naming = SecsCatalog.Messages
+            .Where(message => message.Name.Contains("Reference", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.Equal<byte[]>([21, 22], [.. naming.Select(message => message.Function)]);
+        Assert.All(naming, message => Assert.Equal((byte)7, message.Stream));
+
+        // And the dictionary wrote a name for this idea and then never put it on a wire. PDEREF is
+        // a reference to a process definition element, defined as text, and named by no message at
+        // all - one of the 213. So the vocabulary for a recipe reference exists in the reference
+        // and nothing carries it, while the row that says Reference carries a bare PPID.
+        Assert.True(SecsCatalog.TryGetDataItem("PDEREF", out var pdeRef));
+        Assert.Equal("A", pdeRef!.FormatToken);
+        Assert.True(pdeRef.IsNamedByNoMessage);
+
+        // The one item whose name contains REF and IS carried belongs to somewhere else entirely:
+        // REFP is a wafer map's reference point, in stream 12.
+        Assert.True(SecsCatalog.TryGetDataItem("REFP", out var refP));
+        Assert.Equal<byte[]>([12], [.. refP!.Streams]);
+    }
+
+    [Fact]
+    public void And_the_comparison_with_S1F9_went_stale_because_that_row_answers_with_data()
+    {
+        // The half of this refusal that had to be replaced. It used to end "the same position S1F9
+        // is in - a pass-through whose meaning nobody states would be an API with nothing behind
+        // it", and S1F9 has been served since the chapter that read TRACK properly.
+        Assert.True(SecsCatalog.TryGetMessage(1, 9, out var transferStatus));
+        Assert.Empty(transferStatus!.DataItems);
+
+        // It is not this row's position, and the difference is what the comparison hid: S1F10
+        // answers with two items of DATA, so a host that sends S1F9 gets content back and the
+        // machine reports rather than acts. S7F22 carries one code.
+        Assert.True(SecsCatalog.TryGetMessage(1, 10, out var transferStatusData));
+        Assert.Equal<string[]>(["TSIP", "TSOP"], [.. transferStatusData!.DataItems]);
+
+        // So the rule the comparison obscured: **a row answered by nothing but an acknowledgement
+        // has to name what it does**, because the acknowledgement is the whole of what the host
+        // gets back. Serving S7F21 would mean answering ACKC7 0 - done - to an instruction this
+        // library cannot perform, where S9F5 says "I do not do that function" and is true. That is
+        // the same distinction the spool draws between S9F5 and an RSDA of 1.
+        Assert.Equal<string[]>(["ACKC7"], [.. Row(22).DataItems]);
+        Assert.True(SecsCatalog.TryGetDataItem("ACKC7", out var ackc7));
+        Assert.NotEmpty(ackc7!.Codes);
     }
 
     [Fact]

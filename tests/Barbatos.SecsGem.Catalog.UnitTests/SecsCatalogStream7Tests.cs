@@ -204,8 +204,12 @@ public class SecsCatalogStream7Tests
             => Assert.Single(stream.Messages, message => message.Function == function);
 
         // S7F21 carries one PPID and is answered with an ACKC7, and its name is the whole of what
-        // the reference says about it. A one-item body with an acknowledgement could be made to
-        // mean anything, and "reference" is not a transaction.
+        // the reference says about it - a verb and an object, where the object appears in two of
+        // the reference's 524 row names: this row and its own acknowledgement. The dictionary even
+        // has a name for the idea, PDEREF, and no message carries it.
+        // SecsCatalogStream7RefusalTests holds that measurement and the rule it stands on: a row
+        // answered by nothing but an acknowledgement has to name what it does, because the
+        // acknowledgement is the whole of what the host gets back.
         Assert.Equal("Process Program Reference Send", Row(21).Name);
         Assert.Equal<string[]>(["PPID"], [.. Row(21).DataItems]);
 

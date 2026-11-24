@@ -145,7 +145,10 @@ public class SecsCatalogMeasureLimitTests
         // routing table claims - and those are the only three kinds of reason left anywhere in
         // the repository:
         //
-        //   S7F21                a name that names no action on the row's fields
+        //   S7F21                a name whose OBJECT has no second instance anywhere - two of the
+        //                        reference's 524 rows say Reference and they are this pair - and a
+        //                        reply that is nothing but an acknowledgement, so serving it would
+        //                        answer "done" to an instruction nobody defined
         //
         // Two of the ten were refused on a SHAPE and both have since been served, so that kind of
         // reason is gone from the repository: S6F25 by asking why its sibling's body exceeds its

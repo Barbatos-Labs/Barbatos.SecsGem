@@ -333,9 +333,21 @@ is the evidence.** Stream 7 is where that happens: nine of its rows carry `PPID,
 served, seven of its primaries carry `PPID` alone and six are served. So "every item in this row is
 defined" was true of all six of its refusals and discriminated none of them. What decides is
 whether the name names an **action on the row's fields**: S7F43's does - cancel the command that
-`PPID` and `RCMD` named - and it went in; S7F21's does not - `PPID` and the word "Reference", which
-would hand a provider an identifier and nothing to do, and it is the one row of the stream still
-out.
+`PPID` and `RCMD` named - and it went in. S7F21 is the one row of the stream still out, and the
+measure had to be sharpened for it, because its name has a verb too - **Send**. What it has no
+second instance of is its **object**: of the reference's 524 row names, exactly two say
+*Reference*, and they are this row and its own acknowledgement. The dictionary wrote a name for the
+idea and no message carries it - `PDEREF`, defined as text, one of the 213 - so there is no sibling
+row and no item anywhere to read the word off, where the matrix family had three rows to read its
+verb off. So ask whether the name's **object** has a second instance, not only whether the name has
+a verb.
+
+**And a row answered by nothing but an acknowledgement has to name what it does**, because the
+acknowledgement is the whole of what the host gets back. That is the rule a stale comparison had
+been hiding: S7F21's refusal used to end "the same position S1F9 is in", and S1F9 has been served
+since the chapter that read `TRACK` properly - its reply carries two items of data, so that row
+*reports* where this one *acts*. Serving S7F21 would mean answering `ACKC7` 0 - done - to an
+instruction this library cannot perform, where S9F5 says "I do not do that function" and is true.
 
 **A family was also refused for what it has no rows for, and that one was wrong - because a verify
 is a read.** The matrix pairs are a send, a load inquire and a verify with **no request and no
@@ -568,6 +580,12 @@ has never once been caught by the bound someone remembered to write. Put the att
 test project from the start, and on an old one the first time it bites. **And bound the control
 runner's own `dotnet build` and test exe**, because a hung run makes the runner sit forever: mine
 sat for fifty minutes before anybody looked.
+
+**Rebuild after a control run before trusting the suite.** A runner restores the *sources* it
+mutated and leaves the build output of its last control behind, and the catalogue's data file is
+embedded in the assembly - so the first run after a control sweep can report a failure that is not
+in the tree, and could as easily hide one that is. The S7F21 chapter spent a confused minute on
+exactly that.
 
 Older files here are **CRLF** where the newer ones are LF, `GemHost.cs` among them. A multi-line
 mini-patch against one of those matches zero times until the patch text is converted, which has now
