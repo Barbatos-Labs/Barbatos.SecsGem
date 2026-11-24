@@ -2782,31 +2782,6 @@ public sealed class GemEquipment : IAsyncDisposable
         };
     }
 
-    /// <summary>Answers S7F37 and S7F41, the remote commands that name a process program.</summary>
-    /// <param name="request">The primary.</param>
-    /// <param name="replyFunction">38 or 42.</param>
-    /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>The reply, or null when this equipment keeps no programs.</returns>
-    /// <remarks>
-    /// <para>
-    /// <strong>S2F21 and S2F41 with a <c>PPID</c> in front</strong>, and served from the same
-    /// command table for that reason: the items are <c>PPID</c>, <c>RCMD</c> and - for S7F41 - the
-    /// <c>CPNAME</c> and <c>CPVAL</c> pairs, every one of them a name S2F41 already uses. The
-    /// program reaches a handler as <c>GemRemoteCommandContext.ProcessProgramId</c>.
-    /// </para>
-    /// <para>
-    /// <strong>A command naming a program this machine has not got is refused before any handler
-    /// runs</strong>, and refused as <c>CannotPerformNow</c> rather than <c>DoesNotExist</c>:
-    /// <c>CMDA</c> 1 says the *command* does not exist, which would be a lie about a command the
-    /// machine has. There is no code for "no such program", so the honest answer is the one that
-    /// is true - it cannot be done now, with the recipe absent.
-    /// </para>
-    /// <para>
-    /// Both rows are declared with the process program capability rather than with the core set,
-    /// because stream 7 is declared by equipment that manages programs: a machine with no recipes
-    /// should answer S9F3 for the whole stream rather than refuse one function of it.
-    /// </para>
-    /// </remarks>
     /// <summary>Answers S7F43 - a request to cancel a command sent earlier.</summary>
     /// <remarks>
     /// <strong>Not <see cref="OnProgramCommandAsync"/> with a flag</strong>, deliberately. That
@@ -2852,6 +2827,31 @@ public sealed class GemEquipment : IAsyncDisposable
         };
     }
 
+    /// <summary>Answers S7F37 and S7F41, the remote commands that name a process program.</summary>
+    /// <param name="request">The primary.</param>
+    /// <param name="replyFunction">38 or 42.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The reply, or null when this equipment keeps no programs.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>S2F21 and S2F41 with a <c>PPID</c> in front</strong>, and served from the same
+    /// command table for that reason: the items are <c>PPID</c>, <c>RCMD</c> and - for S7F41 - the
+    /// <c>CPNAME</c> and <c>CPVAL</c> pairs, every one of them a name S2F41 already uses. The
+    /// program reaches a handler as <c>GemRemoteCommandContext.ProcessProgramId</c>.
+    /// </para>
+    /// <para>
+    /// <strong>A command naming a program this machine has not got is refused before any handler
+    /// runs</strong>, and refused as <c>CannotPerformNow</c> rather than <c>DoesNotExist</c>:
+    /// <c>CMDA</c> 1 says the *command* does not exist, which would be a lie about a command the
+    /// machine has. There is no code for "no such program", so the honest answer is the one that
+    /// is true - it cannot be done now, with the recipe absent.
+    /// </para>
+    /// <para>
+    /// Both rows are declared with the process program capability rather than with the core set,
+    /// because stream 7 is declared by equipment that manages programs: a machine with no recipes
+    /// should answer S9F3 for the whole stream rather than refuse one function of it.
+    /// </para>
+    /// </remarks>
     private async ValueTask<SecsMessage?> OnProgramCommandAsync(
         SecsMessage request,
         byte replyFunction,

@@ -6,6 +6,13 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
+    <!-- xUnit1069 wants every test with a Timeout to name TestContext.Current.CancellationToken
+         itself. Every test here passes RecipePair.Token, which IS that property - the indirection
+         is the test support's and the analyser is syntactic, so it fires on all of them. The
+         Timeout is deliberate and project-wide: on a fake clock a missing reply hangs rather than
+         failing, a hung run prints no summary, and a run with no summary reads exactly like a
+         negative control that found nothing. That has cost this repository four chapters. -->
+    <NoWarn>$(NoWarn);xUnit1069</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

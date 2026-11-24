@@ -183,8 +183,9 @@ public class SecsCatalogStream7Tests
         // And nothing in the item dictionary is a matrix. 375 items, not one of them named for the
         // thing these rows transfer - so what a process program matrix contains is a vocabulary the
         // reference never wrote down, which is the firmest kind of gap there is.
-        Assert.Empty(SecsCatalog.DataItems.Where(item =>
-            item.Name.Contains("MATRIX", StringComparison.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(
+            SecsCatalog.DataItems,
+            item => item.Name.Contains("MATRIX", StringComparison.OrdinalIgnoreCase));
 
         // The one matrix word in the whole reference is a failure code, and it sits in an item four
         // implemented rows already carry. A capability's failure mode is not its definition: this

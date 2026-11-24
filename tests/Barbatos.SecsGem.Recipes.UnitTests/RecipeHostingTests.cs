@@ -18,7 +18,7 @@ namespace Barbatos.SecsGem.Recipes.UnitTests;
 /// </remarks>
 public class RecipeHostingTests
 {
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_equipment_graph_resolves_and_brings_the_in_memory_store_with_it()
     {
         await using var provider = BuildEquipment();
@@ -30,7 +30,7 @@ public class RecipeHostingTests
         Assert.IsType<RecipeInMemoryStore>(provider.GetRequiredService<IRecipeStore>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_host_graph_resolves()
     {
         await using var provider = BuildHost();
@@ -41,7 +41,7 @@ public class RecipeHostingTests
         Assert.Same(provider.GetRequiredService<RecipeHost>(), host);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Every_message_the_equipment_answers_is_in_the_routing_table()
     {
         await using var provider = BuildEquipment();
@@ -57,10 +57,10 @@ public class RecipeHostingTests
             Assert.NotNull(handler);
         }
 
-        Assert.Equal(9, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(13, RecipeEquipment.HandledMessages.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_equipment_claims_no_reply()
     {
         await using var provider = BuildEquipment();
@@ -74,18 +74,20 @@ public class RecipeHostingTests
         }
     }
 
-    [Fact]
-    public async Task The_eighteen_pairs_this_package_leaves_out_are_not_claimed()
+    [Fact(Timeout = 15_000)]
+    public async Task The_fourteen_pairs_this_package_leaves_out_are_not_claimed()
     {
         await using var provider = BuildEquipment();
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
-        // Every primary stream 15 has that is not one of the nine. They are out because their rows
-        // reach for names the dictionary does not define while near-twins of those names sit in it
-        // unused - measured in SecsCatalogStream15Tests, not asserted from memory. The rename and
-        // the copy, F19 and F21, are the two this chapter expected to carry and did not.
-        foreach (byte function in (byte[])[3, 11, 19, 21, 23, 25, 27, 29, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51])
+        // Every primary stream 15 has that is not one of the thirteen. It was eighteen until the
+        // rename, the copy, the lock and the unlock went in - and those four left for a reason
+        // that had never been stated right: the rival measure records whether the definition being
+        // rivalled is one the messages use, and in all three of those rows it is, two positions
+        // earlier in the same body. What keeps these fourteen out is measured in
+        // SecsCatalogStream15Tests and not asserted from memory.
+        foreach (byte function in (byte[])[3, 11, 27, 29, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51])
         {
             Assert.False(
                 router.TryGetHandler(15, function, out _),
@@ -93,7 +95,7 @@ public class RecipeHostingTests
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_host_registration_adds_no_route_at_all()
     {
         await using var provider = BuildHost();
@@ -111,7 +113,7 @@ public class RecipeHostingTests
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Nothing_in_this_package_claims_stream_19_or_stream_20()
     {
         await using var equipment = BuildEquipment();
@@ -147,7 +149,7 @@ public class RecipeHostingTests
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_store_already_registered_wins_over_the_in_memory_one()
     {
         var services = new ServiceCollection();
@@ -170,7 +172,7 @@ public class RecipeHostingTests
         Assert.Equal(0, mine.Listings);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_store_a_type_argument_names_is_constructed_by_the_container()
     {
         var services = new ServiceCollection();
@@ -191,7 +193,7 @@ public class RecipeHostingTests
             provider.GetRequiredService<IRecipeStore>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Calling_the_equipment_registration_twice_declares_each_primary_once()
     {
         var services = new ServiceCollection();

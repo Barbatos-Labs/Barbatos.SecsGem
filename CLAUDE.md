@@ -41,21 +41,25 @@ Core  <-  Hsms  <-  Gem
                                capability, serve one or the other - and declaring two rows of
                                seventeen would answer S9F5 for the other fifteen functions where
                                leaving the stream alone answers S9F3.
-                               Nine of twenty-seven pairs, the nine whose primary and reply are
-                               made entirely of defined items - which is what overturned chapter
-                               42's sweep of this stream into stream 19's refusal, since stream 19
-                               has none and provenance is not a veto. The body is PPBODY, stream
-                               7's own defined B in rows the reference documented, so a recipe is
-                               plain bytes like a control program and LENGTH can be checked against
-                               what arrives. RMACK is defined WITH a table, so the enum's Other is
-                               honest the way GRANT's is. The other eighteen pairs stay out because
-                               the reference defines 24 RCP* items and its messages use 2: the
-                               names those rows use are rival spellings of the unused definitions,
-                               RCPIDNEW against RCPNEWID being one of only three exact anagrams in
-                               the whole reference. Do not read a format off a sibling when the
-                               sibling is a rival spelling. Only stream here with a TWO-LEVEL
-                               space, so the store checks the namespace at the grant AND at the
-                               send, and refuses to delete one that still holds recipes.)
+                               Thirteen of twenty-seven pairs. Nine have a primary and a reply made
+                               entirely of defined items - which is what overturned chapter 42's
+                               sweep of this stream into stream 19's refusal, since stream 19 has
+                               none and provenance is not a veto. The body is PPBODY, stream 7's
+                               own defined B in rows the reference documented, so a recipe is plain
+                               bytes like a control program and LENGTH can be checked against what
+                               arrives. RMACK is defined WITH a table, so the enum's Other is
+                               honest the way GRANT's is. The other FOUR carry one undefined name
+                               each and were refused for six chapters on the rival measure, which
+                               reports a relation and was read as a verdict: RCPIDNEW, RCPSPECDST
+                               and RCPIDDST each extend a name that is IN THE SAME BODY two
+                               positions earlier, and RCPLOCKID is a lock token the machine mints
+                               and reads back, carried as the encoded item. The fourteen still out
+                               are refused one of four ways and the README gives them row by row.
+                               Only stream here with a TWO-LEVEL space, so the store checks the
+                               namespace at the grant AND at the send, and refuses to delete one
+                               that still holds recipes - and the only one with a LOCK, whose
+                               every consequence is the store's invention because E5 defines the
+                               transaction and never says what it prevents.)
             ^----  ControlPrograms (E5 stream 8: stream 7's transfer design applied to firmware
                                rather than recipes, which is where its two undefined items come
                                from - CPID is read off PPID's slot and CPBODY off PPBODY's, so the
@@ -218,16 +222,44 @@ must then agree with.
 
 Then ask `s.RivalSpellings`, which is the newest measure and the one that changes what a gap means.
 A gap with no rival is a field the source never wrote down, so carry it untouched. A gap **with** a
-rival is a field the source wrote down under another spelling, and reading a format off a sibling
-would then be correcting the reference rather than reading it - and the measure has exactly **two
-textual relations**, anagram and prefix in either direction, so a definition that extends a used
-name at the *front* is invisible to it: `SPACK` against `RSPACK` is a suffix pair and the measure
-reports nothing. Ask `i.Streams` as well, which is what found that one. There are eight in twenty
-streams
-and every one is a recipe name, which is why stream 15 ships nine pairs of twenty-seven and the
-rename and the copy are not among them. `Provenance.DetailedUnusedDefinitions` is the companion:
+rival is a field the source wrote down under another spelling - and the next question is the one
+that took six chapters to ask: **`IsDefinitionUsedElsewhere`.** Four of the reference's eight rivals
+name a definition the messages THEMSELVES use, and in three of those the definition sits in the same
+body two positions earlier: that is a **modifier, not a misspelling**, and its format is read off
+the row rather than chosen. Only a rival whose definition nothing names is a second spelling of one
+field, and even then the question is whether the two readings **differ** - `RCPIDNEW` has both
+relations at once and both of its candidates are an `A[n]`, so the rivalry puts no byte in doubt. A
+SECS-II body is positional; item names never travel, so a wrong spelling mislabels a comment.
+The measure has exactly **two textual relations**, anagram and prefix in either direction, and it
+is blind in two directions because of it. A definition that extends a used name at the *front* is
+invisible: `SPACK` against `RSPACK` is a suffix pair and the measure reports nothing. So is a
+**tail-divergent twin**, a used name and a definition sharing a long stem and then parting, where
+neither is a prefix of the other - there are **ten** of those, seven of them recipe names, and they
+are what keeps seven of stream 15's pairs out, because `RCPATTRVAL` against `RCPATTRDATA` and
+`RCPOWNER` against `RCPOWCODE` are readings that DIFFER: a list against text, text against a
+BOOLEAN. Ask `i.Streams` as well, which is what found the front-extension one. There are eight
+rivals in twenty streams and every one is a recipe name, which is why stream 15 ships thirteen pairs
+of twenty-seven and why it shipped only nine for six chapters.
+
+`Provenance.DetailedUnusedDefinitions` is the companion:
 44 definitions carry a full table of values and no message names them, so a capability being
 **specified** in the reference does not mean anything can carry it.
+
+**And when a refusal quotes a statistic, ask what it was measured over.** Stream 15's rested on a
+real figure: of the thirty pairs where the dictionary defines a name and that name plus a suffix,
+only thirteen keep the format, which is worse than a coin flip. But **exactly one of those thirty is
+ever named by a single message** - `SV` and `SVNAME`, in S1F8 - and it keeps its format. The
+statistic is about names that never stand beside each other, where a format has to be guessed from
+the dictionary instead of read off the row, and all three of stream 15's cases stand beside their
+base. A figure can be true of its population and silent about the case in hand.
+
+**An undefined field may be carried opaquely when the end that must read it is the end that produced
+it.** That is what let stream 15's lock in and keeps S15F49's owner out: a lock token is minted by
+the machine in S15F24 and handed back to it in S15F25, so nothing in between needs to know what it
+is - the same shape as `DSDATA` and `ITEMDATA`, which are the sender's own data stored whole. An
+owner travels the other way, so the host would choose a format the machine has to parse, and there
+the two readings differ. Ask which end writes the field and which end reads it before carrying it
+untouched.
 
 `IsEntirelyRepresentative` is true for nine streams and three of them are implemented here, so it
 is not a veto: check the stream against the item dictionary and against its standard's subject
@@ -257,7 +289,8 @@ Stream 2 had seven gaps and stream 6 four; neither could be done as a batch the 
 streams were. Both are finished now - stream 6 served four of its last seven pairs, stream 2 nine
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about. What a new chapter does is
-therefore re-read a refusal rather than find a row, and two of those have been overturned already.
+therefore re-read a refusal rather than find a row, and three of those have been overturned
+already - stream 4's job half, stream 7's command cancel and four pairs of stream 15.
 Streams 19 and 20 have had that re-read and neither yielded a row, but **both stated reasons were
 wrong and have been replaced** - which is the normal outcome and still worth the chapter, because a
 refusal argued from the wrong place is the thing that gets re-derived.
@@ -444,6 +477,16 @@ is bounded on the real clock now. That is the fourth place this trap has been fo
 is always the same, so it is worth stating as a rule: **in a suite on a fake clock, every await of a
 reply needs a real-clock bound**, because the failure mode of not having one is silence rather than
 a red test. A control runner that counts "Failed: 0" must also notice a run with no summary line.
+
+**There is a blanket version of that bound and it costs one token per test**: `[Fact(Timeout = n)]`.
+xUnit v3 races the test against a delay and reports a real failure - verified here, not assumed -
+and it also cancels `TestContext.Current.CancellationToken`, so it catches awaits inside the library
+as well as the ones a test can see. `Barbatos.SecsGem.Recipes.UnitTests` carries it on every test
+for that reason. The one cost is xUnit1069, which wants each such test to name
+`TestContext.Current.CancellationToken` itself and cannot see that a pair helper already is it; that
+project suppresses the analyser in its `.csproj` with the reason written down. Prefer this in a new
+test project, and remember that a per-await bound has to be added at every site, which is how the
+fourth instance came to be written at all.
 
 Older files here are **CRLF** where the newer ones are LF, `GemHost.cs` among them. A multi-line
 mini-patch against one of those matches zero times until the patch text is converted, which has now

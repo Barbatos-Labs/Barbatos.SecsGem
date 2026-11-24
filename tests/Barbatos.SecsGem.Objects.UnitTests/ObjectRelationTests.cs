@@ -405,7 +405,9 @@ public class ObjectRelationTests
             ObjectAttributeRelation.Present,
             cancellationToken: ObjectPair.Token));
 
-        Assert.Single(log.From(LogLevel.Warning).Where(message => message.Contains("S14F11", StringComparison.Ordinal)));
+        Assert.Single(
+            log.From(LogLevel.Warning),
+            message => message.Contains("S14F11", StringComparison.Ordinal));
     }
 
     [Fact]

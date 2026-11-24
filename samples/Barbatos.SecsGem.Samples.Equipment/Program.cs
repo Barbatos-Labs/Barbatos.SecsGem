@@ -159,6 +159,13 @@ internal static class Program
                         // host's and the name is the machine's.
                         .AddEvent(PressureLimitEvent, "PressureLimitCrossed", [PressureVariable])
 
+                        // What an SFCD selects, which the in-memory half of the host sample has
+                        // declared since stream 1 was finished and this half had not - so S1F5 and
+                        // S1F7 came back empty over a socket and the host sample indexed into
+                        // nothing. A form is the machine's own where a report is the host's: no
+                        // S2F33 defines one and a re-establish does not clear it.
+                        .AddStatusForm(1, ControlStateVariable, PressureVariable)
+
                         // A default report, which a host is free to replace entirely with S2F33.
                         .AddReport(DefaultReport, ControlStateVariable, PressureVariable, LotIdVariable)
 

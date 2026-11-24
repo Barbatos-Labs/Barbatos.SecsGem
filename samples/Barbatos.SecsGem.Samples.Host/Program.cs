@@ -1904,7 +1904,14 @@ internal static class Program
             ok &= after?.Location == 9;
         }
 
-        if (sendingEnd is not null && receivingEnd is not null)
+        // All four arrive together or not at all - the socket mode passes null for every one of
+        // them, because the two ends of a handoff are two processes there. Named in the guard
+        // rather than asserted with a null-forgiving operator, since it is the invariant and not
+        // a suppression.
+        if (sendingEnd is not null
+            && receivingEnd is not null
+            && machineJobs is not null
+            && hostJobs is not null)
         {
             Console.WriteLine();
             Console.WriteLine("-- and hands a piece of material over, which is stream 4 --");
@@ -2418,9 +2425,11 @@ internal static class Program
 
             // What namespaces the machine has. Stream 15 has no message announcing a recipe, so a
             // host asks - and this is as far as asking gets it: S15F3, the directory of ONE
-            // namespace, is not implemented, because its reply needs three names the dictionary
-            // spells differently from the rows that use them. A host has to be told the recipe
-            // names some other way, and that is the gap this stream's chapter could not close.
+            // namespace, is not implemented. Its reply needs RCPATTRNAME and RCPATTRVAL, and the
+            // nearest names the dictionary has for those - RCPATTRID and RCPATTRDATA - say an
+            // attribute value is text where E39's ATTRDATA, which this repository does serve, says
+            // it is a list. Two readings, different bytes. A host has to be told the recipe names
+            // some other way, and that is the one gap in this stream nobody has closed.
             var spaces = await recipes.Host.ListNamespacesAsync(cancellationToken);
 
             Console.WriteLine($"   S15F1  -> {spaces.Count} namespace(s): {string.Join(", ", spaces)}");
@@ -2459,6 +2468,55 @@ internal static class Program
 
             Console.WriteLine($"   S15F5  -> RMACK={noSpace} for a namespace that is not there");
             ok &= noSpace == RecipeAcknowledgement.Rejected;
+
+            // And the four that were refused for six chapters. RCPIDNEW, RCPSPECDST and RCPIDDST
+            // are undefined, and each extends a defined name sitting in the same body - so the
+            // format is read off the row rather than chosen. A rename carries one RCPSPEC and a
+            // copy carries two, which is the row saying a rename stays put and a copy may cross.
+            var renamed = await recipes.Host.RenameAsync("PROD", "ETCH-7", "ETCH-9", cancellationToken);
+
+            Console.WriteLine($"   S15F19 -> RMACK={renamed} renaming inside PROD");
+            ok &= renamed == RecipeAcknowledgement.Accepted;
+
+            var copied = await recipes.Host.CopyAsync("PROD", "ETCH-9", "DEV", "ETCH-9", cancellationToken);
+
+            Console.WriteLine($"   S15F21 -> RMACK={copied} copying PROD/ETCH-9 into DEV, which no rename can do");
+            ok &= copied == RecipeAcknowledgement.Accepted;
+
+            // The lock, whose RCPLOCKID is a spelling of nothing at all - no anagram, no stem, no
+            // base in the body - so it travels as the item that arrived. That loses nothing here
+            // because the machine mints it and the machine reads it back.
+            var (locked, token) = await recipes.Host.LockAsync("DEV", "ETCH-9", cancellationToken);
+
+            Console.WriteLine($"   S15F23 -> RMACK={locked}, token {token?.ToString() ?? "none"}");
+            ok &= locked == RecipeAcknowledgement.Accepted && token is not null;
+
+            if (token is not null)
+            {
+                // What a lock is worth is the machine's business: E5 defines the transaction and
+                // says nothing about what it stops. This machine's store refuses a delete, which
+                // is its own rule - and S15F14 has one refusal code, so nothing on the wire says
+                // why.
+                Console.WriteLine(
+                    $"   S15F13 -> RMACK={await recipes.Host.DeleteAsync("DEV", "ETCH-9", cancellationToken)}"
+                    + " for a recipe somebody holds the lock on");
+
+                // Guarded, and not with a null-forgiving operator, because a refused lock really
+                // does hand back no token - a second run of this sample against one long-lived
+                // equipment finds the recipes somewhere else and gets refused, and UnlockAsync
+                // throws on a null token rather than inventing one.
+                var released = await recipes.Host.UnlockAsync("DEV", "ETCH-9", token, cancellationToken);
+
+                Console.WriteLine($"   S15F25 -> RMACK={released} handing the same token back");
+                ok &= released == RecipeAcknowledgement.Accepted;
+
+                Console.WriteLine(
+                    $"   S15F13 -> RMACK={await recipes.Host.DeleteAsync("DEV", "ETCH-9", cancellationToken)} once it is released");
+            }
+
+            Console.WriteLine(
+                $"   S15F19 -> RMACK={await recipes.Host.RenameAsync("PROD", "ETCH-9", "ETCH-7", cancellationToken)}"
+                + " putting PROD back as it was");
 
             Console.WriteLine($"   S15F31 -> RMACK={await recipes.Host.SelectAsync("DEV", "ETCH-8", cancellationToken)}");
 

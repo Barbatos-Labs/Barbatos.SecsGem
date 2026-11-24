@@ -24,7 +24,7 @@ namespace Barbatos.SecsGem.Recipes;
 /// <c>RMACK</c> is defined, with 0 accepted, 1 rejected and 2 to 63 reserved. After three chapters
 /// of acknowledgements with no table, this one needs no inference; what it still cannot do is say
 /// <em>why</em> a recipe was rejected, because there is one refusal code and the rows that would
-/// have carried a reason are among the eighteen left out.
+/// have carried a reason are among the fourteen left out.
 /// </para>
 /// </remarks>
 public sealed class RecipeHost
@@ -270,6 +270,188 @@ public sealed class RecipeHost
         string recipeId,
         CancellationToken cancellationToken = default)
         => NamedAsync(13, "RecipeDeleteRequest", "S15F14", recipeNamespace, recipeId, cancellationToken);
+
+    /// <summary>Renames a recipe - S15F19, answered by S15F20.</summary>
+    /// <param name="recipeNamespace">Which namespace. A rename stays inside it.</param>
+    /// <param name="recipeId">What it is called now.</param>
+    /// <param name="newRecipeId">What to call it - <c>RCPIDNEW</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it was renamed.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no <c>RMACK</c>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>One namespace, two identifiers</strong>, because S15F19 carries one <c>RCPSPEC</c>
+    /// where S15F21 carries two. Moving a recipe between namespaces is
+    /// <see cref="CopyAsync"/> and then <see cref="DeleteAsync"/>; nothing in stream 15 does it in
+    /// one transaction.
+    /// </para>
+    /// <para>
+    /// <c>RCPIDNEW</c> is undefined and this package carries it anyway, because its two readings
+    /// agree: it extends the <c>RCPID</c> beside it in the body, and it is an exact anagram of the
+    /// dictionary's unused <c>RCPNEWID</c>, and <strong>both are an <c>A[n]</c></strong>. The
+    /// refusal this replaced said a library choosing a spelling would be correcting the source -
+    /// true, and it puts no byte in doubt, because a SECS-II body is positional and the names
+    /// never travel.
+    /// </para>
+    /// </remarks>
+    public ValueTask<RecipeAcknowledgement> RenameAsync(
+        string recipeNamespace,
+        string recipeId,
+        string newRecipeId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(newRecipeId);
+
+        return AcknowledgedAsync(
+            19,
+            "RecipeRenameRequest",
+            RecipeCodec.RenameBody(recipeNamespace, recipeId, newRecipeId),
+            "S15F20",
+            cancellationToken);
+    }
+
+    /// <summary>Copies a recipe - S15F21, answered by S15F22.</summary>
+    /// <param name="sourceNamespace">Which namespace to copy from - <c>RCPSPEC</c>.</param>
+    /// <param name="sourceId">Which recipe - <c>RCPID</c>.</param>
+    /// <param name="destinationNamespace">Which namespace to copy into - <c>RCPSPECDST</c>. May be the source's.</param>
+    /// <param name="destinationId">What to call the copy - <c>RCPIDDST</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it was copied.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no <c>RMACK</c>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>The copy never leaves the machine</strong>, which is the point of having it: a host
+    /// that wanted a second copy of a ten-megabyte recipe in another namespace would otherwise
+    /// upload it and download it again.
+    /// </para>
+    /// <para>
+    /// Both undefined names here extend a defined name two positions earlier in the same body, and
+    /// <strong>neither has a competing definition anywhere in the reference</strong> - which makes
+    /// this the firmest of this package's three inferences, firmer than the rename, where an unused
+    /// anagram at least exists to argue with.
+    /// </para>
+    /// </remarks>
+    public ValueTask<RecipeAcknowledgement> CopyAsync(
+        string sourceNamespace,
+        string sourceId,
+        string destinationNamespace,
+        string destinationId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(sourceNamespace);
+        ArgumentNullException.ThrowIfNull(sourceId);
+        ArgumentNullException.ThrowIfNull(destinationNamespace);
+        ArgumentNullException.ThrowIfNull(destinationId);
+
+        return AcknowledgedAsync(
+            21,
+            "RecipeCopyRequest",
+            RecipeCodec.CopyBody(sourceNamespace, sourceId, destinationNamespace, destinationId),
+            "S15F22",
+            cancellationToken);
+    }
+
+    /// <summary>Locks a recipe - S15F23, answered by S15F24.</summary>
+    /// <param name="recipeNamespace">Which namespace.</param>
+    /// <param name="recipeId">Which recipe.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>
+    /// Whether it was locked, and the token to release it with. The token is
+    /// <see langword="null"/> when the machine refused, and - with a warning in the log - when it
+    /// accepted and sent none.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="recipeNamespace"/> or <paramref name="recipeId"/> is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no <c>RMACK</c>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>Keep the token.</strong> S15F25 is the only way to release the lock and it has to
+    /// carry the token back, and stream 15 has no message that asks what locks a machine is
+    /// holding - so a host that loses one has locked a recipe until somebody walks over to the
+    /// machine.
+    /// </para>
+    /// <para>
+    /// <strong>What a lock prevents is the machine's business.</strong> E5 defines the transaction
+    /// and says nothing about what it stops; <see cref="RecipeInMemoryStore"/> refuses a download,
+    /// a delete and a rename while a recipe is locked, and another machine may not. There is
+    /// nothing on the wire that says which.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<(RecipeAcknowledgement Acknowledgement, RecipeLockToken? Token)> LockAsync(
+        string recipeNamespace,
+        string recipeId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+
+        using var reply = await ExchangeAsync(
+            new SecsMessage(15, 23, replyExpected: true)
+            {
+                Name = "RecipeLockRequest",
+                Item = RecipeCodec.RecipeNameBody(recipeNamespace, recipeId),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!RecipeCodec.TryReadLockReply(reply.Item, out var code, out var token) || code is null)
+        {
+            throw new SecsException("S15F24 carried no RMACK.");
+        }
+
+        var acknowledgement = Read(code.Value, "S15F24");
+
+        if (acknowledgement != RecipeAcknowledgement.Accepted)
+        {
+            return (acknowledgement, null);
+        }
+
+        if (token is null)
+        {
+            _logger.LogWarning(
+                "S15F24 accepted the lock on {Namespace}/{Id} and carried no RCPLOCKID, so there is nothing to release it with.",
+                recipeNamespace,
+                recipeId);
+        }
+
+        // The token is already copied out of the reply - RecipeLockToken keeps its own bytes -
+        // so it outlives the message this using block is about to release.
+        return (acknowledgement, token);
+    }
+
+    /// <summary>Releases a lock - S15F25, answered by S15F26.</summary>
+    /// <param name="recipeNamespace">Which namespace.</param>
+    /// <param name="recipeId">Which recipe.</param>
+    /// <param name="token">The token <see cref="LockAsync"/> handed back.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it was released.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no <c>RMACK</c>.</exception>
+    /// <remarks>
+    /// The token goes back out as the item it came in, which is what makes carrying an undefined
+    /// name safe here: the machine that minted it is the only end that has to understand it. There
+    /// is no code for "wrong token" - S15F26 carries one <c>RMACK</c> - so a refusal here is a
+    /// plain no.
+    /// </remarks>
+    public ValueTask<RecipeAcknowledgement> UnlockAsync(
+        string recipeNamespace,
+        string recipeId,
+        RecipeLockToken token,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(token);
+
+        return AcknowledgedAsync(
+            25,
+            "RecipeUnlockRequest",
+            RecipeCodec.UnlockBody(recipeNamespace, recipeId, token),
+            "S15F26",
+            cancellationToken);
+    }
 
     /// <summary>Selects a recipe for the next run - S15F31, answered by S15F32.</summary>
     /// <param name="recipeNamespace">Which namespace.</param>

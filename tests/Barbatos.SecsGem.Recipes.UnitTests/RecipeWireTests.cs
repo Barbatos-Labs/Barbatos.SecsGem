@@ -30,7 +30,7 @@ public sealed class RecipeWireTests
 
     // ------------------------------------------------------- what this package writes
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_recipe_body_goes_out_as_the_binary_the_dictionary_says_PPBODY_is()
     {
         SecsFormat? format = null;
@@ -62,7 +62,7 @@ public sealed class RecipeWireTests
         Assert.Equal(Body.Length, count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_namespace_and_the_identifier_go_out_as_text()
     {
         SecsFormat? namespaceFormat = null;
@@ -95,7 +95,7 @@ public sealed class RecipeWireTests
 
     // ------------------------------------------------------------- the acknowledgement
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_reserved_acknowledgement_code_reads_as_other_and_is_logged()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 14, replyExpected: false)
@@ -118,7 +118,7 @@ public sealed class RecipeWireTests
                 && message.Contains("reserves", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_named_rejection_is_not_logged()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 14, replyExpected: false)
@@ -139,7 +139,7 @@ public sealed class RecipeWireTests
             message => message.Contains("reserves", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_reply_with_no_acknowledgement_throws()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 14, replyExpected: false)
@@ -155,7 +155,7 @@ public sealed class RecipeWireTests
         Assert.Contains("S15F14", thrown.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_acknowledgement_item_with_no_value_in_it_throws()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 14, replyExpected: false)
@@ -174,7 +174,7 @@ public sealed class RecipeWireTests
         Assert.Contains("S15F14", thrown.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_acknowledgement_wrapped_in_a_list_of_one_is_read()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 14, replyExpected: false)
@@ -189,7 +189,7 @@ public sealed class RecipeWireTests
             await pair.Host.DeleteAsync("PROD", "ETCH-7", RecipePair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_acknowledgement_sent_as_an_unsigned_number_is_read()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 14, replyExpected: false)
@@ -208,7 +208,7 @@ public sealed class RecipeWireTests
 
     // ----------------------------------------------------------------- the namespaces
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_list_sent_as_one_bare_specification_is_read()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 2, replyExpected: false)
@@ -223,7 +223,7 @@ public sealed class RecipeWireTests
         Assert.Equal<string[]>(["PROD"], [.. await pair.Host.ListNamespacesAsync(RecipePair.Token)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_list_whose_entries_are_each_wrapped_is_read()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 2, replyExpected: false)
@@ -238,7 +238,7 @@ public sealed class RecipeWireTests
         Assert.Equal<string[]>(["DEV", "PROD"], [.. await pair.Host.ListNamespacesAsync(RecipePair.Token)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_with_no_name_is_dropped_from_the_list()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 2, replyExpected: false)
@@ -257,7 +257,7 @@ public sealed class RecipeWireTests
         Assert.Equal<string[]>(["PROD"], [.. await pair.Host.ListNamespacesAsync(RecipePair.Token)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_list_with_nothing_readable_in_it_is_reported()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 2, replyExpected: false)
@@ -276,7 +276,7 @@ public sealed class RecipeWireTests
             message => message.Contains("S15F2", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_create_sent_as_a_list_of_one_is_read()
     {
         await using var pair = RecipePair.Start();
@@ -298,7 +298,7 @@ public sealed class RecipeWireTests
         Assert.True(pair.Store.HasNamespace("PROD"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_create_with_no_name_is_refused_and_reported()
     {
         await using var pair = RecipePair.Start();
@@ -327,7 +327,7 @@ public sealed class RecipeWireTests
             message => message.Contains("S15F15", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_upload_whose_code_cannot_be_read_throws()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 10, replyExpected: false)
@@ -348,7 +348,7 @@ public sealed class RecipeWireTests
         Assert.Contains("S15F10", thrown.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_unreadable_namespace_create_is_refused_and_reported()
     {
         await using var pair = RecipePair.Start();
@@ -379,7 +379,7 @@ public sealed class RecipeWireTests
 
     // -------------------------------------------------------------------- the transfer
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_unreadable_download_request_is_refused_and_reported()
     {
         await using var pair = RecipePair.Start();
@@ -405,7 +405,7 @@ public sealed class RecipeWireTests
         Assert.Equal(0, pair.Store.GrantedCount);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_download_request_short_of_its_length_is_read_as_a_length_of_zero()
     {
         await using var pair = RecipePair.Start();
@@ -435,7 +435,7 @@ public sealed class RecipeWireTests
         Assert.Equal(1, pair.Store.GrantedCount);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_download_send_of_two_items_is_refused_rather_than_guessed()
     {
         await using var pair = RecipePair.Start();
@@ -473,7 +473,7 @@ public sealed class RecipeWireTests
         Assert.Null(pair.Store.Find("PROD", "ETCH-7"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_sent_as_text_is_taken()
     {
         await using var pair = RecipePair.Start();
@@ -510,7 +510,7 @@ public sealed class RecipeWireTests
             [.. pair.Store.Find("PROD", "ETCH-7")!.Body.Span]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_sent_as_a_list_is_refused()
     {
         await using var pair = RecipePair.Start();
@@ -547,7 +547,7 @@ public sealed class RecipeWireTests
         Assert.Null(pair.Store.Find("PROD", "ETCH-7"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_empty_recipe_is_a_recipe()
     {
         await using var pair = RecipePair.Start();
@@ -568,7 +568,7 @@ public sealed class RecipeWireTests
         Assert.True(pair.Store.Find("PROD", "EMPTY")?.IsEmpty);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_upload_refusal_need_not_carry_a_body()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 10, replyExpected: false)
@@ -586,7 +586,7 @@ public sealed class RecipeWireTests
         Assert.Null(recipe);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_upload_with_no_acknowledgement_throws()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 10, replyExpected: false)
@@ -602,7 +602,7 @@ public sealed class RecipeWireTests
         Assert.Contains("S15F10", thrown.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_upload_accepted_with_an_empty_body_is_an_empty_recipe()
     {
         await using var pair = RecipePair.Start(answerEquipment: _ => new SecsMessage(15, 10, replyExpected: false)
@@ -625,7 +625,7 @@ public sealed class RecipeWireTests
 
     // ----------------------------------------------------------------- the identifiers
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_with_no_identifier_is_refused_and_reported()
     {
         await using var pair = RecipePair.Start();
@@ -650,7 +650,7 @@ public sealed class RecipeWireTests
             message => message.Contains("S15F13", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_with_an_empty_namespace_is_read()
     {
         await using var pair = RecipePair.Start();
@@ -678,7 +678,7 @@ public sealed class RecipeWireTests
         Assert.Null(pair.Store.Find(string.Empty, "ETCH-7"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_identifier_sent_as_a_number_is_read_as_its_digits()
     {
         await using var pair = RecipePair.Start();
@@ -705,7 +705,7 @@ public sealed class RecipeWireTests
         Assert.Null(pair.Store.Find("7", "41"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_request_carrying_a_body_is_still_answered()
     {
         await using var pair = RecipePair.Start();
@@ -728,24 +728,24 @@ public sealed class RecipeWireTests
         Assert.Equal(1, reply.Item?.Count);
     }
 
-    // ------------------------------------------------------------ outside the nine
+    // -------------------------------------------------------- outside the thirteen
 
-    [Fact]
-    public async Task A_function_outside_the_nine_is_logged_and_left_alone()
+    [Fact(Timeout = 15_000)]
+    public async Task A_function_outside_the_thirteen_is_logged_and_left_alone()
     {
         // Only reachable if an application routes a function the package does not declare, since
-        // the router answers S9F5 for anything undeclared - so the harness routes one. S15F19 is
-        // the rename, which is exactly what this chapter measured and refused.
-        await using var pair = RecipePair.Start(alsoRoute: [(15, 19)]);
+        // the router answers S9F5 for anything undeclared - so the harness routes one. S15F3 is
+        // the recipe directory, the gap that matters most to anybody using this package and the
+        // one that cannot be closed: its reply needs RCPATTRNAME and RCPATTRVAL, whose twins in
+        // the dictionary disagree about the format, and RCPVER besides. It used to be the rename,
+        // until the rename went in.
+        await using var pair = RecipePair.Start(alsoRoute: [(15, 3)]);
         await pair.OpenAsync();
 
-        using var primary = new SecsMessage(15, 19, replyExpected: false)
+        using var primary = new SecsMessage(15, 3, replyExpected: false)
         {
-            Name = "RecipeRenameRequest",
-            Item = SecsItem.L(
-                SecsItem.A("PROD").Named("RCPSPEC"),
-                SecsItem.A("ETCH-7").Named("RCPID"),
-                SecsItem.A("ETCH-8").Named("RCPIDNEW")),
+            Name = "RecipeDirectoryRequest",
+            Item = SecsItem.A("PROD").Named("RCPSPEC"),
         };
 
         await pair.HostLink.PostAsync(primary, RecipePair.Token);
@@ -753,11 +753,11 @@ public sealed class RecipeWireTests
 
         Assert.Contains(
             pair.EquipmentLog.From(LogLevel.Warning),
-            message => message.Contains("S15F19", StringComparison.Ordinal)
+            message => message.Contains("S15F3", StringComparison.Ordinal)
                 && message.Contains("nothing to answer it", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_message_from_another_stream_is_logged_and_left_alone()
     {
         await using var pair = RecipePair.Start(alsoRoute: [(99, 1)]);
@@ -780,7 +780,7 @@ public sealed class RecipeWireTests
                 && message.Contains("nothing to answer it", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_sent_with_no_reply_bit_is_still_stored()
     {
         await using var pair = RecipePair.Start();

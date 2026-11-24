@@ -444,7 +444,7 @@ public class MaterialHandoffProtocolTests
         // The link is the only field whose absence is fatal: a message addressed to no link cannot
         // be acted on, where a missing index or reason leaves a step that still says which link and
         // which step it is.
-        Assert.Equal(1, seen.Count);
+        Assert.Single(seen);
         Assert.Equal(Link, seen[0].Link);
     }
 

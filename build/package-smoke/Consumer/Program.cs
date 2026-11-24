@@ -891,12 +891,15 @@ internal static class Program
     /// The recipe package, whose host half declares nothing and whose body is plain bytes.
     /// </summary>
     /// <remarks>
-    /// Three claims only a restore from the real <c>.nupkg</c> can check. The dependency, since
+    /// Four claims only a restore from the real <c>.nupkg</c> can check. The dependency, since
     /// stream 15 is E5 and no part of E30. The <strong>empty host half</strong>, which is the
     /// third such registration here and the kind of claim a <c>ProjectReference</c> build cannot
-    /// distinguish from a route that silently failed to register. And that <strong>nothing in the
+    /// distinguish from a route that silently failed to register. That <strong>nothing in the
     /// package answers stream 19</strong> - the other standard also called Recipe Management,
-    /// whose F11 deletes where this stream's verifies.
+    /// whose F11 deletes where this stream's verifies. And the <strong>lock</strong>, because
+    /// <c>RCPLOCKID</c> travels as an encoded item and a packaging mistake that dropped
+    /// <c>RecipeLockToken</c> would leave the four newest pairs unusable while every
+    /// <c>ProjectReference</c> build stayed green.
     /// </remarks>
     private static async Task RecipesResolveAsync()
     {
@@ -914,8 +917,8 @@ internal static class Program
         var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
 
         Assert(
-            RecipeEquipment.HandledMessages.Count == 9,
-            $"the equipment declares {RecipeEquipment.HandledMessages.Count} message(s), not nine");
+            RecipeEquipment.HandledMessages.Count == 13,
+            $"the equipment declares {RecipeEquipment.HandledMessages.Count} message(s), not thirteen");
 
         foreach (var (stream, function) in RecipeEquipment.HandledMessages)
         {
@@ -924,11 +927,21 @@ internal static class Program
                 $"the router has no handler for S{stream}F{function}, so AddRecipeEquipment did not declare it");
         }
 
-        // The rename and the copy, which this chapter measured and refused: their field names are
-        // undefined while near-twins of them sit in the dictionary unused.
+        // The rename, the copy, the lock and the unlock, refused for six chapters and now served:
+        // each carries one undefined name, and in three of the four that name extends a defined one
+        // sitting in the same body two positions earlier.
+        foreach (byte function in (byte[])[19, 21, 23, 25])
+        {
+            Assert(
+                equipmentRouter.TryGetHandler(15, function, out _),
+                $"the router has no handler for S15F{function}, which this package serves");
+        }
+
+        // And the recipe directory, which is still out and is the gap a user feels: its reply needs
+        // RCPATTRNAME and RCPATTRVAL, whose twins in the dictionary disagree about the format.
         Assert(
-            !equipmentRouter.TryGetHandler(15, 19, out _) && !equipmentRouter.TryGetHandler(15, 21, out _),
-            "the equipment declared the rename or the copy, whose field names the reference spells two ways");
+            !equipmentRouter.TryGetHandler(15, 3, out _) && !equipmentRouter.TryGetHandler(15, 11, out _),
+            "the equipment declared the directory or the verify, whose fields the reference does not describe");
 
         // And the other Recipe Management stream, which is a different standard.
         for (byte function = 1; function <= 20; function++)
@@ -965,6 +978,20 @@ internal static class Program
         Assert(Enum.GetNames<RecipeAcknowledgement>().Length == 3, "RMACK's table changed shape");
         Assert((byte)RecipeAcknowledgement.Other == 2, "the reserved range no longer starts at 2");
 
+        // The lock token, which is an encoded item because RCPLOCKID is a spelling of nothing. A
+        // round trip through the packaged assembly is worth a line because the whole design rests
+        // on it: whatever a machine minted comes back unchanged.
+        var token = RecipeLockToken.FromText("LOCK-1");
+
+        using (var decoded = token.Decode())
+        {
+            Assert(decoded is not null, "a lock token decoded to nothing");
+            Assert(decoded!.GetString() == "LOCK-1", $"a lock token came back as {decoded.GetString()}");
+        }
+
+        Assert(token.Matches(RecipeLockToken.FromText("LOCK-1")), "two tokens with the same bytes did not match");
+        Assert(!token.Matches(RecipeLockToken.FromText("LOCK-2")), "two tokens with different bytes matched");
+
         var store = equipmentProvider.GetRequiredService<IRecipeStore>();
 
         Assert(store is RecipeInMemoryStore, $"the default store is {store.GetType().Name}, not the in-memory one");
@@ -995,6 +1022,23 @@ internal static class Program
         // The distinction worth a packaging test: these bytes are the recipe, because stream 15
         // carries it in stream 7's own PPBODY. The same C# shape in Barbatos.SecsGem.DataSets and
         // Barbatos.SecsGem.ItemTransfer holds an encoded item instead.
+        // And what a lock is worth, which is entirely this store's invention: E5 defines the
+        // transaction and never says what it prevents.
+        var (locked, held) = await store.LockAsync("PROD", "ETCH-7", CancellationToken.None).ConfigureAwait(false);
+
+        Assert(locked == RecipeAcknowledgement.Accepted, $"the store refused to lock a recipe it holds: {locked}");
+        Assert(held is not null, "the store accepted a lock and minted no token");
+
+        Assert(
+            await store.DeleteAsync("PROD", "ETCH-7", CancellationToken.None).ConfigureAwait(false)
+                == RecipeAcknowledgement.Rejected,
+            "the store deleted a locked recipe");
+
+        Assert(
+            await store.UnlockAsync("PROD", "ETCH-7", held!, CancellationToken.None).ConfigureAwait(false)
+                == RecipeAcknowledgement.Accepted,
+            "the store refused the token it had just issued");
+
         var (upload, body) = await store
             .LoadAsync("PROD", "ETCH-7", CancellationToken.None)
             .ConfigureAwait(false);

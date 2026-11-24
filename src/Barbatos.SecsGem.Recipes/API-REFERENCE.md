@@ -12,6 +12,7 @@ Namespace `Barbatos.SecsGem.Recipes`, except where noted. Concepts and worked ex
 - [The recipe](#the-recipe)
   - [`Recipe`](#recipe)
   - [`RecipeDownloadRequest`](#recipedownloadrequest)
+  - [`RecipeLockToken`](#recipelocktoken)
 - [Codes](#codes)
   - [`RecipeAcknowledgement`](#recipeacknowledgement)
 - [Registration](#registration)
@@ -41,6 +42,10 @@ the README on the name collision between the two.
 | `ValueTask<RecipeAcknowledgement> DeleteAsync(string recipeNamespace, string recipeId, CancellationToken = default)` | S15F13. |
 | `ValueTask<RecipeAcknowledgement> SelectAsync(string recipeNamespace, string recipeId, CancellationToken = default)` | S15F31. Selecting is not running - stream 15 has no message that starts a process. |
 | `ValueTask<RecipeAcknowledgement> AbortAsync(string recipeNamespace, string recipeId, CancellationToken = default)` | S15F53. Aborting is not deleting. |
+| `ValueTask<RecipeAcknowledgement> RenameAsync(string recipeNamespace, string recipeId, string newRecipeId, CancellationToken = default)` | S15F19. **One namespace, two identifiers**, because the row carries one `RCPSPEC` where the copy carries two - so a rename stays where the recipe is. `RCPIDNEW` is undefined and carried anyway: both of its readings are an `A[n]`, the live `RCPID` beside it in the body and the unused `RCPNEWID` it is an anagram of, so the rivalry puts no byte in doubt. |
+| `ValueTask<RecipeAcknowledgement> CopyAsync(string sourceNamespace, string sourceId, string destinationNamespace, string destinationId, CancellationToken = default)` | S15F21. Never leaves the machine, which is the point of having it. `RCPSPECDST` and `RCPIDDST` each extend a defined name two positions earlier in the same body and **neither has a competing definition anywhere**, which makes this the firmest of the package's three inferences. |
+| `ValueTask<(RecipeAcknowledgement Acknowledgement, RecipeLockToken? Token)> LockAsync(string recipeNamespace, string recipeId, CancellationToken = default)` | S15F23. The token is `null` when the machine refused, and - **with a warning in the log** - when it accepted and sent none, which leaves a host holding a lock it cannot release. **Keep the token:** S15F25 is the only way back and stream 15 has no message that asks what locks a machine holds. |
+| `ValueTask<RecipeAcknowledgement> UnlockAsync(string recipeNamespace, string recipeId, RecipeLockToken token, CancellationToken = default)` | S15F25. The token goes back out as the item it came in, which is what makes an undefined name safe here: the machine that minted it is the only end that has to understand it. No code for "wrong token" - S15F26 carries one `RMACK`. |
 
 Every method throws `SecsException` when the reply carried no `RMACK`, including when the item
 arrived with no value in it - zero means accepted, so silence must not read as a yes.
@@ -57,8 +62,8 @@ Takes **no connection**: it has no primary to send.
 | Member | Notes |
 | --- | --- |
 | `RecipeEquipment(IRecipeStore store, ILogger<RecipeEquipment>? logger = null)` | Throws `ArgumentNullException` for a null store. |
-| `static IReadOnlyList<(byte Stream, byte Function)> HandledMessages` | S15F1, F5, F7, F9, F13, F15, F17, F31 and F53 - nine of stream 15's twenty-seven pairs, and the nine made entirely of defined items. |
-| `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken = default)` | Answers one of the nine. The store is asked **before** the reply bit is looked at, so a recipe sent without it is still stored. |
+| `static IReadOnlyList<(byte Stream, byte Function)> HandledMessages` | S15F1, F5, F7, F9, F13, F15, F17, F19, F21, F23, F25, F31 and F53 - **thirteen** of stream 15's twenty-seven pairs. Nine are made entirely of defined items; the other four carry one undefined name each. **Five of the thirteen lie outside the function range stream 19 reaches at all**, where it was two of nine before the rename and the copy went in. |
+| `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken = default)` | Answers one of the thirteen. The store is asked **before** the reply bit is looked at, so a recipe sent without it is still stored. |
 
 A body this end cannot read is answered `Rejected` **and logged**. The log is the only place the
 distinction lives: `RMACK` has one refusal code, so "I could not read that" and "no" come back as
@@ -68,7 +73,12 @@ the same byte.
 
 ### `IRecipeStore`
 
-Nine methods, one per pair. Each is awaited inside the transaction the host is waiting on.
+**Thirteen** methods, one per pair. Each is awaited inside the transaction the host is waiting on.
+
+**Nine have no body and four do**, and the line between them is when they arrived rather than what
+they do: the nine shipped with this interface, and the rename, the copy, the lock and the unlock are
+default implementations that refuse, so a store written against the nine still compiles.
+`IObjectProvider` in `Barbatos.SecsGem.Objects` is the same arrangement for the same reason.
 
 | Member | Notes |
 | --- | --- |
@@ -80,6 +90,10 @@ Nine methods, one per pair. Each is awaited inside the transaction the host is w
 | `ValueTask<(RecipeAcknowledgement Acknowledgement, ReadOnlyMemory<byte> Body)> LoadAsync(string recipeNamespace, string recipeId, CancellationToken)` | S15F9. **The one reply here carrying a code and data together.** |
 | `ValueTask<RecipeAcknowledgement> DeleteAsync(string recipeNamespace, string recipeId, CancellationToken)` | S15F13. |
 | `ValueTask<RecipeAcknowledgement> SelectAsync(string recipeNamespace, string recipeId, CancellationToken)` | S15F31. |
+| `ValueTask<RecipeAcknowledgement> RenameAsync(string recipeNamespace, string recipeId, string newRecipeId, CancellationToken)` | S15F19. **Defaulted: refuses.** The rename stays inside `recipeNamespace`, because the row carries one `RCPSPEC`. |
+| `ValueTask<RecipeAcknowledgement> CopyAsync(string sourceNamespace, string sourceId, string destinationNamespace, string destinationId, CancellationToken)` | S15F21. **Defaulted: refuses.** |
+| `ValueTask<(RecipeAcknowledgement Acknowledgement, RecipeLockToken? Token)> LockAsync(string recipeNamespace, string recipeId, CancellationToken)` | S15F23. **Defaulted: refuses.** A store that accepts and returns no token leaves S15F24 carrying a code and an empty item, which a host reads as a lock it cannot release - return one or refuse. What a lock *means* is the store's too: nothing in stream 15 says a locked recipe cannot be deleted. |
+| `ValueTask<RecipeAcknowledgement> UnlockAsync(string recipeNamespace, string recipeId, RecipeLockToken token, CancellationToken)` | S15F25. **Defaulted: refuses.** The token comes back as the item it went out as, so compare it with `RecipeLockToken.Matches` or against whatever the store keeps beside its own locks. |
 | `ValueTask<RecipeAcknowledgement> AbortAsync(string recipeNamespace, string recipeId, CancellationToken)` | S15F53. |
 
 ### `RecipeInMemoryStore`
@@ -96,6 +110,8 @@ Nine methods, one per pair. Each is awaited inside the transaction the host is w
 | `void Add(string recipeNamespace, string recipeId, ReadOnlyMemory<byte> body)` | Puts a recipe in without a transaction, **creating the namespace** if it is not there - how a simulator offers a recipe a host can fetch, since stream 15 has no message announcing one. |
 | `Recipe? Find(string recipeNamespace, string recipeId)` | `null` when there is none. |
 | `bool HasNamespace(string recipeNamespace)` | Whether it is there. |
+| `int LockedCount { get; }` | How many recipes are locked. Observable for the reason `GrantedCount` is: a lock is state kept between two transactions, and S15F24 and S15F26 each carry one code, so a test reading only the wire could not tell a lock that was taken from one that was refused. |
+| `bool IsLocked(string recipeNamespace, string recipeId)` | Whether it is. Says nothing about **which** lock, deliberately: handing the token to whoever asks would make it worthless, and S15F23 has no way to ask for a lock somebody else holds. |
 
 Four of its rules are **its own choices, not E5's** - see the README. Each is tested against the
 store, because on the wire every refusal looks like every other.
@@ -124,6 +140,34 @@ No `Capture`/`Restore` pair, on purpose: a recipe is not state a machine claims 
 | `required string Namespace { get; init; }` | Which namespace it is going into. |
 | `required string Id { get; init; }` | What it will be called. |
 | `uint Length { get; init; }` | How large the host says it is - **and this one can be checked against what arrives**, because `PPBODY` is a `B`. A request that left it off reads as zero. |
+
+### `RecipeLockToken`
+
+`sealed class RecipeLockToken`
+
+A lock on a recipe - `RCPLOCKID` - as the **encoded item that carried it**. The same shape
+`DataSetPayload` and `ItemPayload` have, and for a stronger reason than either: `RCPLOCKID` is a
+spelling of nothing at all. The longest prefix it shares with any definition in the reference is
+`RCP`, which all twenty-four recipe definitions share, so there is no sibling, no anagram and no
+stem to read a format off.
+
+**Carrying it opaquely loses nothing, which is the whole argument for serving the lock.** The
+machine mints the token in S15F24 and reads it back in S15F25 - *the end that must read it is the
+end that wrote it* - so nothing in between needs to know what it is. S15F49's `RCPOWNER` fails that
+test, which is why the owner stays out: the host would choose the format and the machine would parse
+it, and the nearest definition is a `BOOLEAN` where a name would be text.
+
+| Member | Notes |
+| --- | --- |
+| `ReadOnlyMemory<byte> Encoded { get; }` | The encoded item: header and payload, as it crossed the wire. Empty for a lock reply that carried no token. |
+| `SecsFormat? Format { get; }` | The format that arrived, when it is known. `null` only for a token built by `FromEncoded` without one being given. |
+| `int? Count { get; }` | How many values the item carried, when known. |
+| `bool IsEmpty { get; }` | No bytes, or an item carrying no values. **Not the same as having no bytes**: an encoded empty item still has a format byte and a length byte in front of it. |
+| `static RecipeLockToken From(SecsItem item)` | Keeps an item by encoding it - one copy, because the item borrows pooled memory and is released with its message. The item stays the caller's to dispose. |
+| `static RecipeLockToken FromEncoded(ReadOnlyMemory<byte> encoded, SecsFormat? format = null, int? count = null)` | Wraps bytes that are already an encoded item, without copying. The way back in for a store that wrote its locks to disk. |
+| `static RecipeLockToken FromText(string token)` | Mints one as an `A[n]`. **Text is the store's choice and not the reference's**; nothing in this package depends on the format. |
+| `SecsItem? Decode()` | A fresh item, the caller's to dispose, or `null` when there are no bytes. |
+| `bool Matches(RecipeLockToken? other)` | Whether the encoded bytes are identical. **The bytes are the whole comparison**, because there is no defined format to canonicalise: a host that hands back the item it was given matches, and one that re-encoded the value in another format does not - which is the right answer, since nothing says the two mean the same thing. |
 
 ## Codes
 
@@ -157,12 +201,22 @@ and 15 - are the only registrations here that can be written that way.
 
 ## What is not here
 
-- **S15F3/F4, the recipe directory**: the reply needs `RCPVER`, `RCPATTRNAME` and `RCPATTRVAL`,
-  none defined. A host can list namespaces but not the recipes in one.
-- **S15F19 to S15F30**, the rename, copy, lock, unlock and attributes: the rename's `RCPIDNEW` is
-  an exact anagram of the defined-and-unused `RCPNEWID`, and the copy's `RCPSPECDST` and `RCPIDDST`
-  would need a suffix route the reference contradicts.
-- **Eleven further pairs**, each needing at least one name the dictionary does not define.
+Fourteen pairs, and the README gives them row by row with which of four reasons refuses each. In
+brief:
+
+- **S15F3/F4, the recipe directory**: `RCPATTRNAME` and `RCPATTRVAL` against the unused
+  `RCPATTRID`/`RCPATTRDATA`, which say an attribute value is an `A[n]` where E39's `ATTRDATA` - which
+  this repository does serve - is a list. Two readings, different bytes. A host can list namespaces
+  but not the recipes in one, and this is the gap that matters most to anybody using this package.
+- **S15F27 to S15F30 and S15F51/F52**, the attributes: the same two names.
+- **S15F49/F50**, the owner: `RCPOWNER` against the unused `RCPOWCODE`, a `BOOLEAN` where a name
+  would be text - and the host is the end that would choose.
+- **S15F33/F34, S15F37/F38, S15F39/F40, S15F41/F42, S15F45/F46**: an undefined field that **is** the
+  message, so carrying it untouched leaves the row uninterpretable.
+- **S15F35/F36 and S15F47/F48**: no served sibling settles the nesting, and a body guessed wrong is
+  unparseable rather than merely uninterpretable.
+- **S15F11/F12 and S15F43/F44**: `CHECKSUM`, which the reference defines under no spelling in any of
+  the three streams that ask for it, and `VALACK`, whose table is real and whose row is S2F46.
 - **Stream 19 and stream 20**, which are different standards. Stream 19 was refused; stream 20 is a
   system layer above this one and would sit on a package like this rather than replace it.
 - A store that outlives the process.

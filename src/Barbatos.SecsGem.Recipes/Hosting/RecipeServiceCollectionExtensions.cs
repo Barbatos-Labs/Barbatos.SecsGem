@@ -43,7 +43,7 @@ public static class RecipeServiceCollectionExtensions
     /// <remarks>
     /// <para>
     /// Registers <see cref="RecipeEquipment"/>, the store as a singleton, and a handler for every
-    /// pair in <see cref="RecipeEquipment.HandledMessages"/> - the nine primaries this package
+    /// pair in <see cref="RecipeEquipment.HandledMessages"/> - the thirteen primaries this package
     /// implements.
     /// </para>
     /// <para>
@@ -96,7 +96,8 @@ public static class RecipeServiceCollectionExtensions
     /// A host that wants to be told when a machine's recipes change is wanting something stream 15
     /// does not have. <see cref="RecipeHost.ListNamespacesAsync"/> is how it finds out what is
     /// there; the directory of one namespace - S15F3/F4 - is among the pairs this package does not
-    /// implement, because its reply needs three names the dictionary does not define.
+    /// implement, because its reply needs three names the dictionary does not define and two of
+    /// the three have a twin in it whose format disagrees.
     /// </para>
     /// </remarks>
     public static ISecsGemBuilder AddRecipeHost(this ISecsGemBuilder builder)

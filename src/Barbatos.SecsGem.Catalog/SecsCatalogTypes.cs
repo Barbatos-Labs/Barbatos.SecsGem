@@ -72,7 +72,9 @@ public sealed class SecsStreamInfo
     /// </para>
     /// <para>
     /// Empty for most streams. The recipe streams carry nearly all of it, which is why
-    /// <c>Barbatos.SecsGem.Recipes</c> implements nine of twenty-seven pairs and leaves the rest.
+    /// <c>Barbatos.SecsGem.Recipes</c> implements thirteen of twenty-seven pairs and leaves the
+    /// rest - nine with no gap at all, and four whose one gap is a name that extends a defined one
+    /// in the same body, or a token the machine mints and reads back.
     /// </para>
     /// </remarks>
     public IReadOnlyList<SecsDataItemRival> RivalSpellings { get; internal init; } = [];

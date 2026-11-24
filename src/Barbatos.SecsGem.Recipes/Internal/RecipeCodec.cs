@@ -20,7 +20,7 @@ namespace Barbatos.SecsGem.Recipes;
 /// of the primary and every field of the reply defined</strong>, against none of stream 19's ten.
 /// </para>
 /// <para>
-/// Those nine lean on five items, and nothing in this file infers anything:
+/// Those nine lean on five items, and for them nothing in this file infers anything:
 /// </para>
 /// <code>
 /// RCPSPEC   A[n]  defined, the namespace - streams 15 and 20
@@ -37,15 +37,42 @@ namespace Barbatos.SecsGem.Recipes;
 /// reference documented. So a recipe body is a <c>B</c> because the reference says so.
 /// </para>
 /// <para>
-/// <strong>Why the other eighteen pairs are out, which is this chapter's finding.</strong> The
-/// reference defines <strong>twenty-four</strong> items whose names begin <c>RCP</c> and its
-/// messages use <strong>two</strong> of them. Every row this package leaves out reaches for a name
-/// the dictionary does not define while a near-twin of that name sits in it unused:
-/// <c>RCPSTATE</c> against the defined <c>RCPSTAT</c>, <c>RCPVER</c> against <c>RCPVERS</c>,
-/// <c>RCPIDNEW</c> against <c>RCPNEWID</c> - which is an exact anagram, one of only three in the
-/// whole reference. That is not a gap in a vocabulary. It is one vocabulary spelled two ways, and
-/// a library that chose a spelling would be correcting the source. Get it backwards on a rename
-/// and a recipe is written under a name nobody asked for.
+/// <strong>And four more pairs that carry one undefined name each</strong> - the rename, the copy,
+/// the lock and the unlock. These were refused for six chapters on the ground that the names they
+/// reach for are rival spellings of definitions nothing uses, so a library picking a spelling
+/// would be correcting the source. <strong>The measure that said so reports two different
+/// things.</strong> Of the eight rival spellings in the whole reference, four are a used name
+/// against a definition <em>nothing</em> names - <c>RCPSTATE</c> against <c>RCPSTAT</c>,
+/// <c>RCPVER</c> against <c>RCPVERS</c> - and four are a used name against a definition the
+/// messages <strong>also use</strong>. Three of those four are here, and in all three the
+/// definition is in the same body:
+/// </para>
+/// <code>
+/// S15F19  RCPSPEC, RCPID, RCPIDNEW       RCPIDNEW extends RCPID, two positions earlier
+/// S15F21  RCPSPEC, RCPID, RCPSPECDST, RCPIDDST    each extends the name two earlier
+/// </code>
+/// <para>
+/// A name whose base is in the same message is a <strong>modifier, not a misspelling</strong>, and
+/// its format is read off an item in the row rather than off a sibling row or a rival definition.
+/// <c>RCPIDNEW</c> has both relations at once - it extends the used <c>RCPID</c> and is an exact
+/// anagram of the unused <c>RCPNEWID</c> - and <strong>both readings are an <c>A[n]</c></strong>,
+/// so the rivalry puts no byte in doubt. Item names do not travel: a SECS-II body is positional,
+/// and the thing a wrong spelling could get wrong here is a comment.
+/// </para>
+/// <para>
+/// <c>RCPLOCKID</c> is a third case again - no base, no anagram, no stem anywhere - so it is
+/// carried as the item it arrived in. See <see cref="RecipeLockToken"/> for why that loses nothing
+/// at a lock and would at S15F49's owner.
+/// </para>
+/// <para>
+/// <strong>What keeps the other fourteen pairs out</strong> is one of four things, and the
+/// package README gives them row by row: a name whose two readings are <em>different</em> formats
+/// (<c>RCPATTRVAL</c> against the unused <c>RCPATTRDATA</c>, <c>RCPOWNER</c> against
+/// <c>RCPOWCODE</c>); an undefined name that <em>is</em> the message, so carrying it untouched
+/// leaves the row uninterpretable (<c>RCPEXIST</c>, <c>AUTOSEL</c>, <c>RCPSTATE</c>,
+/// <c>VFACK</c>, <c>CMPRESULT</c>); a reply whose nesting no served sibling settles; and
+/// <c>CHECKSUM</c>, which the reference never defines under any spelling in any of the three
+/// streams that ask for it.
 /// </para>
 /// <para>
 /// <strong>Nesting is the one thing a flat item list cannot pin down</strong>, so the readers are
@@ -141,11 +168,11 @@ internal static class RecipeCodec
 
     // --------------------------------------------------------------------- the recipe
 
-    /// <summary>S15F9, S15F13, S15F31 and S15F53 - <c>L,2 { RCPSPEC, RCPID }</c>.</summary>
+    /// <summary>S15F9, S15F13, S15F23, S15F31 and S15F53 - <c>L,2 { RCPSPEC, RCPID }</c>.</summary>
     /// <remarks>
-    /// Four pairs share this body, distinguished only by the function number - the upload request,
-    /// the delete, the select and the operation abort. Worth naming once: a reader that went by
-    /// shape rather than by function would answer any of them with any other.
+    /// Five pairs share this body, distinguished only by the function number - the upload request,
+    /// the delete, the lock, the select and the operation abort. Worth naming once: a reader that
+    /// went by shape rather than by function would answer any of them with any other.
     /// </remarks>
     internal static SecsItem RecipeNameBody(string recipeNamespace, string recipeId)
         => SecsItem.L(
@@ -265,6 +292,169 @@ internal static class RecipeCodec
         return body.Count < 2 || TryReadRecipeBody(body.Items[1], out recipe);
     }
 
+    // ----------------------------------------------------- the rename and the copy
+
+    /// <summary>S15F19 - <c>L,3 { RCPSPEC, RCPID, RCPIDNEW }</c>.</summary>
+    /// <remarks>
+    /// One namespace and two identifiers, which is the row rather than a reading: S15F21 carries
+    /// two namespaces where this carries one, so a rename stays where the recipe is.
+    /// </remarks>
+    internal static SecsItem RenameBody(string recipeNamespace, string recipeId, string newRecipeId)
+        => SecsItem.L(
+            SecsItem.A(recipeNamespace).Named("RCPSPEC"),
+            SecsItem.A(recipeId).Named("RCPID"),
+            SecsItem.A(newRecipeId).Named("RCPIDNEW"));
+
+    /// <summary>Reads S15F19.</summary>
+    /// <remarks>
+    /// Exactly three items, with no tolerance for two: two is the delete's body, and a rename read
+    /// out of it would be a rename to nothing - which this reader refuses rather than reporting as
+    /// an empty new name.
+    /// </remarks>
+    internal static bool TryReadRename(
+        SecsItem? body,
+        out string recipeNamespace,
+        out string recipeId,
+        out string newRecipeId)
+    {
+        newRecipeId = string.Empty;
+
+        if (!TryReadRecipeName(body, out recipeNamespace, out recipeId) || body!.Count < 3)
+        {
+            return false;
+        }
+
+        newRecipeId = Word(body.Items[2]);
+
+        return newRecipeId.Length > 0;
+    }
+
+    /// <summary>S15F21 - <c>L,4 { RCPSPEC, RCPID, RCPSPECDST, RCPIDDST }</c>.</summary>
+    /// <remarks>
+    /// The source pair then the destination pair, each in the order the four other rows put
+    /// <c>RCPSPEC</c> and <c>RCPID</c> in. Nothing here is a choice: each undefined name extends
+    /// the defined one two positions earlier.
+    /// </remarks>
+    internal static SecsItem CopyBody(
+        string sourceNamespace,
+        string sourceId,
+        string destinationNamespace,
+        string destinationId)
+        => SecsItem.L(
+            SecsItem.A(sourceNamespace).Named("RCPSPEC"),
+            SecsItem.A(sourceId).Named("RCPID"),
+            SecsItem.A(destinationNamespace).Named("RCPSPECDST"),
+            SecsItem.A(destinationId).Named("RCPIDDST"));
+
+    /// <summary>Reads S15F21.</summary>
+    /// <remarks>
+    /// Exactly four items. A destination namespace may be blank for the reason a source one may -
+    /// a machine with one unnamed namespace - but a destination identifier may not, because there
+    /// would be nothing to call the copy.
+    /// </remarks>
+    internal static bool TryReadCopy(
+        SecsItem? body,
+        out string sourceNamespace,
+        out string sourceId,
+        out string destinationNamespace,
+        out string destinationId)
+    {
+        destinationNamespace = string.Empty;
+        destinationId = string.Empty;
+
+        if (!TryReadRecipeName(body, out sourceNamespace, out sourceId) || body!.Count < 4)
+        {
+            return false;
+        }
+
+        destinationNamespace = Word(body.Items[2]);
+        destinationId = Word(body.Items[3]);
+
+        return destinationId.Length > 0;
+    }
+
+    // ------------------------------------------------------------------- the lock
+
+    /// <summary>S15F24 - <c>L,2 { RMACK, RCPLOCKID }</c>.</summary>
+    /// <remarks>
+    /// <strong>S15F10's body, item for item</strong> - a code and then a payload the dictionary
+    /// does not define - which is what settles the nesting here rather than leaving it a guess.
+    /// This package already writes and reads that pair, including the case the catalogue's item
+    /// list cannot show: a refusal that carries no payload at all.
+    /// </remarks>
+    internal static SecsItem LockReplyBody(RecipeAcknowledgement acknowledgement, RecipeLockToken? token)
+        => SecsItem.L(
+            CodeItem(acknowledgement),
+            (token?.Decode() ?? SecsItem.L()).Named("RCPLOCKID"));
+
+    /// <summary>Reads S15F24.</summary>
+    internal static bool TryReadLockReply(SecsItem? body, out byte? code, out RecipeLockToken? token)
+    {
+        code = null;
+        token = null;
+
+        if (body is null || !body.IsList || body.Count == 0)
+        {
+            return false;
+        }
+
+        code = ReadCode(body.Items[0]);
+
+        if (code is null)
+        {
+            return false;
+        }
+
+        if (body.Count > 1)
+        {
+            var carried = body.Items[1];
+
+            // An empty list is how this end writes "no token", and a refusal need not carry the
+            // item at all - so both read as no lock rather than as a lock with no identity. A
+            // token that arrived as something else, a list included, is kept as it came: what it
+            // is inside is the machine's business and not this library's.
+            if (!carried.IsList || carried.Count > 0)
+            {
+                token = RecipeLockToken.From(carried);
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>S15F25 - <c>L,3 { RCPSPEC, RCPID, RCPLOCKID }</c>.</summary>
+    /// <remarks>S15F7's body, with the token where the recipe goes.</remarks>
+    internal static SecsItem UnlockBody(string recipeNamespace, string recipeId, RecipeLockToken token)
+        => SecsItem.L(
+            SecsItem.A(recipeNamespace).Named("RCPSPEC"),
+            SecsItem.A(recipeId).Named("RCPID"),
+            (token.Decode() ?? SecsItem.L()).Named("RCPLOCKID"));
+
+    /// <summary>Reads S15F25.</summary>
+    /// <remarks>
+    /// Exactly three items, like the download send and for the same reason. An item carrying
+    /// nothing reads as an empty token rather than as a body this end could not understand: it is
+    /// a token that will match no lock, which the store answers, and keeping the two apart is what
+    /// lets the log say which happened.
+    /// </remarks>
+    internal static bool TryReadUnlock(
+        SecsItem? body,
+        out string recipeNamespace,
+        out string recipeId,
+        out RecipeLockToken? token)
+    {
+        token = null;
+
+        if (!TryReadRecipeName(body, out recipeNamespace, out recipeId) || body!.Count < 3)
+        {
+            return false;
+        }
+
+        token = RecipeLockToken.From(body.Items[2]);
+
+        return true;
+    }
+
     // --------------------------------------------------------- acknowledgement codes
 
     /// <summary>Writes an <c>RMACK</c>.</summary>
@@ -373,9 +563,9 @@ internal static class RecipeCodec
 
     /// <summary>Reads an unsigned field in whatever numeric format arrived.</summary>
     /// <remarks>
-    /// The only number in the nine rows this package implements is a length, so a value too large
-    /// for its field is clamped rather than refused - the same rule the other E5 packages here
-    /// keep.
+    /// The only number in the thirteen rows this package implements is a length, so a value
+    /// too large for its field is clamped rather than refused - the same rule the other E5
+    /// packages here keep.
     /// </remarks>
     private static bool TryReadUnsigned(SecsItem item, out ulong value)
     {

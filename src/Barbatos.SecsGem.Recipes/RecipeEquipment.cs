@@ -21,12 +21,13 @@ namespace Barbatos.SecsGem.Recipes;
 /// a machine's recipes changed.
 /// </para>
 /// <para>
-/// <strong>Nine of the stream's twenty-seven pairs, and the measurement for the other
-/// eighteen.</strong> These nine are every pair whose primary and reply are made entirely of
-/// defined items. The rest reach for names the dictionary does not define while near-twins of
-/// those names sit in it unused - the reference defines twenty-four <c>RCP</c> items and its
-/// messages use two. See <c>RecipeCodec</c> for the whole measurement; it is this chapter's
-/// finding and the reason a package that could have carried rename and copy does not.
+/// <strong>Thirteen of the stream's twenty-seven pairs.</strong> Nine are every pair whose primary
+/// and reply are made entirely of defined items. Four more carry exactly one undefined name
+/// each - the rename, the copy, the lock and the unlock - and they are here because of
+/// <em>where</em> that name sits: in the rename and the copy it extends a defined name two
+/// positions earlier in the same body, and in the lock it is a token this end mints and this end
+/// reads back. See <c>RecipeCodec</c> and <see cref="RecipeLockToken"/> for the measurement, and
+/// the package README for the fourteen pairs still out, row by row.
 /// </para>
 /// </remarks>
 public sealed class RecipeEquipment
@@ -46,9 +47,11 @@ public sealed class RecipeEquipment
 
     /// <summary>Every primary this end answers.</summary>
     /// <remarks>
-    /// Nine of stream 15's twenty-seven pairs. Two of the nine - the select and the operation
-    /// abort - lie outside the function range stream 19 shares with this stream, which is worth
-    /// knowing when reading a tool's manual: see the package README on the name clash.
+    /// Thirteen of stream 15's twenty-seven pairs. <strong>Five of the thirteen</strong> - the
+    /// copy, the lock, the unlock, the select and the operation abort - lie outside the function
+    /// range stream 19 reaches at all, since stream 19 stops at F20; it was two of nine before the
+    /// rename and the copy went in. Worth knowing when reading a tool's manual: see the package
+    /// README on the name clash.
     /// </remarks>
     public static IReadOnlyList<(byte Stream, byte Function)> HandledMessages { get; } =
     [
@@ -59,6 +62,10 @@ public sealed class RecipeEquipment
         (15, 13),   // Recipe Delete Request
         (15, 15),   // Recipe Namespace Create Request
         (15, 17),   // Recipe Namespace Delete Request
+        (15, 19),   // Recipe Rename Request
+        (15, 21),   // Recipe Copy Request
+        (15, 23),   // Recipe Lock Request
+        (15, 25),   // Recipe Unlock Request
         (15, 31),   // Recipe Select Request
         (15, 53),   // Recipe Operation Abort Request
     ];
@@ -108,6 +115,10 @@ public sealed class RecipeEquipment
             13 => await OnDeleteAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             15 => await OnCreateNamespaceAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             17 => await OnDeleteNamespaceAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            19 => await OnRenameAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            21 => await OnCopyAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            23 => await OnLockAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            25 => await OnUnlockAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             31 => await OnSelectAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             53 => await OnAbortAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             _ => null,
@@ -221,6 +232,97 @@ public sealed class RecipeEquipment
             .ConfigureAwait(false);
 
         return Reply(18, "RecipeNamespaceDeleteAcknowledge", RecipeCodec.CodeItem(acknowledgement));
+    }
+
+    private async ValueTask<SecsMessage> OnRenameAsync(SecsMessage message, CancellationToken cancellationToken)
+    {
+        if (!RecipeCodec.TryReadRename(
+            message.Item,
+            out var recipeNamespace,
+            out var recipeId,
+            out var newRecipeId))
+        {
+            return Refuse(20, "RecipeRenameAcknowledge", "S15F19");
+        }
+
+        var acknowledgement = await _store
+            .RenameAsync(recipeNamespace, recipeId, newRecipeId, cancellationToken)
+            .ConfigureAwait(false);
+
+        return Reply(20, "RecipeRenameAcknowledge", RecipeCodec.CodeItem(acknowledgement));
+    }
+
+    private async ValueTask<SecsMessage> OnCopyAsync(SecsMessage message, CancellationToken cancellationToken)
+    {
+        if (!RecipeCodec.TryReadCopy(
+            message.Item,
+            out var sourceNamespace,
+            out var sourceId,
+            out var destinationNamespace,
+            out var destinationId))
+        {
+            return Refuse(22, "RecipeCopyAcknowledge", "S15F21");
+        }
+
+        var acknowledgement = await _store
+            .CopyAsync(sourceNamespace, sourceId, destinationNamespace, destinationId, cancellationToken)
+            .ConfigureAwait(false);
+
+        return Reply(22, "RecipeCopyAcknowledge", RecipeCodec.CodeItem(acknowledgement));
+    }
+
+    private async ValueTask<SecsMessage> OnLockAsync(SecsMessage message, CancellationToken cancellationToken)
+    {
+        if (!RecipeCodec.TryReadRecipeName(message.Item, out var recipeNamespace, out var recipeId))
+        {
+            _logger.LogWarning("S15F23 arrived with a body this end could not read; answering RMACK Rejected.");
+
+            return Reply(
+                24,
+                "RecipeLockAcknowledge",
+                RecipeCodec.LockReplyBody(RecipeAcknowledgement.Rejected, token: null));
+        }
+
+        var (acknowledgement, token) = await _store
+            .LockAsync(recipeNamespace, recipeId, cancellationToken)
+            .ConfigureAwait(false);
+
+        var granted = acknowledgement == RecipeAcknowledgement.Accepted;
+
+        if (granted && token is null)
+        {
+            // Worth saying out loud, because the wire cannot: S15F24 would go out with a code
+            // meaning yes and an empty item, and a host would hold a lock with nothing to release
+            // it. The store's contract says to return a token or refuse.
+            _logger.LogWarning(
+                "A store accepted S15F23 for {Namespace}/{Id} and minted no token, so S15F24 "
+                + "carries a lock nothing can release.",
+                recipeNamespace,
+                recipeId);
+        }
+
+        // The token goes out only with an acceptance. A refused lock that carried one would hand
+        // a host something that looks like a lock it has, which is worse than the plain no that
+        // S15F24's single refusal code is for.
+        return Reply(
+            24,
+            "RecipeLockAcknowledge",
+            RecipeCodec.LockReplyBody(acknowledgement, granted ? token : null));
+    }
+
+    private async ValueTask<SecsMessage> OnUnlockAsync(SecsMessage message, CancellationToken cancellationToken)
+    {
+        if (!RecipeCodec.TryReadUnlock(message.Item, out var recipeNamespace, out var recipeId, out var token)
+            || token is null)
+        {
+            return Refuse(26, "RecipeUnlockAcknowledge", "S15F25");
+        }
+
+        var acknowledgement = await _store
+            .UnlockAsync(recipeNamespace, recipeId, token, cancellationToken)
+            .ConfigureAwait(false);
+
+        return Reply(26, "RecipeUnlockAcknowledge", RecipeCodec.CodeItem(acknowledgement));
     }
 
     private async ValueTask<SecsMessage> OnSelectAsync(SecsMessage message, CancellationToken cancellationToken)

@@ -316,7 +316,7 @@ public class MaterialTransferJobTests
         Assert.Equal(0u, result.ErrorCode);
         Assert.Equal("TJ-1", seen.Job);
         Assert.Equal("PAUSE", seen.Command);
-        Assert.Equal(("REASON", "operator"), Assert.Single(seen.Parameters));
+        Assert.Equal(("REASON", "operator"), Assert.Single(seen.Parameters!));
 
         // The command names are the application's: TRCMDNAME is an A with no table, the same
         // position HOCMDNAME is in at S4F29, so this package carries the string and takes no view.

@@ -8,13 +8,14 @@ using System.Text;
 namespace Barbatos.SecsGem.Recipes.UnitTests;
 
 /// <summary>
-/// The nine pairs, through a real host and a real equipment over one link.
+/// The nine pairs whose every field is defined, through a real host and a real equipment over one
+/// link. The four that carry an undefined name are in <c>RecipeMutationTests</c>.
 /// </summary>
 public class RecipeTests
 {
     private static readonly byte[] Body = Encoding.ASCII.GetBytes("STEP 1: pump down\nSTEP 2: etch 40s\n");
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_namespaces_come_back_in_order()
     {
         await using var pair = RecipePair.Start();
@@ -30,7 +31,7 @@ public class RecipeTests
             [.. await pair.Host.ListNamespacesAsync(RecipePair.Token)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_machine_with_no_namespaces_answers_with_none()
     {
         await using var pair = RecipePair.Start();
@@ -39,7 +40,7 @@ public class RecipeTests
         Assert.Empty(await pair.Host.ListNamespacesAsync(RecipePair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_is_created_and_deleted()
     {
         await using var pair = RecipePair.Start();
@@ -64,7 +65,7 @@ public class RecipeTests
         Assert.False(pair.Store.HasNamespace("PROD"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_that_still_holds_recipes_is_not_deleted()
     {
         await using var pair = RecipePair.Start();
@@ -90,7 +91,7 @@ public class RecipeTests
             await pair.Host.DeleteNamespaceAsync("PROD", RecipePair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_crosses_unchanged_once_it_has_been_granted()
     {
         await using var pair = RecipePair.Start();
@@ -118,7 +119,7 @@ public class RecipeTests
         Assert.Equal(0, pair.Store.GrantedCount);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_two_transactions_can_be_run_as_one()
     {
         await using var pair = RecipePair.Start();
@@ -133,7 +134,7 @@ public class RecipeTests
         Assert.NotNull(pair.Store.Find("PROD", "ETCH-7"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_refused_grant_means_there_is_no_second_acknowledgement()
     {
         await using var pair = RecipePair.Start();
@@ -148,7 +149,7 @@ public class RecipeTests
         Assert.Equal(0, pair.Store.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_for_a_namespace_that_is_not_there_is_refused()
     {
         await using var pair = RecipePair.Start();
@@ -165,7 +166,7 @@ public class RecipeTests
         Assert.Equal(0, pair.Store.GrantedCount);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_send_nobody_granted_is_refused()
     {
         await using var pair = RecipePair.Start();
@@ -180,7 +181,7 @@ public class RecipeTests
         Assert.Equal(0, pair.Store.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_that_is_not_the_length_it_declared_is_refused()
     {
         await using var pair = RecipePair.Start();
@@ -202,7 +203,7 @@ public class RecipeTests
         Assert.Equal(0, pair.Store.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_larger_than_the_store_takes_is_refused_before_it_is_sent()
     {
         await using var pair = RecipePair.Start();
@@ -221,7 +222,7 @@ public class RecipeTests
                 RecipePair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_comes_back_with_an_acknowledgement_of_its_own()
     {
         await using var pair = RecipePair.Start();
@@ -237,7 +238,7 @@ public class RecipeTests
         Assert.Equal("PROD/ETCH-7 (35 bytes)", recipe.ToString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_the_machine_has_not_got_is_refused_and_not_guessed_at()
     {
         await using var pair = RecipePair.Start();
@@ -253,7 +254,7 @@ public class RecipeTests
         Assert.Null(recipe);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_is_selected_and_the_selection_survives_the_reply()
     {
         await using var pair = RecipePair.Start();
@@ -273,7 +274,7 @@ public class RecipeTests
         Assert.Equal(1, pair.Store.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Selecting_a_recipe_that_is_not_there_is_refused()
     {
         await using var pair = RecipePair.Start();
@@ -286,7 +287,7 @@ public class RecipeTests
         Assert.Null(pair.Store.Selected);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Deleting_the_selected_recipe_leaves_nothing_selected()
     {
         await using var pair = RecipePair.Start();
@@ -305,7 +306,7 @@ public class RecipeTests
         Assert.Null(pair.Store.Selected);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Deleting_a_recipe_twice_is_refused_the_second_time()
     {
         await using var pair = RecipePair.Start();
@@ -322,7 +323,7 @@ public class RecipeTests
             await pair.Host.DeleteAsync("PROD", "ETCH-7", RecipePair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_abort_forgets_the_grant_and_keeps_what_is_stored()
     {
         await using var pair = RecipePair.Start();
@@ -349,7 +350,7 @@ public class RecipeTests
             await pair.Host.SendAsync("PROD", "ETCH-7", new byte[4], RecipePair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_abort_with_nothing_in_flight_is_refused()
     {
         await using var pair = RecipePair.Start();
@@ -360,7 +361,7 @@ public class RecipeTests
             await pair.Host.AbortAsync("PROD", "ETCH-7", RecipePair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_host_sends_every_primary_the_equipment_declares()
     {
         await using var pair = RecipePair.Start();
@@ -378,24 +379,37 @@ public class RecipeTests
         await pair.Host.SelectAsync("PROD", "ETCH-7", RecipePair.Token);
         await pair.Host.AbortAsync("PROD", "ETCH-7", RecipePair.Token);
         await pair.Host.DeleteAsync("PROD", "ETCH-7", RecipePair.Token);
+
+        // The four that carry an undefined name, sent at a recipe that is now gone - the point
+        // here is which function went out, and a refusal goes out over the same primary.
+        await pair.Host.RenameAsync("PROD", "ETCH-7", "ETCH-8", RecipePair.Token);
+        await pair.Host.CopyAsync("PROD", "ETCH-7", "PROD", "ETCH-9", RecipePair.Token);
+        await pair.Host.LockAsync("PROD", "ETCH-7", RecipePair.Token);
+        await pair.Host.UnlockAsync(
+            "PROD",
+            "ETCH-7",
+            RecipeLockToken.FromText("LOCK-1"),
+            RecipePair.Token);
+
         await pair.Host.DeleteNamespaceAsync("PROD", RecipePair.Token);
 
-        // "Every" asserted rather than claimed: nine methods, nine declared primaries, and the
-        // host half declares none of its own.
+        // "Every" asserted rather than claimed: thirteen methods, thirteen declared primaries,
+        // and the host half declares none of its own.
         Assert.Equal(
             [.. RecipeEquipment.HandledMessages.Order()],
             pair.Asked.Distinct().Order());
     }
 
-    [Fact]
-    public void The_equipment_declares_nine_of_the_twenty_seven_pairs()
+    [Fact(Timeout = 15_000)]
+    public void The_equipment_declares_thirteen_of_the_twenty_seven_pairs()
     {
-        Assert.Equal(9, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(13, RecipeEquipment.HandledMessages.Count);
 
-        // The nine whose primary and reply are made entirely of defined items. Measured in
-        // SecsCatalogStream15Tests, not asserted from memory.
+        // Nine whose primary and reply are made entirely of defined items, and four that carry
+        // exactly one undefined name - the rename, the copy, the lock and the unlock. Both figures
+        // are measured in SecsCatalogStream15Tests and neither is asserted from memory.
         Assert.Equal<byte[]>(
-            [1, 5, 7, 9, 13, 15, 17, 31, 53],
+            [1, 5, 7, 9, 13, 15, 17, 19, 21, 23, 25, 31, 53],
             [.. RecipeEquipment.HandledMessages.Select(pair => pair.Function)]);
 
         Assert.All(RecipeEquipment.HandledMessages, pair => Assert.Equal(15, pair.Stream));
@@ -404,7 +418,7 @@ public class RecipeTests
         Assert.Empty(RecipeHost.HandledMessages);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void The_acknowledgement_is_quoted_rather_than_inferred()
     {
         // Three members, and the third is honest here where ItemAcknowledgement's absence of one
@@ -418,7 +432,7 @@ public class RecipeTests
         Assert.Equal(2, (byte)RecipeAcknowledgement.Other);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_recipe_describes_itself_for_a_log()
     {
         Assert.Equal(
@@ -430,7 +444,7 @@ public class RecipeTests
         Assert.True(new Recipe { Namespace = "PROD", Id = "ETCH-7" }.IsEmpty);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_download_request_describes_itself_for_a_log()
     {
         Assert.Equal(

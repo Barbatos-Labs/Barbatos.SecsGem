@@ -16,9 +16,17 @@ namespace Barbatos.SecsGem.Recipes.UnitTests;
 /// <remarks>
 /// <para>
 /// A host and an equipment rather than two of one type, because <strong>stream 15 runs one
-/// way</strong>: all twenty-seven primaries are the host's. So only the equipment's nine routes go
-/// into a table, and the host's side of the pair declares nothing - which is itself asserted, in
-/// the hosting tests.
+/// way</strong>: all twenty-seven primaries are the host's. So only the equipment's thirteen
+/// routes go into a table, and the host's side of the pair declares nothing - which is itself
+/// asserted, in the hosting tests.
+/// </para>
+/// <para>
+/// <strong>Every test in this project carries a <c>Timeout</c></strong>, which is the blanket
+/// answer to the trap the paragraph below describes. A per-await real-clock bound, which
+/// <c>GemPair</c> and <c>MaterialPair</c> use, catches the awaits a test can see; the attribute
+/// catches those as well as every await inside the library under test, and costs one token per
+/// test. Either way the point is the same: on a fake clock a missing reply must fail rather than
+/// hang, because a hung run prints no summary and reads exactly like a control that found nothing.
 /// </para>
 /// <para>
 /// <strong>Every message sent by hand goes out on <c>HostLink</c></strong>, because every primary
@@ -36,6 +44,8 @@ internal sealed class RecipePair : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentQueue<(byte Stream, byte Function)> _asked;
 
+    private readonly RecipeInMemoryStore? _memory;
+
     private RecipePair(
         InMemorySecsTransport active,
         InMemorySecsTransport passive,
@@ -43,17 +53,17 @@ internal sealed class RecipePair : IAsyncDisposable
         HsmsConnection equipmentLink,
         RecipeHost host,
         RecipeEquipment equipment,
-        RecipeInMemoryStore store,
+        RecipeInMemoryStore? store,
         ConcurrentQueue<(byte Stream, byte Function)> asked)
     {
         _active = active;
         _passive = passive;
         _asked = asked;
+        _memory = store;
         HostLink = hostLink;
         EquipmentLink = equipmentLink;
         Host = host;
         Equipment = equipment;
-        Store = store;
 
         Running = Task.WhenAll(
             hostLink.RunAsync(_cts.Token),
@@ -67,7 +77,15 @@ internal sealed class RecipePair : IAsyncDisposable
     public RecipeEquipment Equipment { get; }
 
     /// <summary>Gets the machine's recipes.</summary>
-    public RecipeInMemoryStore Store { get; }
+    /// <exception cref="InvalidOperationException">The pair was started over a store of the test's own.</exception>
+    /// <remarks>
+    /// Throws rather than returning null, because a test that passed its own store and then read
+    /// this would be asserting against a store nothing is wired to - and the four
+    /// <see cref="IRecipeStore"/> members with default implementations are exactly where a test
+    /// wants its own store, so the mistake is reachable.
+    /// </remarks>
+    public RecipeInMemoryStore Store => _memory
+        ?? throw new InvalidOperationException("This pair was started over a store of the test's own.");
 
     /// <summary>Gets the host's connection, which is where every hand-written primary goes.</summary>
     public HsmsConnection HostLink { get; }
@@ -98,16 +116,20 @@ internal sealed class RecipePair : IAsyncDisposable
 
     /// <summary>Starts a pair.</summary>
     /// <param name="answerEquipment">Replaces the machine's end with a reply the test writes itself.</param>
-    /// <param name="alsoRoute">Extra pairs to route to the machine, for the guard against a function outside the nine.</param>
+    /// <param name="alsoRoute">Extra pairs to route to the machine, for the guard against a function outside the thirteen.</param>
+    /// <param name="store">The machine's recipes. <see langword="null"/> uses a fresh in-memory store, which <see cref="Store"/> then exposes.</param>
     /// <returns>The pair.</returns>
     /// <remarks>
     /// <paramref name="answerEquipment"/> is how the shapes this library tolerates but does not
     /// write get tested at all: a machine that sent a namespace list flat, or an <c>RMACK</c> in
-    /// the reserved range, has to be played by hand.
+    /// the reserved range, has to be played by hand. <paramref name="store"/> is the other
+    /// direction - a machine whose <em>store</em> answers something the in-memory one never would,
+    /// such as accepting a lock and minting no token.
     /// </remarks>
     public static RecipePair Start(
         Func<SecsTransaction, SecsMessage?>? answerEquipment = null,
-        IReadOnlyList<(byte Stream, byte Function)>? alsoRoute = null)
+        IReadOnlyList<(byte Stream, byte Function)>? alsoRoute = null,
+        IRecipeStore? store = null)
     {
         var options = new SecsGemOptions
         {
@@ -119,7 +141,7 @@ internal sealed class RecipePair : IAsyncDisposable
         var clock = new FakeTimeProvider();
         var (active, passive) = InMemorySecsTransport.CreatePair();
 
-        var store = new RecipeInMemoryStore();
+        var memory = store is null ? new RecipeInMemoryStore() : null;
 
         RecipeEquipment? pending = null;
         ConcurrentQueue<(byte Stream, byte Function)> asked = new();
@@ -165,7 +187,7 @@ internal sealed class RecipePair : IAsyncDisposable
         var hostLog = new RecordingLogger<RecipeHost>();
         var equipmentLog = new RecordingLogger<RecipeEquipment>();
 
-        pending = new RecipeEquipment(store, equipmentLog);
+        pending = new RecipeEquipment(store ?? memory!, equipmentLog);
 
         return new RecipePair(
             active,
@@ -174,7 +196,7 @@ internal sealed class RecipePair : IAsyncDisposable
             equipmentLink,
             new RecipeHost(hostLink, hostLog),
             pending,
-            store,
+            memory,
             asked)
         {
             HostLog = hostLog,

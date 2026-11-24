@@ -135,7 +135,7 @@ public class SecsCatalogRecipeRegionTests
 
         // So serving them would be the stream 18 situation again - one capability, two stream
         // numbers, serve one or the other - and stream 15's is the firmer because it is whole:
-        // Barbatos.SecsGem.Recipes serves nine of its pairs, where these two would be two of
+        // Barbatos.SecsGem.Recipes serves thirteen of its pairs, where these two would be two of
         // seventeen. Declaring two rows of stream 20 would turn an honest S9F3 for the stream into
         // an S9F5 for fifteen functions, which invites a host to keep asking.
         Assert.Equal(17, twenty.Messages.Count(message => message.Function % 2 == 1));

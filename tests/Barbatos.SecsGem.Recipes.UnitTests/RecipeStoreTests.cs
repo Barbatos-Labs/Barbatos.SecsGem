@@ -12,7 +12,7 @@ namespace Barbatos.SecsGem.Recipes.UnitTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// These are this class's choices, not E5's: seven of the nine replies this package sends carry
+/// These are this class's choices, not E5's: eleven of the thirteen replies this package sends carry
 /// one <c>RMACK</c> and no way to say why, so every refusal below is indistinguishable on the wire
 /// from every other. A test against the store is the only place the <em>reason</em> can be pinned.
 /// </para>
@@ -28,7 +28,7 @@ public class RecipeStoreTests
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_grant_does_not_outlive_the_namespace_it_was_given_for()
     {
         var store = new RecipeInMemoryStore();
@@ -52,7 +52,7 @@ public class RecipeStoreTests
         Assert.Equal(0, store.GrantedCount);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_grant_is_for_one_recipe_and_does_not_license_another()
     {
         var store = new RecipeInMemoryStore();
@@ -68,7 +68,7 @@ public class RecipeStoreTests
         Assert.Equal(RecipeAcknowledgement.Accepted, await store.SaveAsync("PROD", "ETCH-7", Body, Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_grant_is_for_one_namespace_and_does_not_license_another()
     {
         var store = new RecipeInMemoryStore();
@@ -85,7 +85,7 @@ public class RecipeStoreTests
         Assert.Null(store.Find("PROD", "ETCH-7"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_exactly_the_length_it_declared_is_taken()
     {
         var store = new RecipeInMemoryStore();
@@ -105,7 +105,7 @@ public class RecipeStoreTests
         Assert.Equal(RecipeAcknowledgement.Accepted, await store.SaveAsync("PROD", "ETCH-7", Body, Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_a_recipe_was_seeded_into_is_listed()
     {
         var store = new RecipeInMemoryStore();
@@ -119,7 +119,7 @@ public class RecipeStoreTests
         Assert.True(store.HasNamespace("PROD"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_emptied_by_hand_can_then_be_deleted()
     {
         var store = new RecipeInMemoryStore();
@@ -131,7 +131,7 @@ public class RecipeStoreTests
         Assert.Equal(RecipeAcknowledgement.Accepted, await store.DeleteNamespaceAsync("PROD", Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namespace_that_is_not_there_is_not_deleted()
     {
         var store = new RecipeInMemoryStore();
@@ -142,7 +142,7 @@ public class RecipeStoreTests
         Assert.Equal(RecipeAcknowledgement.Rejected, await store.DeleteNamespaceAsync("NOPE", Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_sent_twice_is_replaced_and_not_duplicated()
     {
         var store = new RecipeInMemoryStore();
@@ -166,7 +166,7 @@ public class RecipeStoreTests
         Assert.Equal<byte[]>(second, [.. store.Find("PROD", "ETCH-7")!.Body.Span]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_same_identifier_in_two_namespaces_is_two_recipes()
     {
         var store = new RecipeInMemoryStore();
@@ -188,7 +188,7 @@ public class RecipeStoreTests
         Assert.NotNull(store.Find("DEV", "ETCH-7"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Selecting_a_recipe_in_one_namespace_does_not_select_the_other()
     {
         var store = new RecipeInMemoryStore();
@@ -205,7 +205,7 @@ public class RecipeStoreTests
         Assert.Equal("DEV", store.Selected?.Namespace);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_abort_is_for_one_transfer_and_leaves_another_alone()
     {
         var store = new RecipeInMemoryStore();
@@ -226,7 +226,7 @@ public class RecipeStoreTests
         Assert.Equal(RecipeAcknowledgement.Accepted, await store.SaveAsync("PROD", "ETCH-8", Body, Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_cancelled_call_throws_rather_than_refusing()
     {
         var store = new RecipeInMemoryStore();

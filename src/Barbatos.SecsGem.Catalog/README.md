@@ -338,9 +338,10 @@ to check one, which is why streams 19 and 20 are left alone.
 section. The figure these three streams share - 108 rows, no definitions - is provenance, and
 provenance is not a verdict: counting the pairs whose primary *and* reply are made entirely of
 defined items gives stream 15 nine, stream 20 two and stream 19 none. So
-[`Barbatos.SecsGem.Recipes`](../Barbatos.SecsGem.Recipes/README.md) serves those nine and says in
-its own README which standard it is, at length, because the name collision is a hazard for whoever
-reads a tool's manual rather than for anything on the wire.
+[`Barbatos.SecsGem.Recipes`](../Barbatos.SecsGem.Recipes/README.md) serves those nine, and four
+more whose single gap the rival measure below turned out to settle rather than block - thirteen of
+twenty-seven. It says in its own README which standard it is, at length, because the name collision
+is a hazard for whoever reads a tool's manual rather than for anything on the wire.
 
 The one piece of good news is that all three carry a recipe as `PPBODY`, which stream 7 defines as
 a `B` - so the payload was never the problem; the vocabulary around it was.
