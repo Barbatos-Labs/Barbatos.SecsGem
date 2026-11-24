@@ -965,8 +965,8 @@ internal static class Program
         var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
 
         Assert(
-            RecipeEquipment.HandledMessages.Count == 13,
-            $"the equipment declares {RecipeEquipment.HandledMessages.Count} message(s), not thirteen");
+            RecipeEquipment.HandledMessages.Count == 14,
+            $"the equipment declares {RecipeEquipment.HandledMessages.Count} message(s), not fourteen");
 
         foreach (var (stream, function) in RecipeEquipment.HandledMessages)
         {
@@ -974,6 +974,18 @@ internal static class Program
                 equipmentRouter.TryGetHandler(stream, function, out _),
                 $"the router has no handler for S{stream}F{function}, so AddRecipeEquipment did not declare it");
         }
+
+        // S15F35 is the newest of the fourteen and the only reply in this package that carries no
+        // acknowledgement, so a packaging mistake would show as a route that is simply absent.
+        Assert(
+            RecipeEquipment.HandledMessages.Contains(((byte)15, (byte)35)),
+            "the packed equipment does not declare S15F35, the current recipe");
+
+        // And the type the version is carried in, which is public API: a recipe version is the
+        // encoded item that arrived, because RCPVER is defined nowhere.
+        Assert(
+            RecipeVersion.FromText("1.4.2").ToString() == "1.4.2",
+            "the packed RecipeVersion does not print the text it was given");
 
         // The rename, the copy, the lock and the unlock, refused for six chapters and now served:
         // each carries one undefined name, and in three of the four that name extends a defined one

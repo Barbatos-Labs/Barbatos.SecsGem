@@ -251,3 +251,146 @@ public sealed class RecipeLockToken
             ? $"{(Format is { } known ? known.ToString() : "unknown")}[{count}], {Encoded.Length} encoded bytes"
             : $"{(Format is { } format ? format.ToString() : "unknown")}, {Encoded.Length} encoded bytes";
 }
+
+/// <summary>
+/// A recipe's version, as the item it arrived in - <c>RCPVER</c>, which the reference never defines.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The second type in this package of <see cref="RecipeLockToken"/>'s shape, and deliberately a
+/// second rather than a shared one: a lock token and a version are different things to a host, and
+/// a type called a lock that carried a version would be worse than two types that each say what
+/// they hold. What they share is the reason for being opaque.
+/// </para>
+/// <para>
+/// <strong><c>RCPVER</c> is undefined and its only rival is shared.</strong> The dictionary has one
+/// version item, <c>RCPVERS</c>, an <c>A[n]</c> that no message names - and S15F45 needs
+/// <em>two</em> distinct version formats from it, which is why the revision compare stays out. Here
+/// there is one version and one rival, so a format could be read off it; this type carries the item
+/// untouched anyway, because a version is the machine's own string and nothing in this library has
+/// any use for its value.
+/// </para>
+/// <para>
+/// <strong>Carried opaquely although it travels the way an owner does.</strong> The machine writes
+/// this and the host reads it, which is the direction that keeps S15F49's <c>RCPOWNER</c> out - so
+/// the difference is worth stating. An owner is a field the far end must <em>parse</em> to act on,
+/// and the two readings available for it put different bytes out. A version is a label: a host
+/// shows it, or compares it with <see cref="Matches"/> for equality, and neither needs a format.
+/// That is <c>V</c>'s position in stream 6, which <c>Barbatos.SecsGem.Gem</c> carries untouched in
+/// six rows.
+/// </para>
+/// <para>
+/// Which is also why there is no <c>FromText</c> here where the lock has one: a store that mints a
+/// lock has to put <em>something</em> on the wire, and a store reporting a version it does not have
+/// reports none - <see cref="IRecipeStore.CurrentAsync"/> answers with a null version and the row
+/// carries a zero-length item for it.
+/// </para>
+/// </remarks>
+public sealed class RecipeVersion
+{
+    private RecipeVersion(ReadOnlyMemory<byte> encoded, SecsFormat? format, int? count)
+    {
+        Encoded = encoded;
+        Format = format;
+        Count = count;
+    }
+
+    /// <summary>Gets the encoded item: header and payload, as it crossed the wire.</summary>
+    public ReadOnlyMemory<byte> Encoded { get; }
+
+    /// <summary>Gets the format of the item that arrived, when it is known.</summary>
+    /// <remarks><see langword="null"/> for a version built from bytes without one being given.</remarks>
+    public SecsFormat? Format { get; }
+
+    /// <summary>Gets how many values the item carried, when it is known.</summary>
+    public int? Count { get; }
+
+    /// <summary>Gets whether there is no version here.</summary>
+    /// <remarks>
+    /// True for no bytes and for an item that carried no values - the second of which is what a
+    /// machine reporting a recipe it keeps no version for puts on the wire.
+    /// </remarks>
+    public bool IsEmpty => Encoded.IsEmpty || Count == 0;
+
+    /// <summary>Keeps an item by encoding it.</summary>
+    /// <param name="item">The item. Stays the caller's to dispose; this does not keep it.</param>
+    /// <returns>The version.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="item"/> is <see langword="null"/>.</exception>
+    public static RecipeVersion From(SecsItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        return new RecipeVersion(item.ToByteArray(), item.Format, item.Count);
+    }
+
+    /// <summary>Wraps bytes that are already an encoded item, without copying them.</summary>
+    /// <param name="encoded">The encoded item. Must stay valid for as long as the version is used.</param>
+    /// <param name="format">The item's format, when the caller knows it.</param>
+    /// <param name="count">How many values it carries, when the caller knows it.</param>
+    /// <returns>The version.</returns>
+    /// <remarks>The way back in for a store that keeps its versions as bytes.</remarks>
+    public static RecipeVersion FromEncoded(
+        ReadOnlyMemory<byte> encoded,
+        SecsFormat? format = null,
+        int? count = null)
+        => new(encoded, format, count);
+
+    /// <summary>Keeps a version given as text.</summary>
+    /// <param name="version">The version string.</param>
+    /// <returns>The version, as an encoded <c>A[n]</c>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="version"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <strong>Text is the store's choice and not the reference's.</strong> It is the reading the
+    /// dictionary's own unused <c>RCPVERS</c> would give, which makes it a small choice rather than
+    /// a free one - but nothing in this package depends on it, because the item goes out as
+    /// whatever came in.
+    /// </remarks>
+    public static RecipeVersion FromText(string version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        using var item = SecsItem.A(version);
+
+        return From(item);
+    }
+
+    /// <summary>Decodes the version back into an item.</summary>
+    /// <returns>A fresh item, or <see langword="null"/> when there are no bytes to decode.</returns>
+    /// <exception cref="SecsException">The bytes are not a well-formed item.</exception>
+    /// <remarks>The item is the caller's to dispose.</remarks>
+    public SecsItem? Decode()
+        => Encoded.IsEmpty ? null : SecsItem.Decode(Encoded);
+
+    /// <summary>Gets whether another version is this one.</summary>
+    /// <param name="other">The one to compare. <see langword="null"/> is never a match.</param>
+    /// <returns>Whether the encoded bytes are identical.</returns>
+    /// <remarks>
+    /// The bytes are the whole comparison, because there is no defined format to canonicalise -
+    /// <see cref="RecipeLockToken.Matches"/> says the same thing at more length.
+    /// </remarks>
+    public bool Matches(RecipeVersion? other)
+        => other is not null && Encoded.Span.SequenceEqual(other.Encoded.Span);
+
+    /// <summary>Gets a short description, for logs.</summary>
+    /// <returns>The text when it is text, and the format and length when it is not.</returns>
+    /// <remarks>
+    /// Unlike a lock token, a version is something a person reads - so when it arrived as text this
+    /// prints the text. A lock token prints its shape because its value means nothing to anybody.
+    /// </remarks>
+    public override string ToString()
+    {
+        if (Format is { } format && format.IsText() && !Encoded.IsEmpty)
+        {
+            using var item = Decode();
+
+            if (item is not null)
+            {
+                return item.Count == 0 ? string.Empty : item.GetString();
+            }
+        }
+
+        return Count is { } count
+            ? $"{(Format is { } known ? known.ToString() : "unknown")}[{count}], {Encoded.Length} encoded bytes"
+            : $"{(Format is { } other ? other.ToString() : "unknown")}, {Encoded.Length} encoded bytes";
+    }
+}

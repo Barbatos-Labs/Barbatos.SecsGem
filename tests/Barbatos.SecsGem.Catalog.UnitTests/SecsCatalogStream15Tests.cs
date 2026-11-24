@@ -39,15 +39,16 @@ public sealed class SecsCatalogStream15Tests
     /// <summary>The nine pairs whose every field is defined, as primary function numbers.</summary>
     private static readonly byte[] Gapless = [1, 5, 7, 9, 13, 15, 17, 31, 53];
 
-    /// <summary>The thirteen pairs this repository implements, as primary function numbers.</summary>
+    /// <summary>The fourteen pairs this repository implements, as primary function numbers.</summary>
     /// <remarks>
     /// <see cref="Gapless"/> plus the rename, the copy, the lock and the unlock - four rows that
-    /// carry one undefined name each and are served anyway, each on grounds a test below states.
-    /// Kept as two arrays rather than one because the two are different claims: the first is about
-    /// the reference and the second is about this repository, and a chapter that conflated them is
-    /// what put the second four off for six chapters.
+    /// carry one undefined name each and are served anyway, each on grounds a test below states -
+    /// and the current recipe, which carries one too and went in on a <em>shape</em> rather than on
+    /// an item. Kept as two arrays rather than one because the two are different claims: the first
+    /// is about the reference and the second is about this repository, and a chapter that conflated
+    /// them is what put the second four off for six chapters.
     /// </remarks>
-    private static readonly byte[] Implemented = [1, 5, 7, 9, 13, 15, 17, 19, 21, 23, 25, 31, 53];
+    private static readonly byte[] Implemented = [1, 5, 7, 9, 13, 15, 17, 19, 21, 23, 25, 31, 35, 53];
 
     private static SecsStreamInfo Stream(byte number)
     {
@@ -403,7 +404,7 @@ public sealed class SecsCatalogStream15Tests
     }
 
     [Fact]
-    public void The_locks_two_bodies_are_rows_this_package_already_serves_and_the_current_recipes_is_not()
+    public void The_locks_two_bodies_are_rows_this_package_already_serves_and_the_current_recipes_is_S7F6s()
     {
         var rows = Stream(15).Messages.ToDictionary(message => message.Function);
 
@@ -418,14 +419,32 @@ public sealed class SecsCatalogStream15Tests
 
         Assert.Equal<string[]>(["RCPID", "RCPVER"], [.. rows[36].DataItems]);
 
-        // S15F36 has no sibling, which is why the current recipe stays out on its SHAPE rather
-        // than on RCPVER: nothing this package serves answers a request with a multi-item body
-        // that carries no acknowledgement, so there is no way to read "nothing is selected" and no
-        // row to read a nesting off. A body guessed wrong is unparseable rather than merely
-        // uninterpretable.
-        Assert.DoesNotContain(
-            Implemented.Select(function => rows[(byte)(function + 1)]),
-            reply => reply.DataItems.Count > 1 && !reply.DataItems.Contains("RMACK"));
+        // S15F36 was refused on its SHAPE rather than on RCPVER, and the measurement is still
+        // true: it is the only reply this package serves with more than one item and no RMACK in
+        // it. What the refusal drew from that was wrong twice over.
+        Assert.Equal<byte[]>(
+            [36],
+            [.. Implemented
+                .Select(function => rows[(byte)(function + 1)])
+                .Where(reply => reply.DataItems.Count > 1 && !reply.DataItems.Contains("RMACK"))
+                .Select(reply => reply.Function)]);
+
+        // First, a nesting comes from a served sibling and the sibling need not be in this
+        // package: S7F6 is recorded as an identifier and a second field, flat, which is what this
+        // row is recorded as - and Barbatos.SecsGem.Gem has served it since stream 7 went in.
+        Assert.True(SecsCatalog.TryGetMessage(7, 6, out var programData));
+        Assert.Equal(2, programData!.DataItems.Count);
+        Assert.Equal(2, rows[36].DataItems.Count);
+
+        // Second, a reply with no acknowledgement item says "no" with a zero-length body, which is
+        // not an invention here either: five served rows do it, in three packages, and each of
+        // their primaries asks about one thing exactly as S15F35 does.
+        foreach (var (stream, function) in new (byte, byte)[] { (7, 6), (7, 26), (6, 16), (6, 20), (6, 28) })
+        {
+            Assert.True(SecsCatalog.TryGetMessage(stream, function, out var reply), $"S{stream}F{function}");
+            Assert.DoesNotContain("ACKC7", reply!.DataItems);
+            Assert.DoesNotContain("ACKC6", reply.DataItems);
+        }
     }
 
     [Fact]
@@ -447,12 +466,12 @@ public sealed class SecsCatalogStream15Tests
         Assert.Equal("Recipe Delete Request", nineteen[11].Name);
 
         // And the contested range is only the first twenty functions, because stream 19 stops
-        // there. Five of this package's thirteen pairs - the copy, the lock, the unlock, the
-        // select and the operation abort - are outside it altogether, where it was two of nine
-        // before the rename and the copy went in.
+        // there. Six of this package's fourteen pairs - the copy, the lock, the unlock, the
+        // select, the current recipe and the operation abort - are outside it altogether, where it
+        // was two of nine before the rename and the copy went in.
         Assert.Equal(20, nineteen.Count);
         Assert.Equal(54, fifteen.Count);
-        Assert.Equal<byte[]>([21, 23, 25, 31, 53], [.. Implemented.Where(function => function > 20)]);
+        Assert.Equal<byte[]>([21, 23, 25, 31, 35, 53], [.. Implemented.Where(function => function > 20)]);
     }
 
     private static string Sorted(string name) => string.Concat(name.Order());

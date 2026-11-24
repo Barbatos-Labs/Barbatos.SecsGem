@@ -422,6 +422,62 @@ internal static class RecipeCodec
         return true;
     }
 
+    /// <summary>S15F36 - <c>L,2 { RCPID, RCPVER }</c>, or <c>L,0</c> for nothing selected.</summary>
+    /// <remarks>
+    /// <strong>Flat, and read off S7F6.</strong> The reference records this reply as two items and
+    /// no nesting, and the only served row anywhere here with the same recording is the process
+    /// program request's reply - an identifier and a second field, flat. The empty list is the
+    /// whole of "nothing is selected", which this row has no acknowledgement item to say any other
+    /// way: S7F6, S7F26, S6F16, S6F20 and S6F28 all refuse the same way.
+    /// </remarks>
+    internal static SecsItem CurrentReplyBody(string recipeId, RecipeVersion? version)
+        => SecsItem.L(
+            SecsItem.A(recipeId).Named("RCPID"),
+            (version?.Decode() ?? SecsItem.L()).Named("RCPVER"));
+
+    /// <summary>Reads S15F36.</summary>
+    /// <remarks>
+    /// A zero-length body is nothing selected and reads as <see langword="false"/> with no
+    /// identifier - not as a selection with an empty name, which would tell a host the machine is
+    /// set up to run something called "". A body with an identifier and no second item reads as a
+    /// selection with no version, because a machine that keeps no versions has none to send and
+    /// S15F36 has no code to say so with.
+    /// </remarks>
+    internal static bool TryReadCurrentReply(SecsItem? body, out string? recipeId, out RecipeVersion? version)
+    {
+        recipeId = null;
+        version = null;
+
+        if (body is null || !body.IsList || body.Count == 0)
+        {
+            return false;
+        }
+
+        var first = body.Items[0];
+
+        if (!first.Format.IsText())
+        {
+            return false;
+        }
+
+        recipeId = first.Count == 0 ? string.Empty : first.GetString().TrimEnd();
+
+        if (body.Count > 1)
+        {
+            var carried = body.Items[1];
+
+            // The same reading the lock token gets: an empty list is how this end writes "no
+            // version", and anything else is kept as it came. What a version is inside is the
+            // machine's business.
+            if (!carried.IsList || carried.Count > 0)
+            {
+                version = RecipeVersion.From(carried);
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>S15F25 - <c>L,3 { RCPSPEC, RCPID, RCPLOCKID }</c>.</summary>
     /// <remarks>S15F7's body, with the token where the recipe goes.</remarks>
     internal static SecsItem UnlockBody(string recipeNamespace, string recipeId, RecipeLockToken token)

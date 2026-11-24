@@ -45,6 +45,7 @@ the README on the name collision between the two.
 | `ValueTask<RecipeAcknowledgement> RenameAsync(string recipeNamespace, string recipeId, string newRecipeId, CancellationToken = default)` | S15F19. **One namespace, two identifiers**, because the row carries one `RCPSPEC` where the copy carries two - so a rename stays where the recipe is. `RCPIDNEW` is undefined and carried anyway: both of its readings are an `A[n]`, the live `RCPID` beside it in the body and the unused `RCPNEWID` it is an anagram of, so the rivalry puts no byte in doubt. |
 | `ValueTask<RecipeAcknowledgement> CopyAsync(string sourceNamespace, string sourceId, string destinationNamespace, string destinationId, CancellationToken = default)` | S15F21. Never leaves the machine, which is the point of having it. `RCPSPECDST` and `RCPIDDST` each extend a defined name two positions earlier in the same body and **neither has a competing definition anywhere**, which makes this the firmest of the package's three inferences. |
 | `ValueTask<(RecipeAcknowledgement Acknowledgement, RecipeLockToken? Token)> LockAsync(string recipeNamespace, string recipeId, CancellationToken = default)` | S15F23. The token is `null` when the machine refused, and - **with a warning in the log** - when it accepted and sent none, which leaves a host holding a lock it cannot release. **Keep the token:** S15F25 is the only way back and stream 15 has no message that asks what locks a machine holds. |
+| `ValueTask<(string RecipeId, RecipeVersion? Version)?> RequestCurrentRecipeAsync(string recipeNamespace, CancellationToken = default)` | S15F35. **The read-back of `SelectAsync`, and the only one this stream has**: a host that restarts has no record of what the machine is set up to run, and sending S15F31 again would change the selection rather than report it. `null` is nothing selected, which S15F36 says with a zero-length body because it carries no `RMACK` - so this is the one method here that throws no `SecsException` for a body with nothing in it. A `Version` of `null` means the machine sent none, which is a different fact and a different body. |
 | `ValueTask<RecipeAcknowledgement> UnlockAsync(string recipeNamespace, string recipeId, RecipeLockToken token, CancellationToken = default)` | S15F25. The token goes back out as the item it came in, which is what makes an undefined name safe here: the machine that minted it is the only end that has to understand it. No code for "wrong token" - S15F26 carries one `RMACK`. |
 
 Every method throws `SecsException` when the reply carried no `RMACK`, including when the item
@@ -62,7 +63,7 @@ Takes **no connection**: it has no primary to send.
 | Member | Notes |
 | --- | --- |
 | `RecipeEquipment(IRecipeStore store, ILogger<RecipeEquipment>? logger = null)` | Throws `ArgumentNullException` for a null store. |
-| `static IReadOnlyList<(byte Stream, byte Function)> HandledMessages` | S15F1, F5, F7, F9, F13, F15, F17, F19, F21, F23, F25, F31 and F53 - **thirteen** of stream 15's twenty-seven pairs. Nine are made entirely of defined items; the other four carry one undefined name each. **Five of the thirteen lie outside the function range stream 19 reaches at all**, where it was two of nine before the rename and the copy went in. |
+| `static IReadOnlyList<(byte Stream, byte Function)> HandledMessages` | S15F1, F5, F7, F9, F13, F15, F17, F19, F21, F23, F25, F31, F35 and F53 - **fourteen** of stream 15's twenty-seven pairs. Nine are made entirely of defined items; the other five carry one undefined name each. **Six of the fourteen lie outside the function range stream 19 reaches at all**, where it was two of nine before the rename and the copy went in. |
 | `ValueTask HandleAsync(SecsTransaction transaction, CancellationToken = default)` | Answers one of the thirteen. The store is asked **before** the reply bit is looked at, so a recipe sent without it is still stored. |
 
 A body this end cannot read is answered `Rejected` **and logged**. The log is the only place the
@@ -73,7 +74,7 @@ the same byte.
 
 ### `IRecipeStore`
 
-**Thirteen** methods, one per pair. Each is awaited inside the transaction the host is waiting on.
+**Fourteen** methods, one per pair. Each is awaited inside the transaction the host is waiting on.
 
 **Nine have no body and four do**, and the line between them is when they arrived rather than what
 they do: the nine shipped with this interface, and the rename, the copy, the lock and the unlock are
@@ -93,6 +94,7 @@ default implementations that refuse, so a store written against the nine still c
 | `ValueTask<RecipeAcknowledgement> RenameAsync(string recipeNamespace, string recipeId, string newRecipeId, CancellationToken)` | S15F19. **Defaulted: refuses.** The rename stays inside `recipeNamespace`, because the row carries one `RCPSPEC`. |
 | `ValueTask<RecipeAcknowledgement> CopyAsync(string sourceNamespace, string sourceId, string destinationNamespace, string destinationId, CancellationToken)` | S15F21. **Defaulted: refuses.** |
 | `ValueTask<(RecipeAcknowledgement Acknowledgement, RecipeLockToken? Token)> LockAsync(string recipeNamespace, string recipeId, CancellationToken)` | S15F23. **Defaulted: refuses.** A store that accepts and returns no token leaves S15F24 carrying a code and an empty item, which a host reads as a lock it cannot release - return one or refuse. What a lock *means* is the store's too: nothing in stream 15 says a locked recipe cannot be deleted. |
+| `ValueTask<(string RecipeId, RecipeVersion? Version)?> CurrentAsync(string recipeNamespace, CancellationToken)` | S15F35. **Defaulted: answers `null`** - and not a refusal, because S15F36 has no code to refuse with. Per namespace, since S15F35 carries one `RCPSPEC` and asks about it: a selection somewhere else is not this namespace's answer. `RecipeInMemoryStore` reports no version, which is honest rather than incomplete - nothing in stream 15 *sets* a recipe's version, so a store holding only what the wire gave it has none. |
 | `ValueTask<RecipeAcknowledgement> UnlockAsync(string recipeNamespace, string recipeId, RecipeLockToken token, CancellationToken)` | S15F25. **Defaulted: refuses.** The token comes back as the item it went out as, so compare it with `RecipeLockToken.Matches` or against whatever the store keeps beside its own locks. |
 | `ValueTask<RecipeAcknowledgement> AbortAsync(string recipeNamespace, string recipeId, CancellationToken)` | S15F53. |
 
@@ -168,6 +170,40 @@ it, and the nearest definition is a `BOOLEAN` where a name would be text.
 | `static RecipeLockToken FromText(string token)` | Mints one as an `A[n]`. **Text is the store's choice and not the reference's**; nothing in this package depends on the format. |
 | `SecsItem? Decode()` | A fresh item, the caller's to dispose, or `null` when there are no bytes. |
 | `bool Matches(RecipeLockToken? other)` | Whether the encoded bytes are identical. **The bytes are the whole comparison**, because there is no defined format to canonicalise: a host that hands back the item it was given matches, and one that re-encoded the value in another format does not - which is the right answer, since nothing says the two mean the same thing. |
+
+### `RecipeVersion`
+
+`sealed class RecipeVersion`
+
+A recipe's version - `RCPVER` - as the **encoded item that carried it**, which is
+`RecipeLockToken`'s shape and deliberately a second type rather than a shared one: a lock and a
+version are different things to a host, and a type called a lock carrying a version would be worse
+than two that each say what they hold.
+
+**`RCPVER` is undefined and its only rival is shared.** The dictionary has one version item,
+`RCPVERS`, an `A[n]` that no message names - and S15F45 needs *two* distinct version formats from
+it, which is why the revision compare stays out. Here there is one version, so a format could be
+read off that rival; the item is carried untouched anyway, because a version is the machine's own
+string and nothing in this library has a use for its value.
+
+**Carried opaquely although it travels the way an owner does**, which is worth stating because that
+direction is what keeps S15F49 out. An owner is a field the far end must *parse* to act on, and its
+two readings put different bytes out. A version is a label: a host prints it, or compares it with
+`Matches`, and neither needs a format. That is `V`'s position in stream 6, which
+`Barbatos.SecsGem.Gem` carries untouched in six rows.
+
+| Member | Notes |
+| --- | --- |
+| `ReadOnlyMemory<byte> Encoded { get; }` | The encoded item, as it crossed the wire. |
+| `SecsFormat? Format { get; }` | The format that arrived, when known. |
+| `int? Count { get; }` | How many values the item carried, when known. |
+| `bool IsEmpty { get; }` | No bytes, or an item carrying no values - the second of which is what a machine keeping no version puts on the wire. |
+| `static RecipeVersion From(SecsItem item)` | Keeps an item by encoding it. One copy; the item stays the caller's to dispose. |
+| `static RecipeVersion FromEncoded(ReadOnlyMemory<byte> encoded, SecsFormat? format = null, int? count = null)` | Wraps bytes that are already an encoded item, without copying. |
+| `static RecipeVersion FromText(string version)` | Keeps one as an `A[n]` - the reading `RCPVERS` would give, which makes it a small choice rather than a free one. |
+| `SecsItem? Decode()` | A fresh item, the caller's to dispose, or `null` when there are no bytes. |
+| `bool Matches(RecipeVersion? other)` | Whether the encoded bytes are identical. |
+| `string ToString()` | **The text, when it arrived as text** - unlike a lock token, a version is something a person reads. Otherwise the format and the encoded length. |
 
 ## Codes
 

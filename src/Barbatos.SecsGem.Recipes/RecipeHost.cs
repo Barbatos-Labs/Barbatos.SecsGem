@@ -470,6 +470,66 @@ public sealed class RecipeHost
         CancellationToken cancellationToken = default)
         => NamedAsync(31, "RecipeSelectRequest", "S15F32", recipeNamespace, recipeId, cancellationToken);
 
+    /// <summary>Asks which recipe of a namespace is selected - S15F35, answered by S15F36.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>
+    /// The selected recipe's identifier and its version, or <see langword="null"/> when nothing is
+    /// selected in that namespace.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="recipeNamespace"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>The read-back of <see cref="SelectAsync"/>, and the only one this stream has.</strong>
+    /// A host that restarts has no record of what the machine is set up to run, and sending S15F31
+    /// again would change the selection rather than report it - the argument that served S6F27 for
+    /// S2F35's link table and S7F35 for the formatted programs' directory.
+    /// </para>
+    /// <para>
+    /// <strong>No exception for a body that carries nothing</strong>, unlike every other method
+    /// here: S15F36 has no <c>RMACK</c> to be missing, so a zero-length body is an answer rather
+    /// than a fault - it is how the row says nothing is selected. A machine that could not read the
+    /// request answers the same way and logs it at its own end, which is the shape of every reply
+    /// in this repository with no acknowledgement item in it.
+    /// </para>
+    /// <para>
+    /// The version comes back as <see cref="RecipeVersion"/>: <c>RCPVER</c> is undefined and is
+    /// carried untouched. <see langword="null"/> means the machine sent none, which a store that
+    /// keeps no versions does - a different fact from nothing being selected, and a different body.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<(string RecipeId, RecipeVersion? Version)?> RequestCurrentRecipeAsync(
+        string recipeNamespace,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+
+        using var reply = await ExchangeAsync(
+            new SecsMessage(15, 35, replyExpected: true)
+            {
+                Name = "CurrentRecipeRequest",
+                Item = SecsItem.A(recipeNamespace).Named("RCPSPEC"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!RecipeCodec.TryReadCurrentReply(reply.Item, out var recipeId, out var version) || recipeId is null)
+        {
+            return null;
+        }
+
+        if (recipeId.Length == 0)
+        {
+            // An identifier that is there and empty is a machine saying something this row has no
+            // way to mean. Logged rather than returned as a selection called "", because a host
+            // acting on that would ask about a recipe nobody has.
+            _logger.LogWarning("S15F36 carried an empty RCPID, which is neither a selection nor nothing selected.");
+
+            return null;
+        }
+
+        return (recipeId, version);
+    }
+
     /// <summary>Aborts a recipe operation - S15F53, answered by S15F54.</summary>
     /// <param name="recipeNamespace">Which namespace.</param>
     /// <param name="recipeId">Which recipe.</param>

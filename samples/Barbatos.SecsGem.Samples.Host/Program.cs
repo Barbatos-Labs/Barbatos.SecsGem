@@ -2583,6 +2583,20 @@ internal static class Program
 
             Console.WriteLine($"   S15F31 -> RMACK={await recipes.Host.SelectAsync("DEV", "ETCH-8", cancellationToken)}");
 
+            // And the read-back of that select, which is the one this stream has: a host that
+            // restarts has no record of what the machine is set up to run, and sending S15F31
+            // again would change the selection rather than report it. Nothing selected is a
+            // zero-length body, because S15F36 carries no RMACK to say no with.
+            var selected = await recipes.Host.RequestCurrentRecipeAsync("DEV", cancellationToken);
+
+            Console.WriteLine($"   S15F35 -> {selected?.RecipeId ?? "nothing selected"} in DEV");
+            ok &= selected?.RecipeId == "ETCH-8";
+
+            Console.WriteLine(
+                $"   S15F35 -> {(await recipes.Host.RequestCurrentRecipeAsync("PROD", cancellationToken))?.RecipeId ?? "nothing selected"} in PROD");
+
+            ok &= await recipes.Host.RequestCurrentRecipeAsync("PROD", cancellationToken) is null;
+
             // The guard that matters most: S15F17 names no recipe, so deleting a namespace that
             // still holds one would take a whole directory with a single message. The in-memory
             // store refuses, which is its own choice - RMACK has no code to explain it.

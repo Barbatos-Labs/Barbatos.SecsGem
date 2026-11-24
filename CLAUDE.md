@@ -41,7 +41,7 @@ Core  <-  Hsms  <-  Gem
                                capability, serve one or the other - and declaring two rows of
                                seventeen would answer S9F5 for the other fifteen functions where
                                leaving the stream alone answers S9F3.
-                               Thirteen of twenty-seven pairs. Nine have a primary and a reply made
+                               Fourteen of twenty-seven pairs. Nine have a primary and a reply made
                                entirely of defined items - which is what overturned chapter 42's
                                sweep of this stream into stream 19's refusal, since stream 19 has
                                none and provenance is not a veto. The body is PPBODY, stream 7's
@@ -53,7 +53,13 @@ Core  <-  Hsms  <-  Gem
                                reports a relation and was read as a verdict: RCPIDNEW, RCPSPECDST
                                and RCPIDDST each extend a name that is IN THE SAME BODY two
                                positions earlier, and RCPLOCKID is a lock token the machine mints
-                               and reads back, carried as the encoded item. The fourteen still out
+                               and reads back, carried as the encoded item. The FIFTEENTH went in
+                               later and on a shape rather than an item: S15F36 is the current
+                               recipe, two items and no acknowledgement, and the sibling a nesting
+                               comes from need not be in this package - S7F6 is an identifier and a
+                               second field, flat. Its RCPVER is carried untouched where S15F49's
+                               owner could not be, because a version is a label a host prints and
+                               an owner is a field the far end must parse. The thirteen still out
                                are refused one of four ways and the README gives them row by row.
                                Only stream here with a TWO-LEVEL space, so the store checks the
                                namespace at the grant AND at the send, and refuses to delete one
@@ -238,7 +244,7 @@ neither is a prefix of the other - there are **ten** of those, seven of them rec
 are what keeps seven of stream 15's pairs out, because `RCPATTRVAL` against `RCPATTRDATA` and
 `RCPOWNER` against `RCPOWCODE` are readings that DIFFER: a list against text, text against a
 BOOLEAN. Ask `i.Streams` as well, which is what found the front-extension one. There are eight
-rivals in twenty streams and every one is a recipe name, which is why stream 15 ships thirteen pairs
+rivals in twenty streams and every one is a recipe name, which is why stream 15 ships fourteen pairs
 of twenty-seven and why it shipped only nine for six chapters.
 
 `Provenance.DetailedUnusedDefinitions` is the companion:
@@ -290,7 +296,7 @@ of its last ten - so **every row of every stream has either been served or refus
 the record**, and there is nothing left that nobody has argued about. What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned
 already - stream 4's job half, stream 7's command cancel, formatted directory and matrix family,
-four pairs of stream 15, stream 1's material transfer status and stream 6's notification report.
+five pairs of stream 15, stream 1's material transfer status and stream 6's notification report.
 
 **A refusal with two reasons needs both of them re-read, and the weaker one is usually the one
 that was doing the work.** S1F9/F10 had two. The first was an item argument and wrong the way
@@ -433,8 +439,18 @@ S6F11, by S6F13 and - in S6F25's own family - by S6F28, and by none of that fami
 rows, which also kills the reading that would have given the row a list of identifiers. So
 **compare a row with the sibling that plays the same part in its pair, and make the odd one explain
 itself**; where nothing explains it the shape really is open. S6F25/F26 is served, and S7F35 one
-chapter later, so **no refusal anywhere here rests on a shape any more** - stream 6 is down to the
-two rows whose own flag is undefined, and stream 7 to the matrix family and the reference send.
+chapter later, so **no refusal among the gap-free rows rests on a shape any more** - which is not
+the same as none anywhere, and the first draft of this paragraph said the stronger thing. Stream 15
+had three shape refusals of its own, all on rows that carry an item gap as well, and the current
+recipe was one of them.
+
+**A shape needs a size, which is what that chapter found.** S15F36 is a flat body of two items and
+has one reading; stream 15's directory and revision history are **lists of entries**, and a list has
+as many readings as there are nestings - which is why those two are still out while the current
+recipe went in. The other half of the same finding: **a reply with no acknowledgement item says no
+with a zero-length body**, and that is not an invention anywhere - S7F6, S7F26, S6F16, S6F20 and
+S6F28 all do it, in three packages. A refusal that says "there is no way to read no" has to count
+those first.
 
 **An undefined item's format is sometimes stated elsewhere and sometimes not, and the difference is
 worth checking before inventing anything.** Stream 8's `CPBODY` has no definition, so

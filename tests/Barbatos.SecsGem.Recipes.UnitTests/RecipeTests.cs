@@ -391,9 +391,12 @@ public class RecipeTests
             RecipeLockToken.FromText("LOCK-1"),
             RecipePair.Token);
 
+        // The read-back, which is the one row here whose reply carries no acknowledgement at all.
+        await pair.Host.RequestCurrentRecipeAsync("PROD", RecipePair.Token);
+
         await pair.Host.DeleteNamespaceAsync("PROD", RecipePair.Token);
 
-        // "Every" asserted rather than claimed: thirteen methods, thirteen declared primaries,
+        // "Every" asserted rather than claimed: fourteen methods, fourteen declared primaries,
         // and the host half declares none of its own.
         Assert.Equal(
             [.. RecipeEquipment.HandledMessages.Order()],
@@ -401,15 +404,16 @@ public class RecipeTests
     }
 
     [Fact(Timeout = 15_000)]
-    public void The_equipment_declares_thirteen_of_the_twenty_seven_pairs()
+    public void The_equipment_declares_fourteen_of_the_twenty_seven_pairs()
     {
-        Assert.Equal(13, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(14, RecipeEquipment.HandledMessages.Count);
 
-        // Nine whose primary and reply are made entirely of defined items, and four that carry
-        // exactly one undefined name - the rename, the copy, the lock and the unlock. Both figures
-        // are measured in SecsCatalogStream15Tests and neither is asserted from memory.
+        // Nine whose primary and reply are made entirely of defined items, four that carry exactly
+        // one undefined name - the rename, the copy, the lock and the unlock - and the current
+        // recipe, which carries one undefined name too and went in on a shape rather than on an
+        // item. The figures are measured in SecsCatalogStream15Tests and none is from memory.
         Assert.Equal<byte[]>(
-            [1, 5, 7, 9, 13, 15, 17, 19, 21, 23, 25, 31, 53],
+            [1, 5, 7, 9, 13, 15, 17, 19, 21, 23, 25, 31, 35, 53],
             [.. RecipeEquipment.HandledMessages.Select(pair => pair.Function)]);
 
         Assert.All(RecipeEquipment.HandledMessages, pair => Assert.Equal(15, pair.Stream));

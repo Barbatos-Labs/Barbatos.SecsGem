@@ -57,7 +57,7 @@ public class RecipeHostingTests
             Assert.NotNull(handler);
         }
 
-        Assert.Equal(13, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(14, RecipeEquipment.HandledMessages.Count);
     }
 
     [Fact(Timeout = 15_000)]
@@ -75,19 +75,19 @@ public class RecipeHostingTests
     }
 
     [Fact(Timeout = 15_000)]
-    public async Task The_fourteen_pairs_this_package_leaves_out_are_not_claimed()
+    public async Task The_thirteen_pairs_this_package_leaves_out_are_not_claimed()
     {
         await using var provider = BuildEquipment();
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
-        // Every primary stream 15 has that is not one of the thirteen. It was eighteen until the
-        // rename, the copy, the lock and the unlock went in - and those four left for a reason
-        // that had never been stated right: the rival measure records whether the definition being
-        // rivalled is one the messages use, and in all three of those rows it is, two positions
-        // earlier in the same body. What keeps these fourteen out is measured in
-        // SecsCatalogStream15Tests and not asserted from memory.
-        foreach (byte function in (byte[])[3, 11, 27, 29, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51])
+        // Every primary stream 15 has that is not one of the fourteen. It was eighteen until the
+        // rename, the copy, the lock and the unlock went in, and fourteen until the current recipe
+        // did - and each of those left for a reason that had never been stated right. The last one
+        // was a shape: no row here answered a request with a multi-item body and no
+        // acknowledgement, which is true of this package and was never true of the repository.
+        // What keeps these thirteen out is measured in SecsCatalogStream15Tests.
+        foreach (byte function in (byte[])[3, 11, 27, 29, 33, 37, 39, 41, 43, 45, 47, 49, 51])
         {
             Assert.False(
                 router.TryGetHandler(15, function, out _),

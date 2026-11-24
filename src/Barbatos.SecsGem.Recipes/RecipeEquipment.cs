@@ -67,6 +67,7 @@ public sealed class RecipeEquipment
         (15, 23),   // Recipe Lock Request
         (15, 25),   // Recipe Unlock Request
         (15, 31),   // Recipe Select Request
+        (15, 35),   // Current Recipe Request
         (15, 53),   // Recipe Operation Abort Request
     ];
 
@@ -120,6 +121,7 @@ public sealed class RecipeEquipment
             23 => await OnLockAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             25 => await OnUnlockAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             31 => await OnSelectAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            35 => await OnCurrentAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             53 => await OnAbortAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             _ => null,
         };
@@ -337,6 +339,38 @@ public sealed class RecipeEquipment
             .ConfigureAwait(false);
 
         return Reply(32, "RecipeSelectAcknowledge", RecipeCodec.CodeItem(acknowledgement));
+    }
+
+    /// <summary>Answers S15F35 with the selected recipe of one namespace, or with nothing.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The one reply in this package with no acknowledgement item</strong>, which is why the
+    /// row was refused for a dozen chapters and what the refusal got wrong. A reply that cannot say
+    /// "no" in a code says it with a zero-length body, and five served rows of this repository
+    /// already do - S7F6, S7F26, S6F16, S6F20 and S6F28. The nesting is S7F6's: an identifier and
+    /// a second field, flat, which is how the reference records both.
+    /// </para>
+    /// <para>
+    /// A request this end could not read is answered the same way, because the row has no code to
+    /// tell it from nothing being selected. The log is where the two differ, which is the shape
+    /// every reply without an acknowledgement is in.
+    /// </para>
+    /// </remarks>
+    private async ValueTask<SecsMessage> OnCurrentAsync(SecsMessage message, CancellationToken cancellationToken)
+    {
+        if (!RecipeCodec.TryReadNamespace(message.Item, out var recipeNamespace))
+        {
+            _logger.LogWarning(
+                "S15F35 arrived with a body this end could not read as a namespace; answering an empty body.");
+
+            return Reply(36, "CurrentRecipeData", SecsItem.L());
+        }
+
+        var selected = await _store.CurrentAsync(recipeNamespace, cancellationToken).ConfigureAwait(false);
+
+        return selected is { } current
+            ? Reply(36, "CurrentRecipeData", RecipeCodec.CurrentReplyBody(current.RecipeId, current.Version))
+            : Reply(36, "CurrentRecipeData", SecsItem.L());
     }
 
     private async ValueTask<SecsMessage> OnAbortAsync(SecsMessage message, CancellationToken cancellationToken)

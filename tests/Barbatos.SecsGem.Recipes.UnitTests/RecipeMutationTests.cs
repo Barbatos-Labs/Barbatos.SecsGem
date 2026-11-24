@@ -809,14 +809,14 @@ public sealed class RecipeMutationTests
         Assert.False(RecipeLockToken.From(blank).Encoded.IsEmpty);
     }
 
-    // ----------------------------------------------------- the four defaulted members
+    // ----------------------------------------------------- the five defaulted members
 
     [Fact(Timeout = 15_000)]
-    public async Task A_store_written_against_the_nine_members_still_compiles_and_refuses_the_four()
+    public async Task A_store_written_against_the_nine_members_still_compiles_and_refuses_the_five()
     {
         IRecipeStore store = new NineMemberStore();
 
-        // The four that arrived after this interface shipped are default implementations, so a
+        // The five that arrived after this interface shipped are default implementations, so a
         // store written against the first nine is not broken by them - and the default is the
         // refusal E5 has a code for, rather than an exception, because a machine that will not
         // rename a recipe is saying no and not failing.
@@ -836,6 +836,11 @@ public sealed class RecipeMutationTests
         Assert.Equal(
             RecipeAcknowledgement.Rejected,
             await store.UnlockAsync("PROD", "ETCH-7", RecipeLockToken.FromText("LOCK-1"), RecipePair.Token));
+
+        // The fifth has no acknowledgement to refuse with - S15F36 carries none - so its default
+        // is the other shape a reply without a code has: nothing selected, which goes out as a
+        // zero-length body rather than as a refusal.
+        Assert.Null(await store.CurrentAsync("PROD", RecipePair.Token));
     }
 
     /// <summary>The body five rows of this stream share, built here because the codec is internal.</summary>

@@ -232,6 +232,41 @@ public interface IRecipeStore
         RecipeLockToken token,
         CancellationToken cancellationToken)
         => ValueTask.FromResult(RecipeAcknowledgement.Rejected);
+
+    /// <summary>Reports which recipe of a namespace is selected - S15F35.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>
+    /// The selected recipe's identifier and its version, or <see langword="null"/> when nothing is
+    /// selected in that namespace. The default answers <see langword="null"/>.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The read-back of <see cref="SelectAsync"/>, and the reason this row went in.</strong>
+    /// A host that restarts, or one that took over from another, has no record of what the machine
+    /// is set up to run, and sending S15F31 again would change the selection rather than report it.
+    /// That is the argument that served S6F27 for S2F35's link table and S7F35 for the formatted
+    /// half's directory.
+    /// </para>
+    /// <para>
+    /// <strong>Nothing selected is a zero-length body on the wire</strong>, because S15F36 carries
+    /// no acknowledgement item - the same convention S7F6, S7F26, S6F16, S6F20 and S6F28 use, and
+    /// the reason this row's shape was readable after all. The refusal it replaces said no served
+    /// row of this package answers a request with a multi-item body and no acknowledgement, which
+    /// is true of this package and was never true of the repository: S7F6 is a <c>PPID</c> and a
+    /// <c>PPBODY</c>, flat, and this body is an identifier and a second field exactly like it.
+    /// </para>
+    /// <para>
+    /// <c>RCPVER</c> is undefined and is carried untouched - see <see cref="RecipeVersion"/> for why
+    /// that loses nothing here where S15F49's owner could not be carried at all. A store that keeps
+    /// no versions answers with a null one and the row sends a zero-length item, which is a
+    /// different fact from nothing being selected and arrives as a different body.
+    /// </para>
+    /// </remarks>
+    ValueTask<(string RecipeId, RecipeVersion? Version)?> CurrentAsync(
+        string recipeNamespace,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult<(string, RecipeVersion?)?>(null);
 }
 
 /// <summary>
@@ -736,5 +771,31 @@ public sealed class RecipeInMemoryStore : IRecipeStore
         _locks.TryRemove((recipeNamespace, recipeId), out _);
 
         return ValueTask.FromResult(RecipeAcknowledgement.Accepted);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <strong>No version, and that is the honest answer rather than a gap.</strong> Nothing in
+    /// stream 15 <em>sets</em> a recipe's version - the download carries a namespace, an identifier
+    /// and a body, and that is all - so a store that only holds what the wire gave it has no
+    /// version to report. It answers with the identifier and a null version, which goes out as a
+    /// zero-length item. An application whose recipes do have versions implements
+    /// <see cref="IRecipeStore.CurrentAsync"/> itself, as it would for any other fact this store
+    /// cannot know.
+    /// </remarks>
+    public ValueTask<(string RecipeId, RecipeVersion? Version)?> CurrentAsync(
+        string recipeNamespace,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Per namespace, because S15F35 carries one RCPSPEC and asks about it. A selection in
+        // another namespace is not this namespace's answer, and a host asking about an empty one
+        // must not be told about a recipe it did not ask about.
+        return ValueTask.FromResult(
+            Selected is { } selected && string.Equals(selected.Namespace, recipeNamespace, StringComparison.Ordinal)
+                ? ((string, RecipeVersion?)?)(selected.Id, null)
+                : null);
     }
 }

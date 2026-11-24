@@ -36,9 +36,10 @@ management", check the stream number before wiring anything up: the hazard is pi
 standard from a document, not an ambiguity in flight - S15F11 and S19F11 are different messages on
 the wire and nothing can confuse them there.
 
-Five of this package's thirteen pairs - the copy, the lock, the unlock, the select and the operation
-abort, F21, F23, F25, F31 and F53 - lie outside the range stream 19 reaches at all, because stream
-19 stops at F20. It was two of nine until the rename and the copy went in.
+Six of this package's fourteen pairs - the copy, the lock, the unlock, the select, the current
+recipe and the operation abort, F21, F23, F25, F31, F35 and F53 - lie outside the range stream 19
+reaches at all, because stream 19 stops at F20. It was two of nine until the rename and the copy
+went in.
 
 ## Why stream 15 is here when stream 19 was refused
 
@@ -87,7 +88,7 @@ two**. A later chapter did, and the answer is the reason stream 20 is still refu
 they are two rows it already has, under different numbers. Which puts stream 20 in exactly the
 position `Barbatos.SecsGem.Subsystems` describes for stream 18 - one capability, two stream
 numbers, **serve one or the other** - and stream 15's is the firmer because it is whole:
-thirteen pairs here against two of seventeen there.
+fourteen pairs here against two of seventeen there.
 
 And there is a second reason, which is about what a routing table says. Declaring two rows of
 stream 20 would make the connection answer **S9F5** for the other fifteen functions - "I do stream
@@ -309,10 +310,30 @@ if (locked == RecipeAcknowledgement.Accepted)
 about what it stops - `RecipeInMemoryStore` refuses a download, a delete and a rename while a recipe
 is locked, and another machine may not. Nothing on the wire says which.
 
+And asking what the machine is set up to run, which is the one read-back this stream has:
+
+```csharp
+await host.SelectAsync("PROD", "ETCH-7", token);                        // S15F31
+
+if (await host.RequestCurrentRecipeAsync("PROD", token) is { } current)  // S15F35
+{
+    Console.WriteLine($"{current.RecipeId} {current.Version}");          // ETCH-7
+}
+```
+
+**`null` is nothing selected**, and it is the only answer S15F36 has for it: that reply carries no
+`RMACK`, so a zero-length body is how the row says no - the convention S7F6, S7F26, S6F16, S6F20
+and S6F28 all use. Which makes this the one host method here that does not throw for a body with
+nothing in it.
+
+**The version is `RCPVER`, carried untouched**, because the reference never defines it - see
+[`RecipeVersion`](API-REFERENCE.md#recipeversion). A `null` version is a machine that keeps none,
+which is a different fact from nothing being selected and arrives as a different body;
+`RecipeInMemoryStore` always answers that way, since nothing in stream 15 *sets* a recipe's version.
+
 And the rest:
 
 ```csharp
-await host.SelectAsync("PROD", "ETCH-7", token);         // S15F31 - selecting is not running
 await host.AbortAsync("PROD", "ETCH-7", token);          // S15F53 - aborting is not deleting
 await host.DeleteAsync("PROD", "ETCH-7", token);         // S15F13
 await host.DeleteNamespaceAsync("PROD", token);          // S15F17 - the dangerous one
@@ -327,26 +348,29 @@ services
     .AddRecipeEquipment();          // or AddRecipeEquipment<MyStore>()
 ```
 
-`IRecipeStore` is thirteen methods, one per pair: `ListNamespacesAsync`, `CreateNamespaceAsync`,
+`IRecipeStore` is fourteen methods, one per pair: `ListNamespacesAsync`, `CreateNamespaceAsync`,
 `DeleteNamespaceAsync`, `RequestDownloadAsync`, `SaveAsync`, `LoadAsync`, `DeleteAsync`,
-`SelectAsync`, `AbortAsync`, `RenameAsync`, `CopyAsync`, `LockAsync`, `UnlockAsync`. Each is awaited
+`SelectAsync`, `AbortAsync`, `RenameAsync`, `CopyAsync`, `LockAsync`, `UnlockAsync`,
+`CurrentAsync`. Each is awaited
 inside the transaction the host is waiting on, so none should be slow - writing a recipe to flash
 while a host holds its T3 open is how a download times out.
 
-**Nine of the thirteen have no body and four do**, and the line between them is when they arrived
-rather than what they do. The nine shipped with this interface; the rename, the copy, the lock and
-the unlock came later, so they are default implementations that refuse and **a store written against
-the nine still compiles**. The default is `Rejected`, which is also the honest answer: a machine that
-will not rename a recipe says so with the one refusal code S15F20 has, and E5 has no code for "I do
-not implement this".
+**Nine of the fourteen have no body and five do**, and the line between them is when they arrived
+rather than what they do. The nine shipped with this interface; the rename, the copy, the lock, the
+unlock and the current recipe came later, so they are default implementations and **a store written
+against the nine still compiles**. For four of the five the default is `Rejected`, which is also the
+honest answer: a machine that will not rename a recipe says so with the one refusal code S15F20
+has, and E5 has no code for "I do not implement this". `CurrentAsync` has no code to refuse with at
+all - S15F36 carries none - so its default is the other shape that row has, nothing selected.
 
 A recipe read off the wire is **copied** before it reaches the store, because the item it arrived in
 borrows pooled memory and is released with its message.
 
 ### Seven rules `RecipeInMemoryStore` makes up
 
-Eleven of the thirteen replies carry one `RMACK` and no way to say why, so every refusal looks like
-every other on the wire. Each of these is therefore tested against the store, where the *reason* can
+Ten of the fourteen replies carry one `RMACK` and nothing else, and two more carry one beside a
+payload - so every refusal looks like every other on the wire. The remaining two carry no
+acknowledgement at all: S15F2 is a list of namespaces and S15F36 is the current recipe. Each of these is therefore tested against the store, where the *reason* can
 be pinned:
 
 - **A download must be granted before it is sent**, and the grant is keyed on the namespace *and*
@@ -396,11 +420,21 @@ among the fourteen left out.
 An `RMACK` item carrying **no value** throws rather than falling through to a zero. Zero means
 accepted, so a machine that sent `B,0` said nothing, and nothing is not yes.
 
-## The fourteen pairs that are not here, row by row
+## The thirteen pairs that are not here, row by row
 
-Four reasons, and each row is refused by one of them. **Not one of the fourteen is refused for being
+Four reasons, and each row is refused by one of them. **Not one of the thirteen is refused for being
 undefined**, which was the shape of the old list and was never the argument: three packages here
-carry an undefined field untouched, and four rows of this one now do.
+carry an undefined field untouched, and five rows of this one now do.
+
+It was fourteen until the current recipe went in, and that row is worth a paragraph here for what it
+was refused over. **A shape needs a size.** S15F36 is two items and no acknowledgement, and the
+refusal said no served row of this package had that shape - true, and the sibling a nesting comes
+from need not be in this package: S7F6 is an identifier and a second field, flat, recorded exactly
+as this row is. The other half, that there was no way to read "nothing is selected", is answered by
+five served rows in three packages - **a reply with no acknowledgement item says no with a
+zero-length body**. What is still refused on a shape here is the directory and the revision history,
+and those are lists of entries: a flat body of two items has one reading, where a list of entries
+has as many readings as there are nestings.
 
 | | the reason | and what it is |
 | --- | --- | --- |
@@ -408,7 +442,6 @@ carry an undefined field untouched, and four rows of this one now do.
 | **S15F11/F12** verify | nothing to read | `CHECKSUM` is defined nowhere under any spelling - see the line below |
 | **S15F27/F28, S15F29/F30, S15F51/F52** attributes | **twin disagrees** | `RCPATTRNAME`/`RCPATTRVAL` against the unused `RCPATTRID`/`RCPATTRDATA`, which say an attribute value is an `A[n]` - where E39's `ATTRDATA`, which this repository *does* serve, is a list, meaning any format at all. Two readings, different bytes |
 | **S15F33/F34** execution status | **the field is the message** | `RCPSTATE` is the whole reply, and its only twin `RCPSTAT` is a `U1[1]` **with no code table**, so even taking the spelling as a misprint there are no states to report |
-| **S15F35/F36** current recipe | **no sibling for the shape** | the gap is only `RCPVER`, which could be carried untouched - but nothing this package serves answers a request with a multi-item body carrying no acknowledgement, so there is no way to read "nothing is selected" and no row to read a nesting off |
 | **S15F37/F38** existence | **the field is the message** | `RCPEXIST` is the whole answer, so carrying it untouched leaves the library unable to tell yes from no |
 | **S15F39/F40** namespace space | **the field is the message** | `SPACEAVAIL` and `SPACETOTAL` are the whole reply, two numbers with no format and no units |
 | **S15F41/F42** auto-select | **the field is the message** | `AUTOSEL` is the flag the row turns on - `ENABLE`'s position in S14F23, which stream 14 refuses for the same reason |
@@ -430,7 +463,7 @@ what a recipe checksum is - so there is nothing to carry and nothing to compare.
 
 ## What is not here yet
 
-- A store that outlives the process. Thirteen methods, and a file behind them is an afternoon.
+- A store that outlives the process. Fourteen methods, and a file behind them is an afternoon.
 
 ## Documentation
 
