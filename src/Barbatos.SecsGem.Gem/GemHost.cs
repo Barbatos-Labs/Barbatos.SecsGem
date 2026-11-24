@@ -116,6 +116,7 @@ public sealed class GemHost : IAsyncDisposable
         (6, 1),    // Trace Data Send
         (6, 3),    // Discrete Variable Data Send
         (6, 5),    // Multi-block Data Send Inquire
+        (6, 9),    // Unformatted Data Send
         (6, 11),   // Event Report Send
         (6, 13),   // Annotated Event Report Send
 
@@ -204,6 +205,21 @@ public sealed class GemHost : IAsyncDisposable
     /// </remarks>
     public event EventHandler<GemMultiBlockInquiryEventArgs>? MultiBlockInquired;
 
+    /// <summary>Raised when the equipment sends unformatted data - S6F9.</summary>
+    /// <remarks>
+    /// <para>
+    /// Separate from <see cref="EventReportReceived"/>, which S6F3 shares with S6F11 because both
+    /// of those say an event happened. This one says nothing happened: it carries a block of data
+    /// and the identifier the machine filed it under, with no <c>CEID</c> anywhere in the row. A
+    /// host folding it onto an event report would have to invent the event.
+    /// </para>
+    /// <para>
+    /// A handler that sets nothing accepts. The data itself is a view into the inbound message and
+    /// does not outlive the handler.
+    /// </para>
+    /// </remarks>
+    public event EventHandler<GemUnformattedDataEventArgs>? UnformattedDataReceived;
+
     /// <summary>Raised when the equipment reports an error in stream 9.</summary>
     public event EventHandler<GemHostErrorEventArgs>? ErrorReported;
 
@@ -267,6 +283,7 @@ public sealed class GemHost : IAsyncDisposable
             (6, 1) => OnTraceData(transaction.Message),
             (6, 3) => OnDiscreteVariableData(transaction.Message),
             (6, 5) => OnMultiBlockInquire(transaction.Message),
+            (6, 9) => OnUnformattedData(transaction.Message),
             (6, 11) => OnEventReport(transaction.Message, 12),
             (6, 13) => OnEventReport(transaction.Message, 14),
             (7, 29) => OnProgramNotice(transaction.Message, 30),
@@ -1119,6 +1136,134 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken);
 
+    /// <summary>Asks for one report with its names and units beside the values - S6F17.</summary>
+    /// <param name="reportId">RPTID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>S6F18. <strong>The caller owns it</strong> and must dispose it.</returns>
+    /// <remarks>
+    /// <para>
+    /// The annotated twin of <see cref="RequestReportAsync"/>, and the difference is worth the
+    /// extra row: S6F20 answers with values in the order the report defines them, so a host has to
+    /// have read S2F11 or S1F12 already to know what the third number means. S6F18 answers with
+    /// each value identified and its units attached, which is enough on its own.
+    /// </para>
+    /// <para>
+    /// Pass the reply to <see cref="ReadAnnotatedReport"/> while you still hold it. A zero-length
+    /// body means that report is not defined, exactly as it does for S6F19.
+    /// </para>
+    /// </remarks>
+    public ValueTask<SecsMessage> RequestAnnotatedReportAsync(
+        ulong reportId,
+        CancellationToken cancellationToken = default)
+        => RequestAsync(
+            new SecsMessage(6, 17, replyExpected: true)
+            {
+                Name = "AnnotatedIndividualReportRequest",
+                Item = GemItems.IdItem(reportId).Named("RPTID"),
+            },
+            cancellationToken);
+
+    /// <summary>Reads an S6F18 body into its annotated values.</summary>
+    /// <param name="reply">The S6F18 from <see cref="RequestAnnotatedReportAsync"/>.</param>
+    /// <returns>One entry per value, or an empty list for a report the equipment does not define.</returns>
+    /// <remarks>
+    /// <strong>Each value is a view into <paramref name="reply"/></strong>, which the caller owns:
+    /// the entries are valid for as long as that message is held. A static method rather than
+    /// something that hands back owned data, because <c>V</c> has no format in the reference and
+    /// this library will not invent one in order to copy it - the same decision S6F11 made.
+    /// </remarks>
+    public static IReadOnlyList<GemAnnotatedValue> ReadAnnotatedReport(SecsMessage reply)
+    {
+        ArgumentNullException.ThrowIfNull(reply);
+
+        List<GemAnnotatedValue> values = [];
+
+        if (reply.Item is { IsList: true } body)
+        {
+            foreach (var entry in body.Items)
+            {
+                if (entry is { IsList: true, Count: 3 } && GemItems.TryReadId(entry[0], out var variableId))
+                {
+                    values.Add(new GemAnnotatedValue(variableId, entry[1], GemItems.ReadText(entry[2])));
+                }
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>Asks for the data the equipment filed under one identifier - S6F7.</summary>
+    /// <param name="dataId">DATAID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>S6F8. <strong>The caller owns it</strong> and must dispose it.</returns>
+    /// <remarks>
+    /// <para>
+    /// The pull half of the unformatted pair: S6F9 is the machine sending data it chose to send,
+    /// and this asks for data by the identifier it was sent under. A host knows such an identifier
+    /// because it saw one go past - in an S6F5 inquiry, or in an S6F9 it could not store at the
+    /// time - so this is how the second attempt gets made.
+    /// </para>
+    /// <para>
+    /// <c>DATAID</c> is defined and carried untouched; what it selects is between the host and the
+    /// machine, exactly as a <c>CEID</c> or an <c>RPTID</c> is. A zero-length body means the
+    /// equipment has nothing filed under it.
+    /// </para>
+    /// </remarks>
+    public ValueTask<SecsMessage> RequestDataTransferAsync(
+        ulong dataId,
+        CancellationToken cancellationToken = default)
+        => RequestAsync(
+            new SecsMessage(6, 7, replyExpected: true)
+            {
+                Name = "DataTransferRequest",
+                Item = GemItems.IdItem(dataId).Named("DATAID"),
+            },
+            cancellationToken);
+
+    /// <summary>Asks which reports are linked to one collection event - S6F27.</summary>
+    /// <param name="eventId">CEID.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The linked report identifiers, empty for an event the equipment does not have.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The read-back of S2F35</strong>, which this package has been able to write for as
+    /// long as it has existed and until now could not read. A host that restarts, or one that has
+    /// taken over from another, holds no record of what the last host linked - and S2F35 is no use
+    /// for probing, since sending it is what changes the table.
+    /// </para>
+    /// <para>
+    /// Report identifiers only. What each report contains is a question for S2F11, and what the
+    /// values are is one for <see cref="RequestReportAsync"/>.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<uint>> RequestNotificationReportsAsync(
+        ulong eventId,
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(6, 27, replyExpected: true)
+            {
+                Name = "NotificationReportRequest",
+                Item = GemItems.IdItem(eventId).Named("CEID"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        List<uint> reports = [];
+
+        if (reply.Item is { IsList: true, Count: 2 } body && body[1].IsList)
+        {
+            foreach (var entry in body[1].Items)
+            {
+                if (GemItems.TryReadId(entry, out var reportId))
+                {
+                    reports.Add((uint)Math.Min(reportId, uint.MaxValue));
+                }
+            }
+        }
+
+        return reports;
+    }
+
     /// <summary>Asks for the spooled data, or tells the equipment to throw it away - S6F23.</summary>
     /// <param name="request">RSDC.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
@@ -1149,7 +1294,12 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
 
-        return (GemSpooledDataAcknowledgement)ReadNamedCode(reply, 1, "RSPACK");
+        // RSDA, which is what the equipment half of this package puts on the wire and what E30
+        // calls this field - not RSPACK, which the item dictionary gives to S2F44, a row nothing
+        // here serves. The two ends of one transaction naming one byte differently is the whole
+        // of what that mistake was, and GemAcknowledgementsAgreeWithTheReferenceTests now records
+        // where this enum's table actually comes from.
+        return (GemSpooledDataAcknowledgement)ReadNamedCode(reply, 1, "RSDA");
     }
 
     // ----------------------------------------------------------------- stream 10
@@ -2103,6 +2253,36 @@ public sealed class GemHost : IAsyncDisposable
         {
             Name = "DiscreteVariableDataAcknowledge",
             Item = SecsItem.B((byte)args.Acknowledgement).Named("ACKC6"),
+        };
+    }
+
+    private SecsMessage OnUnformattedData(SecsMessage request)
+    {
+        var acknowledgement = GemReportAcknowledgement.Error;
+
+        if (request.Item is { IsList: true, Count: 2 } body && GemItems.TryReadId(body[0], out var data))
+        {
+            // The event args carry the acceptance as their own initialiser, so only a handler's
+            // refusal is read back here. Writing both ways round would make that documented
+            // default unreachable, which is a thing a control found in this very file once.
+            var args = new GemUnformattedDataEventArgs((uint)Math.Min(data, uint.MaxValue), body[1]);
+
+            UnformattedDataReceived?.Invoke(this, args);
+            acknowledgement = args.Acknowledgement;
+        }
+        else
+        {
+            // Nothing is raised, because there is no data to hand anybody - and ACKC6 1 is all the
+            // row can say, the same byte a handler uses to refuse data it understood. The log is
+            // the only place the two are told apart.
+            _logger.LogWarning(
+                "S6F9 arrived with a body this host could not read as DATAID and V, so it was refused.");
+        }
+
+        return new SecsMessage(6, 10, replyExpected: false)
+        {
+            Name = "UnformattedDataAcknowledge",
+            Item = SecsItem.B((byte)acknowledgement).Named("ACKC6"),
         };
     }
 

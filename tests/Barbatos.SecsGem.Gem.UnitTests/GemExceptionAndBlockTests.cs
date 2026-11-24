@@ -124,7 +124,7 @@ public class GemExceptionAndBlockTests
                 SecsItem.A("ALARM").Named("EXTYPE")),
         };
 
-        using var reply = await pair.AskEquipmentAsync(primary);
+        using var reply = await pair.AskHostAsync(primary);
 
         // ACKC5 1. An alarm handler can afford to accept a malformed body because S5F6 will serve
         // the condition again; nothing in stream 5 will ever repeat an exception post.
@@ -158,7 +158,7 @@ public class GemExceptionAndBlockTests
                 SecsItem.A("still worth hearing").Named("EXMESSAGE")),
         };
 
-        using var reply = await pair.AskEquipmentAsync(primary);
+        using var reply = await pair.AskHostAsync(primary);
 
         // Accepted: the four items are there, so the body read. What the machine could not say is
         // when, and that is a null rather than a refusal - the exception is the news.
@@ -265,7 +265,7 @@ public class GemExceptionAndBlockTests
             Item = SecsItem.U4(1_000).Named("CEID"),
         };
 
-        using var reply = await pair.AskEquipmentAsync(primary);
+        using var reply = await pair.AskHostAsync(primary);
 
         Assert.Equal(4, reply.F);
         Assert.Equal((byte)GemReportAcknowledgement.Error, reply.Item!.FirstValueOrDefault<byte>());
@@ -408,7 +408,7 @@ public class GemExceptionAndBlockTests
             Item = SecsItem.U4(1).Named("DATAID"),
         };
 
-        using var reply = await pair.AskEquipmentAsync(primary);
+        using var reply = await pair.AskHostAsync(primary);
 
         // NoSpace, not Busy: Busy invites the machine to ask again, and the second attempt would
         // be exactly as unreadable as the first. The host still raises, so an application can see

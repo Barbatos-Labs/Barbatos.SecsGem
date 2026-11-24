@@ -38,9 +38,10 @@ namespace Barbatos.SecsGem.Gem.UnitTests;
 /// there is.
 /// </para>
 /// <para>
-/// The two exceptions are the interesting part. <c>COMMACK</c> names both its codes and reserves
-/// nothing, so there is no range to fold and no member to add. And S2F24's, which this file used to
-/// check against the wrong item entirely - see below.
+/// The three exceptions are the interesting part. <c>COMMACK</c> names both its codes and reserves
+/// nothing, so there is no range to fold and no member to add. And two that this file used to check
+/// against the wrong item entirely - S2F24's and S6F24's, found two chapters apart by the same
+/// question: which streams name the item this package says it is reading.
 /// </para>
 /// </remarks>
 public class GemAcknowledgementsAgreeWithTheReferenceTests
@@ -61,7 +62,6 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         { "ERACK", 2, 3 },
         { "ACKC5", 1, 2 },
         { "ACKC6", 1, 2 },
-        { "RSPACK", 1, 2 },
         { "ACKC10", 3, 4 },
         { "PPGNT", 6, 7 },
         { "ACKC7", 7, 8 },
@@ -88,7 +88,7 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
     }
 
     [Fact]
-    public void The_two_acknowledgements_without_a_reserved_range_are_the_two_this_package_reads_differently()
+    public void The_acknowledgements_without_a_reserved_range_are_the_ones_this_package_reads_differently()
     {
         // COMMACK names 0 and 1 and reserves nothing, so GemCommunicationAcknowledgement has two
         // members and GemHost reads it with the plain cast - correctly, and this test is why that
@@ -128,15 +128,52 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.Equal(6, Enum.GetValues<GemTraceAcknowledgement>().Length);
         Assert.Equal((byte)1, (byte)GemTraceAcknowledgement.TooManyVariables);
         Assert.Equal((byte)0, (byte)GemTraceAcknowledgement.Accepted);
+
+        // And the spool acknowledgement, which is the same mistake found again by the same
+        // question - and worse, because it was wrong in three places at once.
+        //
+        // This file used to carry a { "RSPACK", 1, 2 } row, GemHost logged the arriving code as
+        // RSPACK, and the enum's own summary called it RSDA. One byte, three names. RSPACK does
+        // have a table and that row passed, which is exactly why nothing caught it: the table is
+        // real, it just belongs to S2F44 - reset spooling streams, a row nothing here serves.
+        Assert.True(SecsCatalog.TryGetDataItem("RSPACK", out var rspack));
+        Assert.Equal<byte[]>([2], [.. rspack!.Streams]);
+
+        // What S6F24 actually carries is SPACK, which the reference does not define at all - no
+        // format and no table - so there is nothing for this enum to be compared against. That is
+        // what makes it an exception rather than a row in the table above.
+        Assert.False(SecsCatalog.TryGetDataItem("SPACK", out _));
+
+        // So the two codes are grounded on ACKC6 instead: stream 6's own acknowledgement, carried
+        // by four of its rows, zero accepted and 1 to 63 an unexplained refusal. Its table is
+        // identical to the one that was being quoted, which is the whole reason this correction
+        // moves a name and not a byte - and is why it had to be found by reading rather than by
+        // running anything.
+        Assert.True(SecsCatalog.TryGetDataItem("ACKC6", out var ackc6));
+        Assert.Equal(rspack.Codes.Count, ackc6!.Codes.Count);
+        Assert.Equal(rspack.Codes[^1].Value, ackc6.Codes[^1].Value);
+        Assert.Equal("Accepted", ackc6.MeaningOf("0"));
+
+        Assert.Equal(2, Enum.GetValues<GemSpooledDataAcknowledgement>().Length);
+        Assert.Equal((byte)0, (byte)GemSpooledDataAcknowledgement.Accepted);
+        Assert.Equal((byte)1, (byte)GemSpooledDataAcknowledgement.Denied);
+
+        // GemSpooledDataAcknowledgement and GemReportAcknowledgement therefore read one table from
+        // two enums, which this repository allows only where each side says so. They do: the spool
+        // reply is a different row with a different item name, and folding them into one type
+        // would leave a caller of RequestSpooledDataAsync switching on a member called Error.
+        Assert.Equal(
+            Enum.GetValues<GemReportAcknowledgement>().Length,
+            Enum.GetValues<GemSpooledDataAcknowledgement>().Length);
     }
 
     [Fact]
     public void Every_guarded_enum_has_its_catch_all_member_at_the_boundary()
     {
         // The other half of the claim: the table says where the reserved range starts, and the
-        // enum must have a member there. Named Other everywhere except the two whose single
-        // non-zero member already covers the whole range - ACKC5 and RSPACK name only a zero, so
-        // Error and Denied are the range.
+        // enum must have a member there. Named Other everywhere except the three whose single
+        // non-zero member already covers the whole range - ACKC5, ACKC6 and the spool reply name
+        // only a zero, so Error and Denied are the range.
         Assert.Equal((byte)1, (byte)GemOfflineAcknowledgement.Other);
         Assert.Equal((byte)3, (byte)GemOnlineAcknowledgement.Other);
         Assert.Equal((byte)4, (byte)GemEquipmentConstantAcknowledgement.Other);

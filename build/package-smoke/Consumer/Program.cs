@@ -411,6 +411,32 @@ internal static class Program
             router.TryGetHandler(1, 13, out _),
             "the router has no handler for S1F13, so the equipment's handled messages never reached the routing table");
 
+        // Stream 6, which the stream 6 chapter finished. A ProjectReference build resolves these
+        // from bin/ and cannot see a packaging mistake, and five chapters running this file is what
+        // caught a declaration that never left the package - so the three rows that went in are
+        // named, and so are the two refusals that are about a field the row turns on.
+        foreach (var (stream, function) in new[] { ((byte)6, (byte)7), ((byte)6, (byte)17), ((byte)6, (byte)27) })
+        {
+            Assert(
+                GemEquipment.HandledMessages.Contains((stream, function)),
+                $"the equipment does not declare S{stream}F{function}");
+
+            Assert(
+                router.TryGetHandler(stream, function, out _),
+                $"S{stream}F{function} is declared and never reached the routing table");
+        }
+
+        Assert(
+            GemHost.HandledMessages.Contains(((byte)6, (byte)9)),
+            "the host does not declare S6F9, the one stream 6 row the machine pushes without a CEID");
+
+        foreach (var function in new byte[] { 21, 25, 29 })
+        {
+            Assert(
+                !GemEquipment.HandledMessages.Contains(((byte)6, function)),
+                $"the equipment declares S6F{function}, which is refused with a reason recorded");
+        }
+
         Assert(
             router.TryGetHandler(7, 3, out _) && router.TryGetHandler(7, 23, out _),
             "the router is missing one half of stream 7, so an opt-in capability did not declare its messages");

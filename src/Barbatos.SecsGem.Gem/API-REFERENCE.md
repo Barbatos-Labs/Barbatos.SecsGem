@@ -1055,7 +1055,7 @@ non-zero member already covered the whole range:
 | `ERACK` | 0-1 | 2-63 | `GemEnableEventAcknowledgement.Other` |
 | `ACKC5` | 0 | 1-63 | `GemAlarmAcknowledgement.Error` |
 | `ACKC6` | 0 | 1-63 | `GemReportAcknowledgement.Error` |
-| `RSPACK` | 0 | 1-63 | `GemSpooledDataAcknowledgement.Denied` |
+| `SPACK` | *(no table)* | - | `GemSpooledDataAcknowledgement.Denied` |
 | `ACKC10` | 0-2 | 3-63 | `GemTerminalAcknowledgement.Other` |
 | `PPGNT` | 0-5 | 6-63 | `GemProcessProgramGrant.Other` |
 | `ACKC7` | 0-6 | 7-63 | `GemProcessProgramAcknowledgement.Other` |
@@ -1131,6 +1131,7 @@ established.
 | `MultiBlockInquired` | `event EventHandler<GemMultiBlockInquiryEventArgs>?` | S6F5, before the grant. **Grants by default**, so a host with no handler says yes - a handshake whose only purpose is to let a host refuse should not refuse by silence. |
 | `ProcessProgramNoticeReceived` | `event EventHandler<GemProcessProgramNoticeEventArgs>?` | S7F29 and S7F39, the only two things a machine says first in stream 7, with `Function` saying which. Neither is spooled by the machine, so a host that was away asks `ReadProcessProgramDirectoryAsync` instead - treat the event as a prompt to look, not as a log. |
 | `TraceDataReceived` | `event EventHandler<GemTraceDataEventArgs>?` | S6F1. The samples are a view into the arriving message and die with the handler. |
+| `UnformattedDataReceived` | `event EventHandler<GemUnformattedDataEventArgs>?` | S6F9. **Not folded onto `EventReportReceived`** the way S6F3 is, because the row carries no `CEID` at all - a host folding it would have to invent the event. `Data` is a view that dies with the handler, and a handler that sets nothing accepts. |
 | `TerminalRequestReceived` | `event EventHandler<GemTerminalRequestEventArgs>?` | S10F1 - something an operator typed. There is a person waiting, so a handler that cannot deal with it now should say so in the acknowledgement rather than accept and drop it. |
 | `ErrorReported` | `event EventHandler<GemHostErrorEventArgs>?` | Stream 9. No reply exists to send. |
 | `CommunicationStateChanged` | `event EventHandler<GemHostCommunicationStateChangedEventArgs>?` | |
@@ -1169,7 +1170,11 @@ table claiming it.
 | `AbortExceptionRecoveryAsync(exceptionId)` | S5F17 | `GemExceptionAbortResult`. The only message a host sends about an exception. Throws `SecsException` when the reply carried no `ACKA` |
 | `RequestEventReportAsync(ceid)` | S6F15 | `SecsMessage` - **the caller disposes it**. A zero-length body means no such event |
 | `RequestReportAsync(rptid)` | S6F19 | `SecsMessage` - **the caller disposes it** |
-| `RequestSpooledDataAsync(request)` | S6F23 | `GemSpooledDataAcknowledgement`. Accepted means the equipment agreed, not that the messages have arrived |
+| `RequestAnnotatedReportAsync(rptid)` | S6F17 | `SecsMessage` - **the caller disposes it**. The annotated twin of S6F19: each value arrives with its `VID` and `UNITS`, so a host needs no namelist to read it. Pass it to `ReadAnnotatedReport` while you hold it |
+| `ReadAnnotatedReport(reply)` | - | `IReadOnlyList<GemAnnotatedValue>`. **Static**, so a stored S6F18 can be read later without a link. Each `Value` is a view into `reply`, which the caller owns. An entry that is not three items is skipped rather than guessed at |
+| `RequestDataTransferAsync(dataid)` | S6F7 | `SecsMessage` - **the caller disposes it**. The data the machine filed under one identifier; a zero-length body means it has none. `DATAID` is carried untouched and what it selects is between the two ends |
+| `RequestNotificationReportsAsync(ceid)` | S6F27 | `IReadOnlyList<uint>` - **the read-back of S2F35**, which nothing else here can do: a host that restarts has no record of what was linked, and sending S2F35 again changes the table rather than reporting it. An event the machine does not have and an event with nothing linked both come back empty, because S6F28 carries no acknowledgement |
+| `RequestSpooledDataAsync(request)` | S6F23 | `GemSpooledDataAcknowledgement`. Accepted means the equipment agreed, not that the messages have arrived. **The reply's item is `SPACK`**, which the reference does not define - this package writes and reads it as `RSDA`, E30's name for the field, and the enum's two codes are grounded on `ACKC6` rather than on a table of its own |
 | `InquireProcessProgramAsync(id, length)` | S7F1 | `GemProcessProgramGrant` |
 | `SendProcessProgramAsync(id, body)` | S7F3 | `GemProcessProgramAcknowledgement` |
 | `RequestProcessProgramAsync(id)` | S7F5 | `ReadOnlyMemory<byte>?` - `null` is the zero-length refusal S7F6 uses, because it has no code for one |

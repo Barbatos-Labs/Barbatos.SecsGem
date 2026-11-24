@@ -276,7 +276,7 @@ public class GemNamelistAndDiagnosticTests
             Item = SecsItem.B(1, 2, 3).Named("ABS"),
         };
 
-        using var reply = await pair.AskEquipmentAsync(primary);
+        using var reply = await pair.AskHostAsync(primary);
 
         Assert.Equal(26, reply.F);
         Assert.Equal<byte[]>([1, 2, 3], [.. reply.Item!.GetMemory<byte>().Span]);

@@ -434,7 +434,7 @@ public class GemProcessProgramSweepTests
             Item = SecsItem.A(string.Empty).Named("PPID"),
         };
 
-        using var reply = await pair.AskEquipmentAsync(primary);
+        using var reply = await pair.AskHostAsync(primary);
 
         // NotFound rather than Accepted: accepting it would tell the machine its notice landed
         // when there is nothing a host could act on.

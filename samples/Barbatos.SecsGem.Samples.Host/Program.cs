@@ -1349,6 +1349,52 @@ internal static class Program
             Console.WriteLine($"   S6F5  -> GRANT6={grant}");
             ok &= grant == GemMultiBlockGrant.Ok;
 
+            // S6F17: the same report S6F19 reads, with every value identified and its units
+            // attached - so this needs no namelist to make sense of, where S6F20 does.
+            using (var annotated = await host.RequestAnnotatedReportAsync(HostReport, cancellationToken))
+            {
+                foreach (var value in GemHost.ReadAnnotatedReport(annotated))
+                {
+                    Console.WriteLine($"   S6F17 -> VID {value}");
+                }
+
+                ok &= GemHost.ReadAnnotatedReport(annotated).Count == 2;
+            }
+
+            // S6F27: the read-back of the S2F35 sent further up. Nothing else here can ask it, and
+            // a host that restarts has no other way to find out what the last host linked.
+            var linked = await host.RequestNotificationReportsAsync(ProcessEndEvent, cancellationToken);
+
+            Console.WriteLine($"   S6F27 -> CEID {ProcessEndEvent} has report(s) {string.Join(", ", linked)}");
+            ok &= linked.Contains(HostReport);
+
+            // S6F9 and S6F7, the two rows of stream 6 with no CEID in them at all: a block of data
+            // and the number the machine filed it under. V has no definition in the reference, so
+            // the item travels exactly as it is given - the reading S6F11 already uses.
+            equipment.AnswerDataTransfer = id => id == 41 ? SecsItem.B(0xDE, 0xAD) : null;
+
+            // A separate event from EventReportReceived, because the row carries no CEID: a host
+            // folding it onto an event report would have to invent the event. Setting nothing on
+            // the args accepts, which is the default being used rather than described.
+            host.UnformattedDataReceived += (_, e)
+                => Console.WriteLine($"   S6F9  -> DATAID {e.DataId}, {e.Data.Count} byte(s), accepted");
+
+            ok &= await equipment.SendUnformattedDataAsync(SecsItem.B(1, 2, 3, 4), cancellationToken);
+
+            using (var filed = await host.RequestDataTransferAsync(41, cancellationToken))
+            {
+                Console.WriteLine($"   S6F7  -> {filed.Item!.Count} item(s) for DATAID 41");
+                ok &= filed.Item.Count == 2;
+            }
+
+            using (var absent = await host.RequestDataTransferAsync(42, cancellationToken))
+            {
+                // S6F8 has no acknowledgement item, so an empty body is the only refusal the row
+                // can carry.
+                Console.WriteLine($"   S6F7  -> nothing filed under 42: {absent.Item!.Count == 0}");
+                ok &= absent.Item.Count == 0;
+            }
+
             await WaitUntilAsync(() => !Reports.IsEmpty, "the exception post to arrive at the host");
 
             while (Reports.TryDequeue(out var report))

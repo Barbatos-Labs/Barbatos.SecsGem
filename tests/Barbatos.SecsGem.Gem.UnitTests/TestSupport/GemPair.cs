@@ -91,6 +91,11 @@ internal sealed class GemPair : IAsyncDisposable
     /// <param name="programs">The equipment's process program store, or null for none.</param>
     /// <param name="formatted">The equipment's formatted process program store, or null for none.</param>
     /// <param name="spool">The equipment's spool, or null for none.</param>
+    /// <param name="hostLogger">
+    /// Where the host writes. Needed by any test about a row whose reply cannot carry the
+    /// distinction the host is making - S6F10 says "refused" and not "refused because I could not
+    /// read it", so the log is the only place those two differ.
+    /// </param>
     /// <returns>The pair.</returns>
     public static GemPair Start(
         Action<GemEquipmentModelBuilder>? model = null,
@@ -101,7 +106,8 @@ internal sealed class GemPair : IAsyncDisposable
         IGemSpool? spool = null,
         IGemTerminal? terminal = null,
         bool traces = false,
-        bool limits = false)
+        bool limits = false,
+        RecordingLogger<GemHost>? hostLogger = null)
     {
         var options = new SecsGemOptions
         {
@@ -202,22 +208,29 @@ internal sealed class GemPair : IAsyncDisposable
             formatted,
             terminal);
 
-        pendingHost = new GemHost(hostOptions, hostLink, clock);
+        pendingHost = new GemHost(hostOptions, hostLink, clock, hostLogger);
 
         return new GemPair(active, passive, hostLink, equipmentLink, pendingHost, pendingEquipment, clock, asked);
     }
 
-    /// <summary>Sends a hand-written primary to the equipment and waits, bounded, for its reply.</summary>
+    /// <summary>Sends a hand-written primary from the machine to the host, bounded.</summary>
     /// <param name="primary">The primary. The caller owns it.</param>
-    /// <returns>The reply. The caller disposes it.</returns>
+    /// <returns>The host's reply. The caller disposes it.</returns>
     /// <remarks>
     /// <para>
-    /// <strong>The bound is the whole point of this method.</strong> A hand-written primary is how
-    /// a test reaches a handler that a real GemHost cannot produce - a malformed body, a reserved
-    /// code - and a handler that throws or answers on the wrong function leaves this end waiting on
-    /// a T3 the FakeTimeProvider never advances. The run then dies on its own timeout with no
-    /// summary, which is the worst way for a negative control to report: it says nothing about
-    /// which rule broke.
+    /// <strong>It sends from the equipment's end</strong>, so the handler it reaches is
+    /// <see cref="Host"/>'s. The method was called <c>AskEquipmentAsync</c> until the stream 6
+    /// chapter, which is the wrong way round and cost that chapter a wrong first draft - every one
+    /// of its callers hands it an equipment primary, S5F9 and S6F3 among them. Its mirror is
+    /// <see cref="AskEquipmentAsync"/>.
+    /// </para>
+    /// <para>
+    /// <strong>The bound is the whole point of both.</strong> A hand-written primary is how a test
+    /// reaches a handler that the real object at the other end cannot produce - a malformed body, a
+    /// reserved code - and a handler that throws or answers on the wrong function leaves this end
+    /// waiting on a T3 the FakeTimeProvider never advances. The run then dies on its own timeout
+    /// with no summary, which is the worst way for a negative control to report: it says nothing
+    /// about which rule broke.
     /// </para>
     /// <para>
     /// The timeout is on the real clock deliberately, which is the one place in this suite that is
@@ -225,22 +238,47 @@ internal sealed class GemPair : IAsyncDisposable
     /// the library has stopped.
     /// </para>
     /// </remarks>
-    public async Task<SecsMessage> AskEquipmentAsync(SecsMessage primary)
+    public async Task<SecsMessage> AskHostAsync(SecsMessage primary)
         => await EquipmentLink
             .SendAsync(primary, Token)
             .AsTask()
             .WaitAsync(TimeSpan.FromSeconds(5), Token)
             .ConfigureAwait(false);
 
-    /// <summary>Waits, bounded, for something the equipment is sending to finish.</summary>
-    /// <param name="sending">The send in flight.</param>
+    /// <summary>Sends a hand-written primary from the host to the machine, bounded.</summary>
+    /// <param name="primary">The primary. The caller owns it.</param>
+    /// <returns>The equipment's reply. The caller disposes it.</returns>
+    /// <remarks>
+    /// <see cref="AskHostAsync"/> the other way round, and it carries the bound for the same
+    /// reason. Needed wherever a reply the public API flattens has to be read as a frame - S6F28
+    /// answers an event with nothing linked to it and an event that does not exist with two
+    /// different bodies, and <c>RequestNotificationReportsAsync</c> returns an empty list for
+    /// both, so only a frame can tell them apart.
+    /// </remarks>
+    public async Task<SecsMessage> AskEquipmentAsync(SecsMessage primary)
+        => await HostLink
+            .SendAsync(primary, Token)
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5), Token)
+            .ConfigureAwait(false);
+
+    /// <summary>Waits, bounded, for any exchange in flight to finish.</summary>
+    /// <param name="sending">The call in flight.</param>
     /// <returns>Whatever it answered.</returns>
     /// <remarks>
-    /// <see cref="AskEquipmentAsync"/>'s mirror, and earned by the same class of control. A report
-    /// the equipment sends with the W bit set waits for the host's acknowledgement under T3, and a
-    /// host that answers on the wrong function leaves that wait unmatched - on a clock this suite
-    /// never advances. Use this wherever a test awaits an equipment send that a broken handler
-    /// could leave hanging; a send to an absent host needs no bound, because nothing is awaited.
+    /// <para>
+    /// <see cref="AskHostAsync"/>'s mirror, and earned by the same class of control. A report the
+    /// equipment sends with the W bit set waits for the host's acknowledgement under T3, and a host
+    /// that answers on the wrong function leaves that wait unmatched - on a clock this suite never
+    /// advances. A send to an absent host needs no bound, because nothing is awaited.
+    /// </para>
+    /// <para>
+    /// <strong>It is for host requests too</strong>, which the stream 6 chapter learned the hard
+    /// way: a control that removed S6F27 from the equipment's routing table made the machine answer
+    /// S9F5, left the host waiting on T3, and the whole run died on its own timeout with no
+    /// summary - so the control reported "found nothing" when what it had found was a hang. Wrap
+    /// any host call whose primary the equipment might not answer.
+    /// </para>
     /// </remarks>
     public static Task<T> SentAsync<T>(ValueTask<T> sending)
         => sending.AsTask().WaitAsync(TimeSpan.FromSeconds(5), Token);

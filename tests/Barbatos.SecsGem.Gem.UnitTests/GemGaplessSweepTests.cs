@@ -120,7 +120,7 @@ public class GemGaplessSweepTests
                 SecsItem.A("extra").Named("EXMESSAGE")),
         };
 
-        using var reply = await pair.AskEquipmentAsync(primary);
+        using var reply = await pair.AskHostAsync(primary);
 
         Assert.Equal(12, reply.F);
         Assert.Equal((byte)GemAlarmAcknowledgement.Error, reply.Item!.FirstValueOrDefault<byte>());

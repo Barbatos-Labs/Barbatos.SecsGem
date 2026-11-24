@@ -121,6 +121,15 @@ public class GemHostTests
         await host.ListEnabledAlarmsAsync(token);
         (await host.RequestEventReportAsync(1_000, token)).Dispose();
         (await host.RequestReportAsync(5_000, token)).Dispose();
+        (await GemPair.SentAsync(host.RequestAnnotatedReportAsync(5_000, token))).Dispose();
+        (await GemPair.SentAsync(host.RequestDataTransferAsync(41, token))).Dispose();
+
+        // Bounded, unlike the forty calls above them, and the reason is a control: removing S6F27
+        // from the equipment table left this sweep waiting on a T3 the fake clock never advances,
+        // so the whole run died on its own timeout and the control reported finding nothing. The
+        // older calls share the exposure and are left alone - bounding all of them would be churn,
+        // and what this chapter can honestly say is that its own three rows report properly.
+        await GemPair.SentAsync(host.RequestNotificationReportsAsync(1_000, token));
         await host.RequestSpooledDataAsync(GemSpooledDataRequest.Purge, token);
         await host.InquireProcessProgramAsync("RECIPE-1", 3, token);
         await host.SendProcessProgramAsync("RECIPE-1", new byte[] { 1, 2, 3 }, token);

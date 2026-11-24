@@ -187,6 +187,9 @@ public sealed class GemEquipment : IAsyncDisposable
         (5, 17),   // Exception Recover Abort Request
         (6, 15),   // Event Report Request
         (6, 19),   // Individual Report Request
+        (6, 7),    // Data Transfer Request
+        (6, 17),   // Annotated Individual Report Request
+        (6, 27),   // Notification Report Request
     ];
 
     /// <summary>The process program messages, answered only when a store is configured.</summary>
@@ -671,29 +674,72 @@ public sealed class GemEquipment : IAsyncDisposable
         return delivered;
     }
 
-    /// <summary>Tells the host a process program here has changed - S7F29, answered by S7F30.</summary>
-    /// <param name="programId">The PPID.</param>
+    /// <summary>Sends a block of data the host did not ask for - S6F9, answered by S6F10.</summary>
+    /// <param name="data">V, as this machine wants it carried. <strong>Consumed by this call.</strong></param>
     /// <param name="cancellationToken">Cancels the send.</param>
-    /// <returns>The ACKC7 the host answered with, or <see langword="null"/> when there was nobody to tell.</returns>
+    /// <returns><see langword="true"/> when it went out, <see langword="false"/> when it was spooled or dropped.</returns>
     /// <remarks>
     /// <para>
-    /// <strong>The only thing in stream 7 the machine says first.</strong> Everything else here is
-    /// the host asking, so without this a host that did not make a change has no way to learn of
-    /// one - an operator editing a recipe at the machine is invisible until somebody asks S7F19.
+    /// <strong>Not an event report</strong>, and that is the whole reason the row exists: there is
+    /// no <c>CEID</c> anywhere in it. S6F3 and S6F11 both say "event N happened"; this says "here
+    /// is a block of data, filed under this number". Equipment with something to hand over that no
+    /// collection event describes - a log an operator dumped, a trace the machine gathered on its
+    /// own - has nowhere else in stream 6 to put it.
     /// </para>
     /// <para>
-    /// <strong>Not spooled</strong>, which separates it from a report or an alarm. A held
-    /// "RECIPE-7 changed" would reach a host that can get something strictly better by asking:
-    /// S7F7 or S7F19 answers with the directory as it is now, where the spooled notice says only
-    /// that something was true an hour ago. Reports and alarms are spooled because a host reads
-    /// those as history; this is a prompt to look, and a stale prompt is worse than none.
+    /// <c>V</c> has no definition in the reference, so the item is carried exactly as it is given.
+    /// That reading is not an invention here: S6F11 carries <c>V</c> as well and is one of the rows
+    /// E5 illustrates in full, so the precedent is inside this very stream.
     /// </para>
     /// <para>
-    /// The host's ACKC7 is handed back rather than swallowed, because a host answering anything
-    /// other than <c>Accepted</c> is saying it did not take the notice - and the machine is the
-    /// only place that can be logged.
+    /// <strong>Spooled like a report</strong>, because that is what it is to a host that was away:
+    /// data it would have been given. The host answers with an <c>ACKC6</c> which goes to the log
+    /// rather than to the caller, the same as every other report this machine sends - a spooled
+    /// message has no answer yet, so a return value that sometimes carried one would be worse than
+    /// none.
+    /// </para>
+    /// <para>
+    /// The identifier is this machine's own counter, the one S6F3, S6F5 and S6F11 share. A host
+    /// that wants the same block again asks for that number with S6F7.
     /// </para>
     /// </remarks>
+    public async ValueTask<bool> SendUnformattedDataAsync(
+        SecsItem data,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(data);
+
+        if (!IsCommunicating && !IsSpooling)
+        {
+            // Consumed either way, because the caller was told it would be. Leaving it alive on
+            // this one path would make the contract depend on the link state.
+            data.Dispose();
+            return false;
+        }
+
+        var delivered = IsCommunicating;
+
+        using var message = new SecsMessage(6, 9, replyExpected: true)
+        {
+            Name = "UnformattedDataSend",
+            Item = SecsItem.L(
+                SecsItem.U4((uint)Interlocked.Increment(ref _dataId)).Named("DATAID"),
+                data),
+        };
+
+        if (delivered)
+        {
+            await SendReportAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await SpoolAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+
+        return delivered;
+    }
+
     /// <summary>Gets or sets what this machine answers a request to abort a recovery with - S5F18.</summary>
     /// <remarks>
     /// <para>
@@ -716,6 +762,26 @@ public sealed class GemEquipment : IAsyncDisposable
     public Func<string, GemExceptionAbortResult> AnswerExceptionAbort { get; set; }
         = static _ => GemExceptionAbortResult.Refuse(
             errorText: "this equipment has no handler for aborting an exception recovery");
+
+    /// <summary>Answers S6F7 - the data this machine has filed under one DATAID, or nothing.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A delegate rather than a member on the model</strong>, for the reason
+    /// <see cref="AnswerExceptionAbort"/> gives: a <c>DATAID</c> names a thing that existed for one
+    /// transaction, so there is nothing in the model for it to point into. What the machine filed
+    /// under 41 a minute ago is a fact about right now.
+    /// </para>
+    /// <para>
+    /// <strong>Returns nothing by default</strong>, and a machine that answers nothing is answering
+    /// honestly - S6F8 has no acknowledgement item, so an empty body is the only way the row can
+    /// say "not here" and it is what a machine with no handler should say.
+    /// </para>
+    /// <para>
+    /// <strong>The item returned is consumed</strong>: it goes into the reply, and the reply
+    /// disposes it. Return a fresh item each time, the way <c>GemVariable.Read</c> does.
+    /// </para>
+    /// </remarks>
+    public Func<uint, SecsItem?> AnswerDataTransfer { get; set; } = static _ => null;
 
     /// <summary>Says a posted exception has gone - S5F11, answered by S5F12.</summary>
     /// <param name="exceptionId">EXID, the identifier the post used.</param>
@@ -863,6 +929,29 @@ public sealed class GemEquipment : IAsyncDisposable
         }
     }
 
+    /// <summary>Tells the host a process program here has changed - S7F29, answered by S7F30.</summary>
+    /// <param name="programId">The PPID.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>The ACKC7 the host answered with, or <see langword="null"/> when there was nobody to tell.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The only thing in stream 7 the machine says first.</strong> Everything else here is
+    /// the host asking, so without this a host that did not make a change has no way to learn of
+    /// one - an operator editing a recipe at the machine is invisible until somebody asks S7F19.
+    /// </para>
+    /// <para>
+    /// <strong>Not spooled</strong>, which separates it from a report or an alarm. A held
+    /// "RECIPE-7 changed" would reach a host that can get something strictly better by asking:
+    /// S7F7 or S7F19 answers with the directory as it is now, where the spooled notice says only
+    /// that something was true an hour ago. Reports and alarms are spooled because a host reads
+    /// those as history; this is a prompt to look, and a stale prompt is worse than none.
+    /// </para>
+    /// <para>
+    /// The host's ACKC7 is handed back rather than swallowed, because a host answering anything
+    /// other than <c>Accepted</c> is saying it did not take the notice - and the machine is the
+    /// only place that can be logged.
+    /// </para>
+    /// </remarks>
     public ValueTask<GemProcessProgramAcknowledgement?> NotifyProgramChangedAsync(
         string programId,
         CancellationToken cancellationToken = default)
@@ -1217,6 +1306,9 @@ public sealed class GemEquipment : IAsyncDisposable
             (5, 7) => OnListEnabledAlarms(),
             (6, 15) => OnEventReportRequest(transaction.Message),
             (6, 19) => OnIndividualReportRequest(transaction.Message),
+            (6, 7) => OnDataTransferRequest(transaction.Message),
+            (6, 17) => OnAnnotatedIndividualReportRequest(transaction.Message),
+            (6, 27) => OnNotificationReportRequest(transaction.Message),
             _ => null,
         };
 
@@ -3407,6 +3499,75 @@ public sealed class GemEquipment : IAsyncDisposable
         };
     }
 
+    private SecsMessage OnAnnotatedIndividualReportRequest(SecsMessage request)
+    {
+        var ids = ReadIdList(request.Item);
+        var reportId = ids.Count > 0 && ids[0] <= uint.MaxValue ? (uint)ids[0] : 0u;
+
+        // No "is this report defined" branch, which is worth a line because the sibling handler
+        // above has one and it is dead there too: a report the machine does not define has no
+        // variables, so the body comes out as the same empty list either way. A control removed
+        // the branch and the whole suite stayed green, which is what a conditional that cannot
+        // change the answer looks like from the outside - and leaving it would imply a distinction
+        // S6F18 has no way to make, since the row carries no acknowledgement.
+        return new SecsMessage(6, 18, replyExpected: false)
+        {
+            Name = "AnnotatedIndividualReportData",
+            Item = SecsItem.L(AnnotatedReportValues(reportId)),
+        };
+    }
+
+    private SecsMessage OnDataTransferRequest(SecsMessage request)
+    {
+        var ids = ReadIdList(request.Item);
+        var dataId = ids.Count > 0 && ids[0] <= uint.MaxValue ? (uint)ids[0] : 0u;
+        var data = AnswerDataTransfer(dataId);
+
+        return new SecsMessage(6, 8, replyExpected: false)
+        {
+            Name = "DataTransferData",
+            // An empty list for an identifier this machine has nothing filed under, which is the
+            // shape S6F16 and S6F20 already use for the same answer. The row carries no
+            // acknowledgement to put a reason in.
+            Item = data is null
+                ? SecsItem.L()
+                : SecsItem.L(SecsItem.U4(dataId).Named("DATAID"), data),
+        };
+    }
+
+    private SecsMessage OnNotificationReportRequest(SecsMessage request)
+    {
+        var ids = ReadIdList(request.Item);
+        var eventId = ids.Count > 0 && ids[0] <= uint.MaxValue ? (uint)ids[0] : 0u;
+
+        if (!Model.Events.ContainsKey(eventId))
+        {
+            return new SecsMessage(6, 28, replyExpected: false)
+            {
+                Name = "NotificationReportData",
+                Item = SecsItem.L(),
+            };
+        }
+
+        var reports = new List<SecsItem>();
+
+        foreach (var reportId in Model.ReportsForEvent(eventId))
+        {
+            reports.Add(SecsItem.U4(reportId).Named("RPTID"));
+        }
+
+        // Answered for an event with nothing linked to it, and the empty inner list is the answer:
+        // "this event exists and no report is attached" is a different fact from "no such event",
+        // and the two shapes keep them apart without an acknowledgement item.
+        return new SecsMessage(6, 28, replyExpected: false)
+        {
+            Name = "NotificationReportData",
+            Item = SecsItem.L(
+                SecsItem.U4(eventId).Named("CEID"),
+                SecsItem.L(reports)),
+        };
+    }
+
     private static SecsItem StatusNamelistEntry(uint id, GemVariable? variable) => SecsItem.L(
         SecsItem.U4(id).Named("SVID"),
         SecsItem.A(variable?.Name ?? string.Empty).Named("SVNAME"),
@@ -4020,6 +4181,45 @@ public sealed class GemEquipment : IAsyncDisposable
             values.Add(Model.Variables.TryGetValue(variableId, out var variable)
                 ? variable.Read().Named(variable.Name)
                 : SecsItem.L());
+        }
+
+        return values;
+    }
+
+    /// <summary>The S6F18 body: every value of a report with its identifier and units attached.</summary>
+    /// <remarks>
+    /// <para>
+    /// The same values <see cref="ReportValues"/> gathers, wrapped one level deeper.
+    /// </para>
+    /// <para>
+    /// <strong>The empty-list fallback is unreachable through this library</strong> and is kept as
+    /// defence rather than as behaviour, which is worth saying because the obvious reading is that
+    /// it is a live path. <c>GemEquipmentModelBuilder.Build</c> refuses a report that names a
+    /// variable the model does not hold, so there is no way to reach a machine where one is
+    /// missing. <see cref="ReportValues"/> has carried the same unreachable fallback since it was
+    /// written. <c>GemStream6Tests</c> asserts the refusal, so the claim is checked rather than
+    /// assumed.
+    /// </para>
+    /// </remarks>
+    private List<SecsItem> AnnotatedReportValues(uint reportId)
+    {
+        var values = new List<SecsItem>();
+
+        foreach (var variableId in Model.VariablesForReport(reportId))
+        {
+            var value = SecsItem.L();
+            var units = string.Empty;
+
+            if (Model.Variables.TryGetValue(variableId, out var variable))
+            {
+                value = variable.Read().Named(variable.Name);
+                units = variable.Units;
+            }
+
+            values.Add(SecsItem.L(
+                SecsItem.U4(variableId).Named("VID"),
+                value,
+                SecsItem.A(units).Named("UNITS")));
         }
 
         return values;

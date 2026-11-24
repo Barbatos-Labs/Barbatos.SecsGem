@@ -212,7 +212,11 @@ must then agree with.
 Then ask `s.RivalSpellings`, which is the newest measure and the one that changes what a gap means.
 A gap with no rival is a field the source never wrote down, so carry it untouched. A gap **with** a
 rival is a field the source wrote down under another spelling, and reading a format off a sibling
-would then be correcting the reference rather than reading it - there are eight in twenty streams
+would then be correcting the reference rather than reading it - and the measure has exactly **two
+textual relations**, anagram and prefix in either direction, so a definition that extends a used
+name at the *front* is invisible to it: `SPACK` against `RSPACK` is a suffix pair and the measure
+reports nothing. Ask `i.Streams` as well, which is what found that one. There are eight in twenty
+streams
 and every one is a recipe name, which is why stream 15 ships nine pairs of twenty-seven and the
 rename and the copy are not among them. `Provenance.DetailedUnusedDefinitions` is the companion:
 44 definitions carry a full table of values and no message names them, so a capability being
@@ -239,7 +243,18 @@ every refusal left - S1F9/F10, whose two items are text with no tables named by 
 there is no sibling anywhere to read a reading off. Everything still unimplemented is in a stream
 with gaps, which means **the group measure is spent and what is left needs measuring row by row**.
 Stream 2 has seven gaps and stream 6 four; neither can be done as a batch the way the gapless
-streams could.
+streams could. **Stream 6 is now finished** - four of its last seven pairs went in and three did
+not, each on its own measurement.
+
+**Stream 6 is where an item list stopped being readable as a body.** The catalogue records, per
+row, the names that row's table mentions - and that is not a description of the message. S6F11 is
+recorded with four items and S6F16 with two, and both carry a whole event report; this repository
+builds them from one method. So a row's nesting has always come from a served sibling and never
+from the catalogue, which is fine while the siblings agree. S6F25 is the first row where they do
+not: it is recorded exactly as S6F16 is, so whether a report list follows cannot be settled, and
+**a body guessed wrong is unparseable rather than merely uninterpretable**. That is the first
+refusal here about a *shape* instead of a field, and it ranks below an item gap and above nothing:
+when the siblings agree, serve the row and say which sibling gave the body - three packages do.
 
 **Stream 14 is the worked example of a gap measured per row**, and it is why the rule above is a
 rule rather than a nuisance: it has exactly one undefined name in twenty-eight rows, so two of its
@@ -258,6 +273,16 @@ other said only S4F19 can mint a `TRLINK`, where S4F27 carries one and travels e
 a chapter reopens a stream, re-read every reason that stream's packages give for leaving something
 out, and replace the wrong ones rather than deleting them - the job half of stream 4 is still
 refused, on `TRACK`, and saying so is what stops the next chapter re-deriving it.
+
+**Check the item NAME before the table, because a true table can belong to another row.** This has
+now happened twice and both times the comparison passed. GEM documents its trace acknowledgement
+as `TRACK` where S2F24 carries `TIAACK`; and the spool reply was read as `RSPACK`, whose table is
+real and whose row is S2F44, which nothing here serves - while S6F24 carries `SPACK`, undefined,
+and this package's own two ends called the byte `RSDA` on the wire and `RSPACK` in the reader. One
+byte, three names, and a green suite. So when a package says which item it is reading, ask
+`i.Streams` on that name and check the answer contains the stream the row is in; where the row's
+own item has no table, say which sibling the codes are grounded on - `ACKC6`, here, four rows of
+the same stream with an identical table, which is why the correction moved a name and not a byte.
 
 **Where a package states a vocabulary the reference also states, make them meet** - against the
 reference's own table, never against another package's enum, because that is what makes the
@@ -304,7 +329,9 @@ had its member and its row in the comparison, and the two new sites that read it
 a control moved the boundary at one of them with the whole suite green. ACKC7 had the same hole
 once, with one of three sites driven. The rule is per site and not per item - `ReadNamedCode` and
 its siblings are easy to grep for, and `GemReservedAcknowledgementTests` is where each new one gets
-a line. The count is in that package's API reference, so a sweep can check it: ACKC7 is read at
+a line, and the stream 6 chapter found one that had been undriven since it was written - the spool
+reply's, which no drive had ever covered. The count is in that package's API reference, so a sweep
+can check it: ACKC7 is read at
 four sites and CMDA at three.
 
 Older files here are **CRLF** where the newer ones are LF, `GemHost.cs` among them. A multi-line

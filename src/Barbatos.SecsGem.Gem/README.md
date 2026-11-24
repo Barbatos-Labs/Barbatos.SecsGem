@@ -225,6 +225,77 @@ while the chamber was out of range.
 **S6F15 answers a disabled event.** S2F37 governs what the equipment sends on its own; a host
 asking directly has already said it wants this one now.
 
+## A report that says what its values are
+
+S6F19 answers with a report's values in the order the report defines them, so a host has to have
+read a namelist already to know what the third number is. **S6F17 answers the same report with
+each value identified and its units attached**:
+
+```csharp
+using var reply = await host.RequestAnnotatedReportAsync(5_000);
+
+foreach (var value in GemHost.ReadAnnotatedReport(reply))
+{
+    Console.WriteLine($"{value.VariableId} = {value.Value} {value.Units}");
+}
+```
+
+The values are **views into the reply**, which the caller owns - the same contract an event
+report's values have, with the caller in the handler's place. `ReadAnnotatedReport` is static
+because a stored S6F18 can be read later without a link.
+
+## Reading back what the host linked
+
+S2F35 links reports to collection events, and a host that restarts - or one that took over from
+another - has no record of what was linked. Sending S2F35 again is not a way to find out, because
+sending it is what changes the table. **S6F27 is the read-back**:
+
+```csharp
+await host.LinkEventsAsync([(1_000UL, [5_000UL])]);
+
+var linked = await host.RequestNotificationReportsAsync(1_000);   // [5_000]
+```
+
+Report identifiers only; what each report contains is S2F11's question. An event this machine does
+not have and an event with nothing linked to it both come back as an empty list, because S6F28
+carries no acknowledgement to tell them apart - on the wire they are different bodies, and
+[`GemStream6Tests`](../../tests/Barbatos.SecsGem.Gem.UnitTests/GemStream6Tests.cs) reads the frames
+to prove it.
+
+## Data that is not an event
+
+Everything above hangs off a `CEID`. Two rows of stream 6 have no `CEID` anywhere in them, which
+is the whole reason they exist - a log an operator dumped, or a trace the machine gathered on its
+own, has nowhere else in the stream to go:
+
+```csharp
+// The machine, pushing. The item is consumed by the call.
+await equipment.SendUnformattedDataAsync(SecsItem.B(contents));
+
+// The host, pulling - by the identifier it saw go past.
+using var reply = await host.RequestDataTransferAsync(41);
+```
+
+```csharp
+// What the machine has filed under an identifier. Returns a fresh item, or null for nothing.
+equipment.AnswerDataTransfer = id => store.TryGet(id, out var bytes) ? SecsItem.B(bytes) : null;
+
+host.UnformattedDataReceived += (_, args) =>
+{
+    Archive(args.DataId, args.Data);        // a view; the handler is the whole of its life
+    args.Acknowledgement = GemReportAcknowledgement.Error;   // only if it could not be stored
+};
+```
+
+**`V` is carried exactly as it arrives**, because the reference defines no format for it. That is
+not a decision taken here: S6F11 carries `V` as well and is a row the reference illustrates in
+full, so the reading was already in the stream before these rows were served. A handler that sets
+nothing on the event args accepts.
+
+`AnswerDataTransfer` returns nothing by default, and a machine that answers nothing is answering
+honestly - S6F8 has no acknowledgement item, so an empty body is the only way the row can say "not
+here".
+
 ## A value every second, without asking every second
 
 A trace is the answer to a host that wants a variable sampled on an interval. It names the
@@ -1001,7 +1072,8 @@ not a wall in front of it.
 | Six pairs of stream 7 | Sixteen of its twenty-two primaries are here now, and the six that are not were each refused on evidence rather than on provenance. **The matrix family**, S7F11 through S7F16: no item in the reference is named for a matrix, and the only matrix word anywhere is `ACKC7` 3, "Matrix overflow" - a capability's failure mode is not its definition, so what these rows transfer is a vocabulary the source never wrote down. **S7F21/F22**, whose name is the whole of what the reference says about it: a one-item body answered with an `ACKC7` could be made to mean anything, and "reference" is not a transaction. **S7F35/F36**, a directory reply that carries bodies - either the reference abbreviated and it is `PPID` alone, like S7F8 and S7F20, or a directory request returns every formatted program whole, which is not a directory; the two readings put different bytes on the wire. **S7F43/F44**, cancelling a command sent earlier, which needs a register of commands in flight that neither this library nor the reference has. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) |
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
 | S1F9/F10, the material transfer status | The one row of streams 1, 5 and 10 that the gapless sweep left out, and the only thing missing from those three streams now. Its two items, `TSIP` and `TSOP`, are `A[n]` with no tables and named by stream 1 alone - so there is no sibling anywhere to read a reading off, which is the test the other eight rows passed. And what it reports is material transfer, a subject this repository serves properly in stream 3 and in E87: a pass-through of two string lists whose meaning nobody states would be an API with nothing behind it, beside two packages that have something. [`SecsCatalogGaplessTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogGaplessTests.cs) pins both reasons |
-| The rest of streams 2 and 6 | Every primary those two streams *document* is implemented. What is left is representative rows in streams that are **not** gapless - stream 2 has seven gaps and stream 6 four - so each needs measuring on its own rather than as a group, which is what the gapless streams could be done as |
+| Three pairs of stream 6 | The rest of the stream is here. **S6F21/F22** and **S6F29/F30** were refused on the field each row turns on: `CELLNAME` is what makes a data cell report a *cell* report rather than the event report it is otherwise identical to, and `NRED` is the enable-or-disable flag S6F29 exists to carry - both undefined, both named by one row, so carrying either untouched would leave this library unable to tell apart the two things its row distinguishes. The same reason S14F23 stays out. **S6F25/F26** was refused on something new: not a field but a **body**. Its two items are both defined and both already read here, and the reference records an item list rather than a nesting - S6F16 is recorded as `DATAID` and `CEID` and carries a whole event report - so the two served rows that could settle whether a report list follows disagree, and a body guessed wrong is unparseable rather than merely uninterpretable. [`SecsCatalogStream6Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream6Tests.cs) pins all three |
+| The rest of stream 2 | Every primary stream 2 *documents* is implemented. What is left is representative rows in a stream that is **not** gapless - seven gaps, and the service-program family's are in its replies - so each needs measuring on its own rather than as a group, which is what the gapless streams could be done as |
 | A trace that outlives a reconnect | Deliberate, and the only part of tracing with no test of its own. Every trace is cancelled where the host's report definitions are reset, on a re-establish - and an in-memory transport pair cannot re-select after a deselect, because the select is driven by the connection's own state machine and nothing public asks it to. The test covers the other side: that a second S1F13 on a live conversation resets nothing |
 | Streams this library does not implement at either end | Stream 3 material status, stream 12 wafer mapping, stream 14 object services. `GemHost` covers what `GemEquipment` answers, by construction and by test, so the way to add one of these is to add it to the machine's side first - a host method for a message no equipment here answers would be an API with nothing to talk to |
 

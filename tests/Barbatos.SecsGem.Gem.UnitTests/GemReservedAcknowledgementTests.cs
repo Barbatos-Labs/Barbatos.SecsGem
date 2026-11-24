@@ -115,6 +115,20 @@ public class GemReservedAcknowledgementTests
         await DriveAsync(7, 41, 42, "CMDA",
             host => host.SendProgramCommandAsync("RECIPE-1", "START", [("LOTID", "LOT-1")], GemPair.Token),
             (byte)GemRemoteCommandAcknowledgement.Other);
+
+        // The spool reply, which was undriven until the stream 6 chapter went looking - and the
+        // rule that predicted the hole is the one above: a site is driven, not an item. The fold
+        // was correct all along, so this line never caught anything; what it stops is a later
+        // chapter deciding that an enum with no catch-all *member* needs no catch-all behaviour,
+        // since Denied is both the only refusal and the whole reserved range.
+        //
+        // Also the one drive here whose item name was wrong when it was written. GemHost logged
+        // the arriving code as RSPACK, an item belonging to S2F44; S6F24 carries SPACK, which the
+        // reference leaves undefined, and E30 and this package's own equipment half both call the
+        // field RSDA.
+        await DriveAsync(6, 23, 24, "RSDA",
+            host => host.RequestSpooledDataAsync(GemSpooledDataRequest.Transmit, GemPair.Token),
+            (byte)GemSpooledDataAcknowledgement.Denied);
     }
 
     /// <summary>Drives one reader against a machine that answers <see cref="Reserved"/>.</summary>

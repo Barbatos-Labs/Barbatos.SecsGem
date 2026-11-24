@@ -151,4 +151,145 @@ public class SecsCatalogStream6Tests
             stream.Messages,
             message => message.Function == 23 && message.IsRepresentative);
     }
+
+    [Fact]
+    public void Every_name_stream_6_uses_and_the_reference_never_defines_belongs_to_stream_6_alone()
+    {
+        var anchoring = Stream().Anchoring;
+
+        // Four gaps, all of them the stream's own. Which matters because the two kinds are read
+        // differently: a gap the whole reference shares is a vocabulary it never wrote down and
+        // those rows are left alone, and a gap that belongs to one stream is a hole in a row, so
+        // the field is carried untouched. Stream 6 has none of the first kind.
+        Assert.Empty(anchoring.SharedGaps);
+        Assert.Equal<string[]>(["CELLNAME", "NRED", "SPACK", "V"], [.. anchoring.OwnGaps]);
+    }
+
+    [Fact]
+    public void The_value_item_is_carried_by_a_row_the_reference_illustrates_in_full()
+    {
+        var stream = Stream();
+
+        // This is the measurement that decided four of the seven rows left in this stream, and it
+        // overturned a reading made before the replies were looked at: V has no definition
+        // anywhere, so the obvious conclusion is that any row carrying it cannot be served.
+        Assert.False(SecsCatalog.TryGetDataItem("V", out _));
+
+        // Except that V is carried by six rows of this stream, and one of them is a definition
+        // rather than an illustration - so the reference does show what a V-bearing row looks
+        // like, and the repository has been carrying it opaquely at S6F11 since before this
+        // chapter. A gap cannot block a row when the reference illustrates the gap in full.
+        var carrying = stream.Messages
+            .Where(message => message.DataItems.Contains("V", StringComparer.Ordinal))
+            .ToArray();
+
+        Assert.Equal<byte[]>([8, 9, 11, 13, 18, 21], [.. carrying.Select(message => message.Function)]);
+        Assert.Contains(carrying, message => message.Function == 11 && !message.IsRepresentative);
+    }
+
+    [Fact]
+    public void The_two_gaps_that_do_block_a_row_are_each_the_only_thing_that_row_is_for()
+    {
+        var stream = Stream();
+
+        // The other half of reading an own gap twice. V is a payload, so carrying it untouched
+        // leaves the message usable. These two are not payloads: CELLNAME is what makes S6F21 a
+        // *cell* report rather than the event report it is otherwise identical to, and NRED is the
+        // enable-or-disable flag S6F29 exists to carry. Carrying either opaquely would leave this
+        // library unable to tell the two things the row distinguishes.
+        foreach (var (name, function) in new[] { ("CELLNAME", (byte)21), ("NRED", (byte)29) })
+        {
+            Assert.False(SecsCatalog.TryGetDataItem(name, out _), name);
+
+            var rows = stream.Messages
+                .Where(message => message.DataItems.Contains(name, StringComparer.Ordinal))
+                .ToArray();
+
+            Assert.Equal(function, Assert.Single(rows).Function);
+        }
+    }
+
+    [Fact]
+    public void The_spool_reply_names_an_item_the_reference_never_defines_and_three_names_were_in_play()
+    {
+        var row = Assert.Single(Stream().Messages, message => message.Function == 24);
+
+        // S6F24 carries one item and the reference does not define it. Which would be unremarkable
+        // except for what this repository had been calling it.
+        Assert.Equal<string[]>(["SPACK"], [.. row.DataItems]);
+        Assert.False(SecsCatalog.TryGetDataItem("SPACK", out _));
+
+        // RSPACK is a real item with a real table, and GemHost used to read S6F24 under that name
+        // and this suite used to check the enum against that table. It belongs to S2F44 - reset
+        // spooling, a row nothing here serves. The same mistake TRACK was, in the same file.
+        Assert.True(SecsCatalog.TryGetDataItem("RSPACK", out var rspack));
+        Assert.Equal<byte[]>([2], [.. rspack!.Streams]);
+
+        // RSDA and RSDC are what E30 calls these two fields and what this package puts on the
+        // wire. Both are defined and neither is named by any of the reference's rows, which is the
+        // companion measure: a capability being specified does not mean anything carries it.
+        foreach (var name in new[] { "RSDA", "RSDC" })
+        {
+            Assert.True(SecsCatalog.TryGetDataItem(name, out var item), name);
+            Assert.True(item!.IsNamedByNoMessage, name);
+        }
+
+        // So the enum's codes are grounded on ACKC6 instead - stream 6's own acknowledgement,
+        // carried by four of its rows, with a table identical to the one that was being quoted.
+        // Same codes, honest provenance: the correction changes a name and not a byte.
+        var ackc6 = Item("ACKC6");
+
+        Assert.Equal(rspack.Codes.Count, ackc6.Codes.Count);
+        Assert.Equal("Accepted", ackc6.MeaningOf("0"));
+        Assert.Equal("1-63", ackc6.Codes[^1].Value);
+        Assert.Equal("1-63", rspack.Codes[^1].Value);
+    }
+
+    [Fact]
+    public void The_rival_measure_cannot_pair_the_spool_names_and_the_reason_is_which_relations_it_has()
+    {
+        // A gap with a rival spelling is a field the reference wrote down under another name, and
+        // reading a format off it would be correcting the reference rather than reading it. So
+        // whether SPACK has a rival is a real question, and the measure says no.
+        Assert.DoesNotContain(
+            Stream().RivalSpellings,
+            rival => rival.UsedName is "SPACK");
+
+        // And the reason is worth recording rather than leaving to be rediscovered: the measure
+        // has two textual relations, anagram and prefix in either direction. RSPACK extends SPACK
+        // at the *front*, which is neither - so this pair is invisible to it by construction, not
+        // by accident. It was found by asking which streams name RSPACK.
+        Assert.Equal<SecsNameRelation[]>(
+            [SecsNameRelation.Anagram, SecsNameRelation.DefinitionExtendsUsed, SecsNameRelation.UsedExtendsDefinition],
+            [.. Enum.GetValues<SecsNameRelation>().Order()]);
+
+        Assert.EndsWith("SPACK", "RSPACK", StringComparison.Ordinal);
+        Assert.False("RSPACK".StartsWith("SPACK", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_reference_records_fewer_items_for_S6F16_than_for_S6F11_though_both_carry_a_report()
+    {
+        var stream = Stream();
+        var eleven = Assert.Single(stream.Messages, message => message.Function == 11);
+        var sixteen = Assert.Single(stream.Messages, message => message.Function == 16);
+
+        // The fact that decided S6F25, and it is a fact about this whole catalogue rather than
+        // about stream 6: an item list is the set of names a row's table mentions, and not a
+        // description of the body. S6F11 and S6F16 both carry an event report - this repository
+        // builds them from one method - and the reference records four items for one and two for
+        // the other.
+        Assert.Equal<string[]>(["DATAID", "CEID", "RPTID", "V"], [.. eleven.DataItems]);
+        Assert.Equal<string[]>(["DATAID", "CEID"], [.. sixteen.DataItems]);
+
+        // So a row recorded as DATAID and CEID may or may not carry reports after them, and S6F25
+        // is recorded exactly that way. Its two items are both defined and both already read here,
+        // and it still cannot be served: the two rows that could settle its nesting disagree, and
+        // a body guessed wrong is unparseable rather than merely uninterpretable. That is a
+        // refusal about a shape and not about a field, which is new in this repository.
+        var twentyFive = Assert.Single(stream.Messages, message => message.Function == 25);
+
+        Assert.Equal<string[]>(["DATAID", "CEID"], [.. twentyFive.DataItems]);
+        Assert.All(twentyFive.DataItems, name => Assert.True(SecsCatalog.TryGetDataItem(name, out _), name));
+    }
 }

@@ -332,6 +332,83 @@ public sealed class GemReceivedReport
     public override string ToString() => $"{Id} ({Values.Count} values)";
 }
 
+/// <summary>S6F9 - unformatted data the equipment sent without being asked.</summary>
+/// <remarks>
+/// <para>
+/// <c>V</c> has no definition anywhere in the reference, so the data arrives as <strong>the item
+/// that was sent</strong> rather than as a shape this library picked for it. That is the same
+/// treatment <see cref="GemReceivedReport.Values"/> gets, and it is settled by precedent rather
+/// than by preference: S6F11 carries <c>V</c> too and is one of the rows E5 illustrates in full,
+/// so the reading that works there works here.
+/// </para>
+/// <para>
+/// <strong>The item is a view into the inbound message</strong> and the handler is the whole of its
+/// life. A handler that wants the bytes afterwards copies them before it returns.
+/// </para>
+/// </remarks>
+public sealed class GemUnformattedDataEventArgs : EventArgs
+{
+    internal GemUnformattedDataEventArgs(uint dataId, SecsItem data)
+    {
+        DataId = dataId;
+        Data = data;
+    }
+
+    /// <summary>Gets DATAID, which the equipment chose.</summary>
+    public uint DataId { get; }
+
+    /// <summary>Gets V, as it arrived. Valid only inside the handler.</summary>
+    public SecsItem Data { get; }
+
+    /// <summary>Gets or sets the ACKC6 to answer with.</summary>
+    /// <remarks>
+    /// Accepted unless a handler says otherwise. Whether what arrived could be stored is the only
+    /// thing the host end knows and this layer does not, which is why the refusal is the handler's
+    /// to write and the acceptance is not.
+    /// </remarks>
+    public GemReportAcknowledgement Acknowledgement { get; set; } = GemReportAcknowledgement.Accepted;
+
+    /// <summary>Returns the identifier and the item's format.</summary>
+    /// <returns>For example <c>4 (Binary)</c>.</returns>
+    public override string ToString() => $"{DataId} ({Data.Format})";
+}
+
+/// <summary>One value out of S6F18, with the two things the annotation adds.</summary>
+/// <remarks>
+/// <para>
+/// S6F20 answers a report with its values and nothing else, so a host has to have read the
+/// namelist already to know what it is looking at. S6F18 answers the same question with each
+/// value's <c>VID</c> and <c>UNITS</c> beside it, and that is the whole of the difference between
+/// the two rows - the same difference S6F13 makes to S6F11.
+/// </para>
+/// <para>
+/// <strong><see cref="Value"/> is a view into the reply</strong>, and the caller owns that reply:
+/// the item is valid for as long as the message is held and not one moment longer.
+/// </para>
+/// </remarks>
+public sealed class GemAnnotatedValue
+{
+    internal GemAnnotatedValue(ulong variableId, SecsItem value, string units)
+    {
+        VariableId = variableId;
+        Value = value;
+        Units = units;
+    }
+
+    /// <summary>Gets VID.</summary>
+    public ulong VariableId { get; }
+
+    /// <summary>Gets V, as it arrived.</summary>
+    public SecsItem Value { get; }
+
+    /// <summary>Gets UNITS, or an empty string for a value that has none.</summary>
+    public string Units { get; }
+
+    /// <summary>Returns the identifier and the units.</summary>
+    /// <returns>For example <c>5001 degC</c>, or <c>5001</c> for a value carrying no units.</returns>
+    public override string ToString() => Units.Length == 0 ? $"{VariableId}" : $"{VariableId} {Units}";
+}
+
 /// <summary>An event report the equipment sent - S6F11 or S6F13.</summary>
 public sealed class GemEventReportEventArgs : EventArgs
 {
