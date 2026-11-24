@@ -237,6 +237,19 @@ internal static class Program
             // carries, so what is on the disk is what the wire said.
             .AddGemFileFormattedProcessPrograms(Path.Combine(AppContext.BaseDirectory, "programs-formatted"))
 
+            // And stream 2's service programs, which are not recipes: text this machine RUNS,
+            // where a recipe is bytes it executes later - SPD is an A[n] and PPBODY is a B. To a
+            // directory like everything else, and what runs a program is set by the runner below
+            // rather than here, because that delegate is the machine's own wiring and not
+            // something a container can supply - a store nobody told how to run one refuses every
+            // S2F7, which is the honest default.
+            //
+            // The results are deliberately NOT on the disk. A result is what this machine
+            // produced, and after a restart it has produced nothing - so S2F9 answers empty until
+            // the host sends S2F7 again, and the program is still there to run. Watch for it in
+            // the log line this store writes on the second start: "1 program(s) and no results".
+            .AddGemFileServicePrograms(Path.Combine(AppContext.BaseDirectory, "service-programs"))
+
             // And the matrix store, which gets a directory of its own above all the others: a
             // matrix coming back from S7F5 as a plain process program is exactly what keeping the
             // two stores apart prevents, and on a disk their records look alike. The extensions
@@ -422,6 +435,7 @@ internal sealed class ChamberRunner(
     IControlProgramStore controlPrograms,
     IItemStore items,
     IRecipeStore recipes,
+    IGemServiceProgramStore servicePrograms,
     IObjectProvider objects,
     Chamber chamber,
     ILogger<ChamberRunner> logger) : BackgroundService
@@ -477,6 +491,15 @@ internal sealed class ChamberRunner(
                 stoppingToken);
 
             await recipes.SaveAsync("PROD", "ETCH-7", seed, stoppingToken);
+        }
+
+        // What running a service program means on this machine, set here because it is the one
+        // thing about the store that a directory cannot hold: a run is what the machine DOES, and
+        // the store keeps the text rather than the behaviour. A real machine would hand the text
+        // to whatever interprets it; this one reports what it was given.
+        if (servicePrograms is GemFileServiceProgramStore runnable)
+        {
+            runnable.Run = (id, text) => $"SPID {id}: {text.Length} characters, exit 0";
         }
 
         // And the empty one, which the host sample deletes and this puts back - a namespace with

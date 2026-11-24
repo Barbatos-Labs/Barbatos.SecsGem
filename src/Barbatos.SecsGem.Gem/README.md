@@ -662,6 +662,45 @@ acceptance off the eight `ACKCn` items that *are* defined, and everything else a
 reason - so `GemServiceProgramResult` hands back the byte as well as the verdict, for a fab whose
 machine means something by it.
 
+### Service programs that outlive the process, and results that do not
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => { /* ... */ })
+    .AddGemServicePrograms(new GemFileServiceProgramStore(
+        Path.Combine(AppContext.BaseDirectory, "service-programs"))
+    {
+        Run = (id, text) => RunOnTheMachine(id, text),
+    })
+    .RunAsHostedService();
+```
+
+`GemFileServiceProgramStore` keeps each program in a file, the same way the recipe and process
+program stores do. `AddGemFileServicePrograms(directory)` is the shorter way in, and it leaves `Run`
+at its default - which refuses - so a machine that really runs service programs builds the store
+with its own delegate, as above. The run is the machine's own wiring, which is why it is a property
+and not a durable fact.
+
+**The results of a run are not written down**, and that is the one judgement this store had to make.
+Everything else here is what a host told the machine, and comes back. A result is what the machine
+*produced* by running code, and a restarted machine has run nothing - so answering S2F9 out of a file
+would be claiming a run that never happened. The host sends S2F7 again, and the program is still
+there to run. The in-memory store already makes the smaller version of this argument: it clears a
+program's results when the program is replaced, because they are the output of code that is no longer
+there.
+
+| | survives | why |
+| --- | --- | --- |
+| the programs | yes | `SPD` is text a host wrote and asked this machine to keep |
+| the results of a run | **no** | what the machine produced, and after a restart it has produced nothing |
+| `Run` | no | not state: the machine's own wiring, supplied on every start |
+| `Capacity`, `MaxLength` | no | configuration, not anything a host said |
+
+A host reading S2F10 after a restart gets a **zero-length** item, which `GemHost` hands back as
+`null` rather than as an empty string - the distinction being that a program which ran and printed
+nothing answers with an empty one.
+
 ## Three more rows of stream 2
 
 ```csharp

@@ -54,6 +54,7 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
 - [Process programs](#process-programs)
   - [`IGemProcessProgramStore`](#igemprocessprogramstore)
   - [`GemInMemoryProcessProgramStore`](#geminmemoryprocessprogramstore)
+  - [`GemFileServiceProgramStore`](#gemfileserviceprogramstore)
   - [`GemFileProcessProgramStore`](#gemfileprocessprogramstore)
   - [`GemFileFormattedProcessProgramStore`](#gemfileformattedprocessprogramstore)
   - [`GemFileProcessProgramMatrixStore`](#gemfileprocessprogrammatrixstore)
@@ -83,6 +84,7 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
   - [`AddGemFileFormattedProcessPrograms`](#addgemfileformattedprocessprograms)
   - [`AddGemFileProcessProgramMatrices`](#addgemfileprocessprogrammatrices)
   - [`AddGemServicePrograms`](#addgemserviceprograms)
+  - [`AddGemFileServicePrograms`](#addgemfileserviceprograms)
   - [`AddGemFormattedProcessPrograms`](#addgemformattedprocessprograms)
   - [`AddGemHost`](#addgemhost)
 
@@ -471,6 +473,33 @@ is something the machine does, and a store nobody told how to run one would be c
 had started when nothing started. `MaxLength` is a store's own limit rather than the reference's,
 and it is what lets `InquireAsync` answer `NoSpace` before the text arrives - which is the entire
 point of the inquire. Saving a program discards the results of the one it replaced.
+
+---
+
+### `GemFileServiceProgramStore`
+
+`public sealed class GemFileServiceProgramStore : IGemServiceProgramStore`
+
+One file per program, written through and renamed into place, adopting whatever is in the directory
+when it is constructed. The mechanism is `DurableRecordDirectory`, shared with four packages. **One
+store per directory**, and records carry `.serviceprogram`.
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemFileServiceProgramStore(string directory, ILogger<GemFileServiceProgramStore>? logger = null)` | Creates and scans the directory **here** rather than on first use. Neither limit is enforced on what is adopted. |
+| `Directory` | `string { get; }` | Where the records live, as a full path. |
+| `Capacity`, `MaxLength` | `int { get; set; }` | `64` and 64 KiB, as the in-memory store's, and **not durable**: configuration, not anything a host said. |
+| `Run` | `Func<uint, string, string?> { get; set; }` | As the in-memory store's, and **not durable either** - not state but the machine's own wiring, supplied on every start like the directory. Defaults to refusing. |
+| `Count` | `int { get; }` | |
+| `ResultCount` | `int { get; }` | How many programs have results from a run **in this process**. Zero on every open. |
+| `Has`, `HasResults` | `bool Has(uint id)`, `bool HasResults(uint id)` | The cheap questions, where `LoadAsync` reads a file. |
+
+**The results of a run are not written down.** Everything else here is what a host told the machine
+and comes back; a result is what the machine produced, and a restarted machine has produced nothing,
+so answering S2F9 out of a file would be claiming a run that never happened. `RunAsync` reads the
+text off the disk, so a restarted machine runs the program it actually holds. Replacing a program
+still discards its results, which is the in-memory store's rule and the smaller version of the same
+argument.
 
 ---
 
@@ -1718,6 +1747,19 @@ read-back - S7F15 is the read, in the only form E5 offers one.
 So S7F17, S7F19 and S7F31 do **not** reach this store. The reference gives the matrix no delete and
 no directory, and those three rows say *process program*: a host that wants a matrix gone sends
 another one.
+
+### `AddGemFileServicePrograms`
+
+```csharp
+public static ISecsGemBuilder AddGemFileServicePrograms(this ISecsGemBuilder builder, string directory)
+```
+
+The same registration over `GemFileServiceProgramStore`, which outlives the process. It leaves `Run`
+at its default, so a machine wired this way holds programs, hands them back and lists them, and
+answers S2F7 with an error - one that really runs service programs builds the store with its own
+delegate and uses the instance overload above.
+
+---
 
 ### `AddGemServicePrograms`
 

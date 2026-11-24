@@ -98,7 +98,7 @@ internal static class Program
         await Run("itemtransfer: stream 21 resolves from one registration both ends call", ItemTransferResolvesAsync).ConfigureAwait(false);
         await Run("recipes: stream 15 resolves at both ends, and a recipe is bytes with a namespace", RecipesResolveAsync).ConfigureAwait(false);
         await Run("transfer stores: four packages keep what a host sent, and find it again", DurableTransferStoresAsync).ConfigureAwait(false);
-        await Run("gem: stream 7's three stores survive a restart and tell their records apart", DurableProcessProgramStoresAsync).ConfigureAwait(false);
+        await Run("gem: four stores survive a restart, and a run's results do not", DurableProcessProgramStoresAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
@@ -1227,6 +1227,57 @@ internal static class Program
             Assert(new GemFileProcessProgramStore(matrices).Count == 0, "the plain store adopted a matrix");
             Assert(new GemFileProcessProgramMatrixStore(plain).Count == 0, "the matrix store adopted a program");
             Assert(new GemFileFormattedProcessProgramStore(plain).Count == 0, "the formatted store adopted a plain program");
+
+            // ---------------------------------------------------------------- stream 2
+            // The fourth store in this package, and the one with a judgement rather than a format:
+            // the text survives and the results of a run do not, because a result is what the
+            // machine produced and a restarted machine has produced nothing.
+            var servicePrograms = Path.Combine(root, "service");
+            var serviceServices = new ServiceCollection();
+
+            serviceServices
+                .AddSecsGem()
+                .UseInMemoryTransport()
+                .AddGemEquipment(model => model.AddStatusVariable(1, "Pressure", () => SecsItem.F8(1d), "mbar"))
+                .AddGemFileServicePrograms(servicePrograms);
+
+            await using var serviceProvider = serviceServices.BuildServiceProvider();
+
+            _ = serviceProvider.GetRequiredService<GemEquipment>();
+
+            var service = serviceProvider.GetRequiredService<IGemServiceProgramStore>();
+
+            Assert(service is GemFileServiceProgramStore, $"the service registration produced {service.GetType().Name}");
+
+            // The run delegate is the machine's own wiring, so the registration leaves it refusing
+            // and a consumer sets it - which is the shape worth checking from a package.
+            ((GemFileServiceProgramStore)service).Run = (id, text) => $"SPID {id}: {text.Length}";
+
+            Assert(
+                await service.SaveAsync(7u, "PRINT 1", CancellationToken.None).ConfigureAwait(false)
+                    == GemServiceProgramAcknowledgement.Accepted,
+                "the service program store refused a program");
+
+            Assert(
+                await service.RunAsync(7u, CancellationToken.None).ConfigureAwait(false)
+                    == GemServiceProgramAcknowledgement.Accepted,
+                "the service program store refused to run a program it holds");
+
+            Assert(
+                await service.ResultsAsync(7u, CancellationToken.None).ConfigureAwait(false) == "SPID 7: 7",
+                "the results of a run came back wrong");
+
+            var reopenedService = new GemFileServiceProgramStore(servicePrograms);
+
+            Assert(reopenedService.Count == 1, $"a second service store found {reopenedService.Count} program(s), not one");
+            Assert(
+                await reopenedService.LoadAsync(7u, CancellationToken.None).ConfigureAwait(false) == "PRINT 1",
+                "the service program came back from the disk as something else");
+
+            Assert(reopenedService.ResultCount == 0, "a second service store restored the results of a run");
+            Assert(
+                await reopenedService.ResultsAsync(7u, CancellationToken.None).ConfigureAwait(false) is null,
+                "a restarted machine reported results of a run it never made");
         }
         finally
         {

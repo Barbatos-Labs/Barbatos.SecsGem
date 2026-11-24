@@ -706,6 +706,44 @@ public static class GemServiceCollectionExtensions
     public static ISecsGemBuilder AddGemServicePrograms(this ISecsGemBuilder builder)
         => builder.AddGemServicePrograms<GemInMemoryServiceProgramStore>();
 
+    /// <summary>Adds service program management, backed by a directory that outlives the process.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="directory">Where the records live. Created if it is not there.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> or <paramref name="directory"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <see cref="GemFileServiceProgramStore"/>, which adopts what is still in the directory. A
+    /// service program is text a host wrote and asked this machine to keep - <c>SPD</c> is an
+    /// <c>A[n]</c> - so losing it on a restart means asking for it again.
+    /// </para>
+    /// <para>
+    /// <strong>What this overload cannot give it is a way to run anything.</strong>
+    /// <see cref="GemFileServiceProgramStore.Run"/> defaults to refusing, exactly as the in-memory
+    /// store's does, so a machine wired this way holds programs, hands them back and lists them,
+    /// and answers S2F7 with an error. A machine that really runs service programs builds the store
+    /// with its own delegate and calls
+    /// <see cref="AddGemServicePrograms(ISecsGemBuilder, IGemServiceProgramStore)"/> - the run is
+    /// the machine's own wiring, which is why it is a property and not a durable fact.
+    /// </para>
+    /// <para>
+    /// The <strong>results</strong> of a run are never written down: a result is what the machine
+    /// produced, and after a restart it has produced nothing, so S2F9 answers empty until the host
+    /// sends S2F7 again.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemFileServicePrograms(this ISecsGemBuilder builder, string directory)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(directory);
+
+        builder.Services.TryAddSingleton<IGemServiceProgramStore>(provider => new GemFileServiceProgramStore(
+            directory,
+            provider.GetService<ILogger<GemFileServiceProgramStore>>()));
+
+        return DeclareServicePrograms(builder);
+    }
+
     /// <summary>Adds service program management, backed by a store of your own.</summary>
     /// <typeparam name="TStore">The store.</typeparam>
     /// <param name="builder">The builder.</param>

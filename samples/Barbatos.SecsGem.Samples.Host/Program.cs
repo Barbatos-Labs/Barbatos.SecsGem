@@ -1426,32 +1426,6 @@ internal static class Program
             Console.WriteLine($"   S6F5  -> GRANT6={grant}");
             ok &= grant == GemMultiBlockGrant.Ok;
 
-            // Stream 2's service program family - E5's own capability, nothing to do with E30. The
-            // inquire is not optional: S2F3 carries no SPID, so the identifier a program is filed
-            // under is the one granted here.
-            var loadGrant = await host.InquireServiceProgramAsync(7, "PRINT 1".Length, cancellationToken);
-
-            Console.WriteLine($"   S2F1  -> GRANT={loadGrant}");
-            ok &= loadGrant == GemGrant.Accepted;
-
-            var stored = await host.SendServiceProgramAsync("PRINT 1", cancellationToken);
-
-            Console.WriteLine($"   S2F3  -> ACKC2={stored.Code} ({stored.Acknowledgement})");
-            ok &= stored.IsAccepted;
-
-            // And it runs, which is the whole difference from a recipe: S2F7 and S2F9 have no
-            // stream 7 equivalent.
-            ok &= (await host.RunServiceProgramAsync(7, cancellationToken)).IsAccepted;
-
-            Console.WriteLine($"   S2F9  -> {await host.ReadServiceProgramResultsAsync(7, cancellationToken)}");
-            Console.WriteLine($"   S2F11 -> {string.Join(", ", await host.ListServiceProgramsAsync(cancellationToken))}");
-
-            ok &= (await host.ListServiceProgramsAsync(cancellationToken)).Contains(7u);
-
-            // A send with nothing granted behind it, which is refused because there is no SPID to
-            // file it under. The grant above was consumed by the send above.
-            ok &= !(await host.SendServiceProgramAsync("PRINT 2", cancellationToken)).IsAccepted;
-
             // S2F27, refused because nothing has told this machine how to start processing. The
             // default is the refusal, and a sample that overrode it would hide that.
             Console.WriteLine(
@@ -2370,6 +2344,42 @@ internal static class Program
 
         if (controlPrograms is not null)
         {
+            Console.WriteLine();
+            Console.WriteLine();
+            Console.WriteLine("-- and sends a program the machine RUNS, which is stream 2 --");
+            Console.WriteLine();
+
+            // E5's own capability, nothing to do with E30, and it used to run only in this
+            // sample's single-process mode. The equipment sample keeps its service programs in a
+            // directory now, so it is worth driving over a socket as well - which is where the
+            // interesting half shows: the program comes back after a restart and the results of a
+            // run do not.
+            //
+            // The inquire is not optional: S2F3 carries no SPID, so the identifier a program is
+            // filed under is the one granted here.
+            var loadGrant = await host.InquireServiceProgramAsync(7, "PRINT 1".Length, cancellationToken);
+
+            Console.WriteLine($"   S2F1  -> GRANT={loadGrant}");
+            ok &= loadGrant == GemGrant.Accepted;
+
+            var stored = await host.SendServiceProgramAsync("PRINT 1", cancellationToken);
+
+            Console.WriteLine($"   S2F3  -> ACKC2={stored.Code} ({stored.Acknowledgement})");
+            ok &= stored.IsAccepted;
+
+            // And it runs, which is the whole difference from a recipe: S2F7 and S2F9 have no
+            // stream 7 equivalent.
+            ok &= (await host.RunServiceProgramAsync(7, cancellationToken)).IsAccepted;
+
+            Console.WriteLine($"   S2F9  -> {await host.ReadServiceProgramResultsAsync(7, cancellationToken) ?? "no results"}");
+            Console.WriteLine($"   S2F11 -> {string.Join(", ", await host.ListServiceProgramsAsync(cancellationToken))}");
+
+            ok &= (await host.ListServiceProgramsAsync(cancellationToken)).Contains(7u);
+
+            // A send with nothing granted behind it, which is refused because there is no SPID to
+            // file it under. The grant above was consumed by the send above.
+            ok &= !(await host.SendServiceProgramAsync("PRINT 2", cancellationToken)).IsAccepted;
+
             Console.WriteLine();
             Console.WriteLine("-- and moves firmware, which is stream 8 --");
             Console.WriteLine();

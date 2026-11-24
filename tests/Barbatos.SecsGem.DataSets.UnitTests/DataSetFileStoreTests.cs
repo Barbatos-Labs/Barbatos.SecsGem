@@ -268,7 +268,14 @@ public class DataSetFileStoreTests
         // S13F6 has no acknowledgement code at all - an empty DSDATA is the whole of the refusal -
         // so the log is the only place this is distinguishable from a data set nobody opened.
         Assert.Null(await ReadAsync(store, 42u));
-        Assert.Contains(logger.From(LogLevel.Warning), line => line.Contains("42", StringComparison.Ordinal));
+
+        // On this store's own words and not on the identifier: the shared directory logs the
+        // unreadable file's path as well, and a temporary directory named after a GUID contains
+        // almost any digits you care to look for. A control on the service program store caught
+        // the same assertion passing for that reason.
+        Assert.Contains(
+            logger.From(LogLevel.Warning),
+            line => line.Contains("data set 42", StringComparison.Ordinal));
 
         // And the status still answers out of the index, so a machine that lost a data set can
         // still say which one.

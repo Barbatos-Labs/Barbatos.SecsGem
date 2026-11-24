@@ -209,12 +209,22 @@ reading rather than the writing, too - a lock or a selection naming a recipe tha
 the disk is dropped on adoption, where filtering at the write would have hidden the rule in the
 file.
 
-**Seven stores in five packages are durable now, and the mechanism is one file:
-`src/Shared/DurableRecordDirectory.cs`.** Streams 8, 13, 15 and 21 have one apiece and stream 7 has
-three. **The one that is not is `IGemServiceProgramStore`** - stream 2's service programs, which
-keep text a host sent and so belong in this list; it is the next of these chapters, and the question
-it has to answer first is what a *run* and its *results* are, since a result is something the
-machine produced rather than something a host said. What they share is a mechanism rather than a rule -
+**Every store here that keeps what a host sent is durable now, and the mechanism is one file:
+`src/Shared/DurableRecordDirectory.cs`.** Eight of them in five packages: streams 8, 13, 15 and 21
+have one apiece, stream 7 has three, and stream 2's service programs are the eighth. Nothing a host
+sends this library is held only in memory any more, which is a claim worth keeping true - the next
+store added to this repository is the one that breaks it.
+
+**Service programs are where the rule about what comes back had to be applied to something the
+machine made.** The text is `SPD`, which the reference *defines*, so it is text a host wrote and the
+record keeps it. The **results of a run are not written down at all**: a result is what the machine
+produced by running code, and a restarted machine has run nothing, so answering S2F9 out of a file
+would be claiming a run that never happened - the host sends S2F7 again, and the program is there to
+run. The in-memory store already made the smaller version of that argument, clearing a program's
+results when the program is replaced because they are the output of code that is no longer there; a
+restart is the same argument one step further. And the `Run` delegate is not durable either, for a
+different reason: it is not state but the machine's own wiring, supplied on every start like the
+directory. What they share is a mechanism rather than a rule -
 write through under a temporary name, commit with a rename, name the file by a sequence number
 alone, adopt the directory on the next construction. It is **shared source and not a package**
 because no one of the five may depend on another: the four transfer packages sit side by side on
@@ -734,6 +744,13 @@ has never once been caught by the bound someone remembered to write. Put the att
 test project from the start, and on an old one the first time it bites. **And bound the control
 runner's own `dotnet build` and test exe**, because a hung run makes the runner sit forever: mine
 sat for fifty minutes before anybody looked.
+
+**A log assertion matched on a short identifier can be satisfied by the temporary directory's own
+name.** The durable stores log the identifier they could not read, and the shared record directory
+logs the *path* beside it - and a directory named `barbatos-sp-<guid>` contains almost any digit you
+care to look for. So `line.Contains("7")` passed with the store's own warning deleted, and only a
+control found it. Match on the store's own words - `"service program 7"`, `"data set 42"` - and treat
+any assertion a stray hex character could satisfy as no assertion at all.
 
 **Rebuild after a control run before trusting the suite.** A runner restores the *sources* it
 mutated and leaves the build output of its last control behind, and the catalogue's data file is
