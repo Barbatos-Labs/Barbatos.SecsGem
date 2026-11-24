@@ -229,6 +229,39 @@ public static class GemServiceCollectionExtensions
     public static ISecsGemBuilder AddGemProcessPrograms(this ISecsGemBuilder builder)
         => builder.AddGemProcessPrograms<GemInMemoryProcessProgramStore>();
 
+    /// <summary>Adds process program management, backed by a directory that outlives the process.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="directory">Where the records live. Created if it is not there.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> or <paramref name="directory"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <see cref="GemFileProcessProgramStore"/>, which adopts what is still in the directory - so a
+    /// recipe a host spent a shift validating is not something to send again because the controller
+    /// was upgraded. <see cref="AddGemFileSpooling"/> is the same offer for the spool.
+    /// </para>
+    /// <para>
+    /// The directory is a required parameter where the spool's is optional and falls back to
+    /// <see cref="GemOptions.SpoolDirectory"/>: spooling is a capability a machine configures, and
+    /// these three stores are capabilities an application opts into in code. Three more
+    /// near-identical paths in <see cref="GemOptions"/> would be a configuration surface nobody
+    /// asked for. <strong>Give each store its own directory</strong> - the records of the three
+    /// stream 7 stores are an identifier and a payload apiece and only their extensions tell them
+    /// apart, so sharing one directory works but the sweep of unfinished writes is directory-wide.
+    /// </para>
+    /// </remarks>
+    public static ISecsGemBuilder AddGemFileProcessPrograms(this ISecsGemBuilder builder, string directory)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(directory);
+
+        builder.Services.TryAddSingleton<IGemProcessProgramStore>(provider => new GemFileProcessProgramStore(
+            directory,
+            provider.GetService<ILogger<GemFileProcessProgramStore>>()));
+
+        return DeclareProcessPrograms(builder);
+    }
+
     /// <summary>Adds process program management, backed by a store of your own.</summary>
     /// <typeparam name="TStore">The store.</typeparam>
     /// <param name="builder">The builder.</param>
@@ -290,6 +323,31 @@ public static class GemServiceCollectionExtensions
     public static ISecsGemBuilder AddGemFormattedProcessPrograms(this ISecsGemBuilder builder)
         => builder.AddGemFormattedProcessPrograms<GemInMemoryFormattedProcessProgramStore>();
 
+    /// <summary>Adds formatted process program management, backed by a directory that outlives the process.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="directory">Where the records live. Created if it is not there.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> or <paramref name="directory"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <see cref="GemFileFormattedProcessProgramStore"/>, which writes each program down as the body
+    /// S7F23 carries rather than as a second format invented for a disk. Its own directory, for the
+    /// reason <see cref="AddGemFileProcessPrograms"/> gives.
+    /// </remarks>
+    public static ISecsGemBuilder AddGemFileFormattedProcessPrograms(
+        this ISecsGemBuilder builder,
+        string directory)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(directory);
+
+        builder.Services.TryAddSingleton<IGemFormattedProcessProgramStore>(
+            provider => new GemFileFormattedProcessProgramStore(
+                directory,
+                provider.GetService<ILogger<GemFileFormattedProcessProgramStore>>()));
+
+        return DeclareFormattedProcessPrograms(builder);
+    }
+
     /// <summary>Adds formatted process program management, backed by a store of your own.</summary>
     /// <typeparam name="TStore">The store.</typeparam>
     /// <param name="builder">The builder.</param>
@@ -344,6 +402,34 @@ public static class GemServiceCollectionExtensions
     /// </remarks>
     public static ISecsGemBuilder AddGemProcessProgramMatrices(this ISecsGemBuilder builder)
         => builder.AddGemProcessProgramMatrices<GemInMemoryProcessProgramMatrixStore>();
+
+    /// <summary>Adds process program matrices, backed by a directory that outlives the process.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="directory">Where the records live. Created if it is not there.</param>
+    /// <returns>The builder, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> or <paramref name="directory"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <see cref="GemFileProcessProgramMatrixStore"/>. <strong>Its own directory above all</strong>:
+    /// a matrix coming back from S7F5 as a plain process program is the mistake the separate store
+    /// exists to prevent, and on a disk the records look alike. The extensions differ so that a
+    /// store pointed at the wrong directory finds nothing rather than finding somebody else's
+    /// programs - and nothing on the wire deletes a matrix, so
+    /// <see cref="GemFileProcessProgramMatrixStore.Forget"/> is the only way one leaves.
+    /// </remarks>
+    public static ISecsGemBuilder AddGemFileProcessProgramMatrices(
+        this ISecsGemBuilder builder,
+        string directory)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(directory);
+
+        builder.Services.TryAddSingleton<IGemProcessProgramMatrixStore>(
+            provider => new GemFileProcessProgramMatrixStore(
+                directory,
+                provider.GetService<ILogger<GemFileProcessProgramMatrixStore>>()));
+
+        return DeclareProcessProgramMatrices(builder);
+    }
 
     /// <summary>Adds process program matrix management, backed by a store of your own.</summary>
     /// <typeparam name="TStore">The store.</typeparam>

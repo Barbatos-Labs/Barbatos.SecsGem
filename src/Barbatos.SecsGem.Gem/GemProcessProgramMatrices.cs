@@ -160,7 +160,12 @@ public sealed class GemInMemoryProcessProgramMatrixStore : IGemProcessProgramMat
 
         if (!_matrices.ContainsKey(id) && _matrices.Count >= Capacity)
         {
-            return ValueTask.FromResult(GemProcessProgramAcknowledgement.PermissionNotGranted);
+            // MatrixOverflow, where the plain store answers PermissionNotGranted, because ACKC7
+            // code 3 is the table's own word for this and these are the only rows it can belong to.
+            // This store answered the generic refusal until a second implementation was written
+            // beside it and found the member in the enum with nothing driving it - the mirror image
+            // of the sweep that found twelve enums with no member at their reserved code.
+            return ValueTask.FromResult(GemProcessProgramAcknowledgement.MatrixOverflow);
         }
 
         // Copied, because the body belongs to the message it arrived in and that message is

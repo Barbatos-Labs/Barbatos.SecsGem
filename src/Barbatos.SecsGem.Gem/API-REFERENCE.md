@@ -54,6 +54,9 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
 - [Process programs](#process-programs)
   - [`IGemProcessProgramStore`](#igemprocessprogramstore)
   - [`GemInMemoryProcessProgramStore`](#geminmemoryprocessprogramstore)
+  - [`GemFileProcessProgramStore`](#gemfileprocessprogramstore)
+  - [`GemFileFormattedProcessProgramStore`](#gemfileformattedprocessprogramstore)
+  - [`GemFileProcessProgramMatrixStore`](#gemfileprocessprogrammatrixstore)
   - [`IGemFormattedProcessProgramStore`](#igemformattedprocessprogramstore)
   - [`GemInMemoryFormattedProcessProgramStore`](#geminmemoryformattedprocessprogramstore)
   - [`GemFormattedProcessProgram`](#gemformattedprocessprogram)
@@ -76,6 +79,9 @@ Namespace `Barbatos.SecsGem.Gem`, except where noted. Concepts and worked exampl
 - [Hosting](#hosting)
   - [`AddGemEquipment`](#addgemequipment)
   - [`AddGemProcessPrograms`](#addgemprocessprograms)
+  - [`AddGemFileProcessPrograms`](#addgemfileprocessprograms)
+  - [`AddGemFileFormattedProcessPrograms`](#addgemfileformattedprocessprograms)
+  - [`AddGemFileProcessProgramMatrices`](#addgemfileprocessprogrammatrices)
   - [`AddGemServicePrograms`](#addgemserviceprograms)
   - [`AddGemFormattedProcessPrograms`](#addgemformattedprocessprograms)
   - [`AddGemHost`](#addgemhost)
@@ -1095,6 +1101,68 @@ message on the link. Write a large program in the background and answer
 Copies what it is given. Replacing an existing program is not a new slot, so it still fits at
 capacity. An empty or over-long identifier is `InvalidId`.
 
+### `GemFileProcessProgramStore`
+
+`public sealed class GemFileProcessProgramStore : IGemProcessProgramStore`
+
+One file per program, written through and renamed into place, adopting whatever is in the directory
+when it is constructed. The mechanism is `DurableRecordDirectory`, shared as source with the four
+transfer packages. **One store per directory.**
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemFileProcessProgramStore(string directory, ILogger<GemFileProcessProgramStore>? logger = null)` | Creates and scans the directory **here** rather than on first use, so a wrong path fails at start-up. `Capacity` is not enforced on what is adopted. |
+| `Directory` | `string { get; }` | Where the records live, as a full path. |
+| `Capacity`, `MaxBodyLength` | `int { get; set; }` | As the in-memory store's, and **not durable**: this machine's configuration, not anything a host said. |
+| `Count` | `int { get; }` | |
+| `Has` | `bool Has(string id)` | The cheap question, where `LoadAsync` reads a file. |
+| `RecordExtension`, `PartialExtension` | `const string` | `.processprogram` and `.writing`. |
+
+**The grant is computed, not remembered**, so this is the one durable store here with nothing in
+flight for a restart to end: a machine that comes back answers `AlreadyHave` for a program it still
+holds. A record the disk refuses to delete keeps its place in the index and the host is told
+`PermissionNotGranted`, `ACKC7` having no code that means "I could not".
+
+### `GemFileFormattedProcessProgramStore`
+
+`public sealed class GemFileFormattedProcessProgramStore : IGemFormattedProcessProgramStore`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemFileFormattedProcessProgramStore(string directory, ILogger<GemFileFormattedProcessProgramStore>? logger = null)` | As above. A record whose item is not a formatted program counts as unreadable and is left where it is. |
+| `Directory` | `string { get; }` | |
+| `Capacity` | `int { get; set; }` | `64`, not durable. |
+| `Count` | `int { get; }` | |
+| `Has` | `bool Has(string id)` | |
+| `RecordExtension`, `PartialExtension` | `const string` | `.formattedprogram` and `.writing`. |
+
+**A program is written down as the body S7F23 carries**, through the codec that writes it for the
+wire - so there is no second format to keep in step by hand, and a record this version cannot read
+is refused rather than mangled.
+
+### `GemFileProcessProgramMatrixStore`
+
+`public sealed class GemFileProcessProgramMatrixStore : IGemProcessProgramMatrixStore`
+
+| Member | Signature | Notes |
+| --- | --- | --- |
+| ctor | `GemFileProcessProgramMatrixStore(string directory, ILogger<GemFileProcessProgramMatrixStore>? logger = null)` | As above. |
+| `Directory` | `string { get; }` | |
+| `Capacity`, `MaxBodyLength` | `int { get; set; }` | `64` and 1 MiB, not durable. |
+| `Count` | `int { get; }` | |
+| `Has` | `bool Has(string id)` | |
+| `Forget` | `bool Forget(string id)` | **The door the stream does not give.** S7F17 deletes process programs and this store is deliberately not in it, so without this a matrix would stay on the disk for ever. Not reachable from the wire. |
+| `RecordExtension`, `PartialExtension` | `const string` | `.matrix` and `.writing`. |
+
+At capacity it answers `MatrixOverflow` - `ACKC7` code 3, the one code in that table belonging to
+these rows rather than the plain ones. `GemInMemoryProcessProgramMatrixStore` answered the generic
+`PermissionNotGranted` until this store was written beside it; both answer it now, and a test drives
+it over the wire.
+
+**The three extensions differ on purpose.** All three records are an identifier and a payload, so a
+store pointed at another's directory would otherwise adopt its programs and answer S7F5 with them.
+A directory per store is still the recommendation: the sweep of unfinished writes is directory-wide.
+
 ### `IGemFormattedProcessProgramStore`
 
 `public interface IGemFormattedProcessProgramStore`
@@ -1670,6 +1738,35 @@ Stream 2 is understood by every piece of GEM equipment because S2F13 and the res
 the refusal has to be narrower. Calling it twice is harmless.
 
 ---
+
+### `AddGemFileProcessPrograms`
+
+```csharp
+public static ISecsGemBuilder AddGemFileProcessPrograms(this ISecsGemBuilder builder, string directory)
+```
+
+The same registration over `GemFileProcessProgramStore`, which outlives the process. The directory
+is required where `AddGemFileSpooling`'s is optional: spooling is a capability a machine configures,
+so its path is in `GemOptions`, and three more near-identical paths there would be a configuration
+surface nobody asked for. Give each of the three stream 7 stores its own directory.
+
+### `AddGemFileFormattedProcessPrograms`
+
+```csharp
+public static ISecsGemBuilder AddGemFileFormattedProcessPrograms(this ISecsGemBuilder builder, string directory)
+```
+
+As above, over `GemFileFormattedProcessProgramStore`.
+
+### `AddGemFileProcessProgramMatrices`
+
+```csharp
+public static ISecsGemBuilder AddGemFileProcessProgramMatrices(this ISecsGemBuilder builder, string directory)
+```
+
+As above, over `GemFileProcessProgramMatrixStore`. Its own directory above all: a matrix coming back
+from S7F5 as a plain process program is the mistake the separate store exists to prevent, and on a
+disk the records look alike.
 
 ### `AddGemFormattedProcessPrograms`
 

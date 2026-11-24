@@ -98,6 +98,7 @@ internal static class Program
         await Run("itemtransfer: stream 21 resolves from one registration both ends call", ItemTransferResolvesAsync).ConfigureAwait(false);
         await Run("recipes: stream 15 resolves at both ends, and a recipe is bytes with a namespace", RecipesResolveAsync).ConfigureAwait(false);
         await Run("transfer stores: four packages keep what a host sent, and find it again", DurableTransferStoresAsync).ConfigureAwait(false);
+        await Run("gem: stream 7's three stores survive a restart and tell their records apart", DurableProcessProgramStoresAsync).ConfigureAwait(false);
         await Run("material: stream 3 resolves at both ends, which declare different messages", MaterialResolvesAsync).ConfigureAwait(false);
         await Run("objects: stream 14 declares its primaries only when this end has objects", ObjectServicesResolveAsync).ConfigureAwait(false);
         await Run("carriers: E87 declares both halves, and the state machine refuses", CarriersResolveAsync).ConfigureAwait(false);
@@ -1129,6 +1130,120 @@ internal static class Program
     /// point of the type - a <em>second</em> store over the same directory answers for a recipe the
     /// first one took - and it needs two instances, which no in-memory store can be asked for.
     /// </remarks>
+    /// <summary>
+    /// Stream 7's three stores, which is the fifth package the shared mechanism is compiled into.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three claims a restored <c>.nupkg</c> is the only thing that can check. That the three
+    /// registrations are reachable at all - they are extension methods on a builder from another
+    /// package. That a <em>second</em> store over one directory answers for what the first was
+    /// given. And that the <strong>extensions keep the three apart</strong>, which is the claim
+    /// with teeth: all three records are an identifier and a payload, so a store pointed at
+    /// another's directory would otherwise serve its programs - a matrix coming back from S7F5 as a
+    /// plain process program is the mistake the separate stores exist to prevent.
+    /// </para>
+    /// <para>
+    /// A formatted program round trip also proves the codec that writes the S7F23 body is in the
+    /// packed assembly, since that codec is how the record is written.
+    /// </para>
+    /// </remarks>
+    private static async Task DurableProcessProgramStoresAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "barbatos-smoke-pp-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var plain = Path.Combine(root, "plain");
+            var formatted = Path.Combine(root, "formatted");
+            var matrices = Path.Combine(root, "matrices");
+
+            var services = new ServiceCollection();
+
+            services
+                .AddSecsGem()
+                .UseInMemoryTransport()
+                .AddGemEquipment(model => model.AddStatusVariable(1, "Pressure", () => SecsItem.F8(1d), "mbar"))
+                .AddGemFileProcessPrograms(plain)
+                .AddGemFileFormattedProcessPrograms(formatted)
+                .AddGemFileProcessProgramMatrices(matrices);
+
+            await using var provider = services.BuildServiceProvider();
+
+            _ = provider.GetRequiredService<GemEquipment>();
+
+            var programs = provider.GetRequiredService<IGemProcessProgramStore>();
+            var structured = provider.GetRequiredService<IGemFormattedProcessProgramStore>();
+            var matrix = provider.GetRequiredService<IGemProcessProgramMatrixStore>();
+
+            Assert(programs is GemFileProcessProgramStore, $"the plain registration produced {programs.GetType().Name}");
+            Assert(structured is GemFileFormattedProcessProgramStore, $"the formatted registration produced {structured.GetType().Name}");
+            Assert(matrix is GemFileProcessProgramMatrixStore, $"the matrix registration produced {matrix.GetType().Name}");
+
+            byte[] body = [0x53, 0x54, 0x45, 0x50];
+
+            Assert(
+                await programs.SaveAsync("RECIPE-7", body, CancellationToken.None).ConfigureAwait(false)
+                    == GemProcessProgramAcknowledgement.Accepted,
+                "the plain store refused a program");
+
+            Assert(
+                await structured.SaveAsync(
+                    new GemFormattedProcessProgram("RECIPE-9", "BRBTOS-1", "1.4.2", [new(12, ["SETPOINT", "350.0"])]),
+                    CancellationToken.None).ConfigureAwait(false) == GemProcessProgramAcknowledgement.Accepted,
+                "the formatted store refused a program");
+
+            Assert(
+                await matrix.SaveAsync("MATRIX-1", body, CancellationToken.None).ConfigureAwait(false)
+                    == GemProcessProgramAcknowledgement.Accepted,
+                "the matrix store refused a matrix");
+
+            // The restart, as far as one process can have one.
+            var reopenedPlain = new GemFileProcessProgramStore(plain);
+            var reopenedFormatted = new GemFileFormattedProcessProgramStore(formatted);
+            var reopenedMatrix = new GemFileProcessProgramMatrixStore(matrices);
+
+            Assert(reopenedPlain.Count == 1, $"a second plain store found {reopenedPlain.Count} program(s), not one");
+            Assert(reopenedFormatted.Count == 1, $"a second formatted store found {reopenedFormatted.Count}, not one");
+            Assert(reopenedMatrix.Count == 1, $"a second matrix store found {reopenedMatrix.Count}, not one");
+
+            var fetched = await reopenedPlain.LoadAsync("RECIPE-7", CancellationToken.None).ConfigureAwait(false);
+
+            Assert(
+                fetched is not null && fetched.Value.Span.SequenceEqual(body),
+                "the program came back from the disk as something else");
+
+            Assert(
+                await reopenedPlain.InquireAsync("RECIPE-7", body.Length, CancellationToken.None).ConfigureAwait(false)
+                    == GemProcessProgramGrant.AlreadyHave,
+                "a restarted plain store did not know it already had the program");
+
+            var program = await reopenedFormatted.LoadAsync("RECIPE-9", CancellationToken.None).ConfigureAwait(false);
+
+            Assert(program is { Commands.Count: 1 }, "the formatted program came back without its command");
+            Assert(program!.SoftwareRevision == "1.4.2", $"the revision came back as {program.SoftwareRevision}");
+
+            // And the claim with teeth: each store finds nothing in the others' directories.
+            Assert(new GemFileProcessProgramStore(matrices).Count == 0, "the plain store adopted a matrix");
+            Assert(new GemFileProcessProgramMatrixStore(plain).Count == 0, "the matrix store adopted a program");
+            Assert(new GemFileFormattedProcessProgramStore(plain).Count == 0, "the formatted store adopted a plain program");
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A smoke test that cannot tidy up after itself should not fail for it.
+            }
+        }
+    }
+
     /// <summary>
     /// The three stores beside the recipes' one, each over a directory of its own.
     /// </summary>

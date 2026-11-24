@@ -1530,6 +1530,41 @@ internal static class Program
         }
 
         Console.WriteLine();
+        Console.WriteLine("-- and sends a recipe as bytes, which is the half of stream 7 E5 leaves open --");
+        Console.WriteLine();
+
+        // The unformatted half first, because it is the one most equipment implements: S7F1 asks
+        // for room, S7F3 sends the bytes, S7F5 asks for them back. What the bytes mean is private
+        // between this host and this machine - E5 says only that PPBODY is a B.
+        var plainRecipe = Encoding.ASCII.GetBytes("STEP 1: pump down\nSTEP 2: etch 40s\n");
+
+        var plainGrant = await host.InquireProcessProgramAsync("RECIPE-PLAIN", plainRecipe.Length, cancellationToken);
+
+        Console.WriteLine($"   S7F1  -> PPGNT={plainGrant}");
+
+        // Either answer is a pass, and the second one is what a machine that keeps its recipes in a
+        // directory says the next time this sample runs: AlreadyHave is S7F1 doing its job, not a
+        // fault. The equipment sample stores all three stream 7 halves on a disk now.
+        ok &= plainGrant is GemProcessProgramGrant.Ok or GemProcessProgramGrant.AlreadyHave;
+
+        var plainAck = await host.SendProcessProgramAsync("RECIPE-PLAIN", plainRecipe, cancellationToken);
+
+        Console.WriteLine($"   S7F3  -> ACKC7={plainAck}");
+        ok &= plainAck == GemProcessProgramAcknowledgement.Accepted;
+
+        var plainBack = await host.RequestProcessProgramAsync("RECIPE-PLAIN", cancellationToken);
+
+        Console.WriteLine($"   S7F5  -> {plainBack?.Length.ToString(CultureInfo.InvariantCulture) ?? "no"} byte(s) back");
+        ok &= plainBack is { } plainFetched && plainFetched.Span.SequenceEqual(plainRecipe);
+
+        // And one the machine has never heard of, which S7F6 answers with an empty PPBODY because
+        // it carries no acknowledgement code at all.
+        Console.WriteLine(
+            $"   S7F5  -> {(await host.RequestProcessProgramAsync("NOPE", cancellationToken))?.Length.ToString(CultureInfo.InvariantCulture) ?? "no"} byte(s) for one that is not there");
+
+        ok &= await host.RequestProcessProgramAsync("NOPE", cancellationToken) is null;
+
+        Console.WriteLine();
         Console.WriteLine("-- and sends a recipe the standard gives a shape to --");
         Console.WriteLine();
 
@@ -1597,7 +1632,12 @@ internal static class Program
 
         var matrixGrant = await host.InquireProcessProgramMatrixAsync("MATRIX-1", matrix.Length, cancellationToken);
         Console.WriteLine($"   S7F13 -> PPGNT={matrixGrant}");
-        ok &= matrixGrant == GemProcessProgramGrant.Ok;
+
+        // Either answer is a pass, and that is the point rather than a loosened assertion: the
+        // equipment sample keeps its matrices in a directory now, so a machine that has been run
+        // before says AlreadyHave - which is what S7F13 is for. A host that treated it as a fault
+        // would be insisting the machine forget what it was sent.
+        ok &= matrixGrant is GemProcessProgramGrant.Ok or GemProcessProgramGrant.AlreadyHave;
 
         var matrixAck = await host.SendProcessProgramMatrixAsync("MATRIX-1", matrix, cancellationToken);
         Console.WriteLine($"   S7F11 -> ACKC7={matrixAck}");

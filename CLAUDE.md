@@ -9,7 +9,7 @@ signature is a breaking change in somebody's fab.
 ```
 src/          twenty-seven shipping packages, one folder each (+ README.md, API-REFERENCE.md)
 src/Shared/   compile-linked source, not a package: the serialization hub registration, and the
-              durable record directory the four transfer stores keep their files with
+              durable record directory seven stores in five packages keep their files with
 samples/      equipment (passive), host (active), transcode CLI
 tests/        one xUnit project per package + IntegrationTests
 benchmarks/   BenchmarkDotNet
@@ -209,19 +209,33 @@ reading rather than the writing, too - a lock or a selection naming a recipe tha
 the disk is dropped on adoption, where filtering at the write would have hidden the rule in the
 file.
 
-**All four transfer stores are durable now, and the mechanism is one file: `src/Shared/
-DurableRecordDirectory.cs`.** Streams 8, 13, 15 and 21 each keep what a host sent, and what they
-share is a mechanism rather than a rule - write through under a temporary name, commit with a
-rename, name the file by a sequence number alone, adopt the directory on the next construction. It
-is **shared source and not a package** because no one of the four may depend on another: they sit
-side by side on Hsms, and the only package all four could take it from is the transport, which has
-no business holding a file format. `SecsSerializationRegistration` is the same arrangement for a
-related reason. The argument for sharing rather than copying is not taste either - the first draft of
-`RecipeFileStore.TryDelete` caught `IOException` where `GemFileSpool`'s catches
-`UnauthorizedAccessException` too, which is a read-only file throwing out of a transaction in one
-store and not the other. **The spool deliberately keeps its own copy**: it is a queue with an order,
-a head, a capacity and an overflow policy that never parses a record to know what it holds, where
-these four parse every record on the way in because the key is inside it.
+**Seven stores in five packages are durable now, and the mechanism is one file:
+`src/Shared/DurableRecordDirectory.cs`.** Streams 8, 13, 15 and 21 have one apiece and stream 7 has
+three. **The one that is not is `IGemServiceProgramStore`** - stream 2's service programs, which
+keep text a host sent and so belong in this list; it is the next of these chapters, and the question
+it has to answer first is what a *run* and its *results* are, since a result is something the
+machine produced rather than something a host said. What they share is a mechanism rather than a rule -
+write through under a temporary name, commit with a rename, name the file by a sequence number
+alone, adopt the directory on the next construction. It is **shared source and not a package**
+because no one of the five may depend on another: the four transfer packages sit side by side on
+Hsms and a machine serving recipes must not drag in GEM, so the only package all of them could take
+it from is the transport, which has no business holding a file format.
+`SecsSerializationRegistration` is the same arrangement for a related reason. The argument for
+sharing rather than copying is not taste either - the first draft of `RecipeFileStore.TryDelete`
+caught `IOException` where `GemFileSpool`'s catches `UnauthorizedAccessException` too, which is a
+read-only file throwing out of a transaction in one store and not the other.
+
+**The spool keeps its own copy, and the reason was re-read when the Gem package linked the shared
+file.** The structural half still holds: a spool is a queue with an order, a head, a capacity and an
+overflow policy that never parses a record to know what it holds, where the seven parse every record
+on the way in because the key is inside it - so the keyed-record layer is no use to it. What that
+argument never covered is the atomic write and the directory scan, which are identical, and are now
+duplicated *inside one assembly*. The measured obstacle is small and real: the spool's partial
+extension is `.spooling`, a **public const**, and its partial path *replaces* the record extension
+where the shared write *appends* one. Reusing the shared write therefore means parameterising it and
+changing a file-naming convention, or changing a published constant, and neither buys a byte of
+behaviour. So the duplication stays, deliberately, with that as its reason rather than the
+hand-wave - and if a later chapter wants it gone, the move is the parameter and not the constant.
 
 **A record is a list of fields and an optional payload, which is what lets one format serve four
 stores.** A control program is an identifier and a revision, a data set a number and a declared
@@ -248,6 +262,33 @@ program**: S8F3 is anonymous, so a named control program can only come from the 
 in-memory stores - it is the only door, and a durable store without one could serve only what was
 already on the disk. Which is also why the equipment sample seeds through the store API and asks
 first: a seed that overwrote what the last host left would make the durability pointless.
+
+**Stream 7 has three stores, and on a disk their records are indistinguishable - so the extension
+is load-bearing.** A plain program, a formatted one and a matrix are each an identifier and a
+payload, which is why the records carry `.processprogram`, `.formattedprogram` and `.matrix`: a
+store pointed at the wrong directory then finds **nothing** rather than finding somebody else's
+recipes and answering S7F5 with them. That is the matrix chapter's separation - a duplicate body
+separates the stores rather than refusing the rows - carried onto the disk, where the same mistake
+is available again and quieter. One directory per store is still the recommendation, because the
+sweep of unfinished writes is directory-wide; sharing one is tested and safe at start-up.
+
+**Two more things stream 7 settled.** Its grant is **computed, not remembered** - `InquireAsync`
+answers from what is held - so unlike every other store here it has nothing in flight for a restart
+to end, and a machine that comes back says `AlreadyHave` for a recipe it still has. And a
+**formatted program is written down as the body S7F23 carries**, through the codec that already
+writes it for the wire: the in-memory store's remarks had said structure would be *easier* to
+persist than bytes, and it is the other way round - bytes are one field and a payload, where
+structure needs a nesting, so the honest format for structure is the one the standard already
+defines. The alternative was a second format for the disk, kept in step with the first by hand.
+
+**And writing a second implementation is what finds a code nothing ever sent.** `ACKC7` code 3 is
+`MatrixOverflow`, the one code in that table belonging to the matrix rows rather than the plain
+ones; the member had been in the enum since the sweep that matched every enum to its table, and the
+in-memory matrix store answered the generic `PermissionNotGranted` at capacity, so nothing in the
+repository ever sent it. Both stores answer it now and a test drives it over the wire. The rule
+that found it is the mirror of the reserved-code one: **compare what a new implementation answers
+with what its sibling answers, member by member**, because a member nothing sends passes every
+comparison of an enum against a table.
 
 ## Non-negotiables
 

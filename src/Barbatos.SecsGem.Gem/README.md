@@ -704,7 +704,7 @@ is the interesting part:
 services.AddSecsGem(builder.Configuration)
     .UseTcp()
     .AddGemEquipment(model => { /* ... */ })
-    .AddGemProcessPrograms()                     // the in-memory store
+    .AddGemProcessPrograms()                     // in memory; see "Recipes that outlive the process"
     .RunAsHostedService();
 ```
 
@@ -962,6 +962,61 @@ S7F23 sent and a trim is not reversible.
 MDLN and SOFTREV arrive as the host sent them, and nothing here compares them against
 `GemOptions.ModelName`. Whether a machine accepts a recipe written for another model is a fab
 decision, and the store gets the whole program and can refuse it.
+
+### Recipes that outlive the process
+
+```csharp
+services.AddSecsGem(builder.Configuration)
+    .UseTcp()
+    .AddGemEquipment(model => { /* ... */ })
+    .AddGemFileProcessPrograms(Path.Combine(AppContext.BaseDirectory, "programs-plain"))
+    .AddGemFileFormattedProcessPrograms(Path.Combine(AppContext.BaseDirectory, "programs-formatted"))
+    .AddGemFileProcessProgramMatrices(Path.Combine(AppContext.BaseDirectory, "programs-matrix"))
+    .RunAsHostedService();
+```
+
+Stream 7 is the most used transfer in this stack, and a recipe a host spent a shift validating is
+not something to send again because a controller was upgraded. The three stores keep each program in
+a file - written through, committed with a rename, the identifier *inside* the record so a `PPID`
+never becomes part of a path - and adopt whatever is in the directory when they are constructed. The
+mechanism is shared source with the four transfer packages; the README of
+[`Barbatos.SecsGem.Recipes`](../Barbatos.SecsGem.Recipes/README.md) sets it out at length.
+
+**Three things are this stream's own.**
+
+**The grant is computed, not remembered.** S7F1 asks for room and S7F3 sends, and the answer to
+S7F1 is worked out from what is held - so unlike every other durable store here, stream 7 has
+nothing in flight for a restart to end. A machine that comes back says `AlreadyHave` for a recipe it
+still has, which is S7F1 doing its job rather than a fault, and a host that treated it as one would
+be insisting the machine forget what it was sent.
+
+**A formatted program is written down as the body S7F23 carries.** The in-memory store's remarks had
+said structure would be easier to persist than bytes; it is the other way round - bytes are one
+field and a payload, where structure needs a nesting - so the honest format for structure is the one
+the standard already defines, written and read by the codec that does it for the wire. The
+alternative was a second format for the disk, kept in step with the first by hand. One consequence:
+a record whose item is not the shape the codec expects reads as nothing at all and the program stays
+out of the directory, which is the codec's own rule - mangling a recipe into something storable
+would be worse than refusing it, because the sender was told its recipe landed.
+
+**The extension is load-bearing.** Records are `.processprogram`, `.formattedprogram` and `.matrix`,
+and that is not decoration: all three records are an identifier and a payload, so a store pointed at
+another's directory would otherwise adopt its programs and answer S7F5 with them - the matrix
+chapter's separation, which is about *stores*, carried onto a disk where the same mistake is
+available again and quieter. A store pointed at the wrong directory now finds nothing. Give each
+store a directory of its own anyway: sharing one works, and is tested, but the sweep of unfinished
+writes is directory-wide.
+
+| | survives | why |
+| --- | --- | --- |
+| the programs, formatted and plain | yes | what a host sent |
+| the matrices | yes | likewise - and **only** `Forget` removes one, since stream 7 gives the family no delete |
+| the grant | not a thing | computed from what is held, so there is nothing to keep |
+| `Capacity`, `MaxBodyLength` | no | this machine's configuration, not anything a host said |
+
+A record the disk refuses to delete is a **refusal**, not a silent success: the program keeps its
+place in the index so the store and the disk agree, and the host is told `PermissionNotGranted` -
+the nearest honest code, `ACKC7` having nothing that means "I could not".
 
 ## Identifiers are numbers, not U4s
 

@@ -222,18 +222,26 @@ internal static class Program
                     gem.DefaultControlState = GemControlState.OnlineRemote;
                 })
 
-            // Stream 7, with the in-memory store. Take this line out and the equipment stops
-            // answering S7 entirely - the connection reports S9F3 for it, which is the honest
-            // answer for a machine that does not hold recipes. Real equipment supplies its own
-            // IGemProcessProgramStore over whatever it already persists.
-            .AddGemProcessPrograms()
+            // Stream 7, to a directory. Take this line out and the equipment stops answering S7
+            // entirely - the connection reports S9F3 for it, which is the honest answer for a
+            // machine that does not hold recipes. AddGemProcessPrograms() instead would hold them
+            // in memory and lose them on a restart, which for the most used transfer in the stack
+            // is the wrong default for anything but a simulator: a host that sent a recipe is
+            // entitled to find it there after the controller is upgraded.
+            .AddGemFileProcessPrograms(Path.Combine(AppContext.BaseDirectory, "programs-plain"))
 
             // The other half of stream 7, opt-in separately: S7F23 carries a recipe as structure
             // E5 defines - PPID, the model and revision it was written for, and a list of CCODE
             // commands - where S7F3 carries one as bytes this machine happens to understand.
-            // Equipment may offer either half, both, or neither.
-            .AddGemFormattedProcessPrograms()
-            .AddGemProcessProgramMatrices()
+            // Equipment may offer either half, both, or neither. Written down as the body S7F23
+            // carries, so what is on the disk is what the wire said.
+            .AddGemFileFormattedProcessPrograms(Path.Combine(AppContext.BaseDirectory, "programs-formatted"))
+
+            // And the matrix store, which gets a directory of its own above all the others: a
+            // matrix coming back from S7F5 as a plain process program is exactly what keeping the
+            // two stores apart prevents, and on a disk their records look alike. The extensions
+            // differ too, so a wrong path finds nothing rather than somebody else's recipes.
+            .AddGemFileProcessProgramMatrices(Path.Combine(AppContext.BaseDirectory, "programs-matrix"))
 
             // Terminal services: the host can put text in front of whoever is standing at the
             // machine. GemInMemoryTerminal keeps the messages and shows them to nobody, which is
