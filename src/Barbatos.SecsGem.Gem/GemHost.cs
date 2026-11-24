@@ -2087,6 +2087,50 @@ public sealed class GemHost : IAsyncDisposable
         return (GemRemoteCommandAcknowledgement)ReadNamedCode(reply, 3, "CMDA");
     }
 
+    /// <summary>Asks the equipment to cancel a program command sent earlier - S7F43.</summary>
+    /// <param name="programId">PPID, as the command named it.</param>
+    /// <param name="command">RCMD, as the command named it.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>CMDA.</returns>
+    /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>The command is named by the same two items that started it</strong>, because that is
+    /// all S7F43 carries - there is no command identifier anywhere in stream 7. So a host that sent
+    /// one command for a program can cancel it, and a host that sent the same command twice has
+    /// said nothing the reference can tell apart.
+    /// </para>
+    /// <para>
+    /// <strong><see cref="GemRemoteCommandAcknowledgement.CannotPerformNow"/> is the refusal to
+    /// expect</strong> from a machine that does not track commands in flight - which is the
+    /// default at the other end. It means "I will not stop it", where <c>DoesNotExist</c> would
+    /// mean the program or the command is unknown.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemRemoteCommandAcknowledgement> CancelProgramCommandAsync(
+        string programId,
+        string command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(programId);
+        ArgumentNullException.ThrowIfNull(command);
+
+        using var reply = await RequestAsync(
+            new SecsMessage(7, 43, replyExpected: true)
+            {
+                Name = "ProcessProgramRelatedRemoteCommandCancelSend",
+                Item = SecsItem.L(
+                    SecsItem.A(programId).Named("PPID"),
+                    SecsItem.A(command).Named("RCMD")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        // CMDA's fourth reader in this package, which is a line in GemReservedAcknowledgementTests
+        // rather than a comment: a boundary that is right in the enum and unused at one site passes
+        // every comparison and fails a fab.
+        return (GemRemoteCommandAcknowledgement)ReadNamedCode(reply, 3, "CMDA");
+    }
+
     /// <summary>Sends a process program - S7F3.</summary>
     /// <param name="id">PPID.</param>
     /// <param name="body">PPBODY.</param>

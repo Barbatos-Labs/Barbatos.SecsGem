@@ -272,6 +272,17 @@ gap-free rows are rows this repository already serves under other numbers. So wh
 refusal, ask which name stops it and whether anything here already does the job - and if the answer
 is a count, keep reading.
 
+**When every row of a stream carries the same items, the item measures go quiet and the row's name
+is the evidence.** Stream 7 is where that happens: nine of its rows carry `PPID, PPBODY` and six are
+served, seven of its primaries carry `PPID` alone and six are served. So "every item in this row is
+defined" was true of all six of its refusals and discriminated none of them. What decides is
+whether the name names an **action on the row's fields**: S7F43's does - cancel the command that
+`PPID` and `RCMD` named - and it went in; S7F21's does not - `PPID` and the word "Reference", which
+would hand a provider an identifier and nothing to do. And a family can be refused for what it has
+no rows for: the matrix pairs are a send, a load inquire and a verify with **no request and no
+directory anywhere**, so a matrix program could be written and never read, under a `PPID` the plain
+request would hand back as a plain program.
+
 **A routing table is a claim about the stream, not about the row.** This is what keeps the last
 serveable rows out of streams 17 and 20 once the item measures have run out of objections. S17F13
 would add something real - a trace reset that can say why it refused, where `TIAACK` has two codes
@@ -423,7 +434,16 @@ its siblings are easy to grep for, and `GemReservedAcknowledgementTests` is wher
 a line, and the stream 6 chapter found one that had been undriven since it was written - the spool
 reply's, which no drive had ever covered. The count is in that package's API reference, so a sweep
 can check it: ACKC7 is read at
-four sites, CMDA at three and GRANT at two.
+four sites, CMDA at four and GRANT at two.
+
+**And `GemReservedAcknowledgementTests` could itself hang rather than fail**, which the stream 7
+chapter found the way everything here gets found: a control made a host send the wrong function, the
+hand-built machine had nothing to answer it, and the run died on a T3 the `FakeTimeProvider` never
+advances - so the file built to catch an undriven reader reported nothing at all. Its `DriveAsync`
+is bounded on the real clock now. That is the fourth place this trap has been found and the pattern
+is always the same, so it is worth stating as a rule: **in a suite on a fake clock, every await of a
+reply needs a real-clock bound**, because the failure mode of not having one is silence rather than
+a red test. A control runner that counts "Failed: 0" must also notice a run with no summary line.
 
 Older files here are **CRLF** where the newer ones are LF, `GemHost.cs` among them. A multi-line
 mini-patch against one of those matches zero times until the patch text is converted, which has now

@@ -225,6 +225,39 @@ while the chamber was out of range.
 **S6F15 answers a disabled event.** S2F37 governs what the equipment sends on its own; a host
 asking directly has already said it wants this one now.
 
+## Cancelling a command the machine is already running
+
+```csharp
+await host.SendProgramCommandAsync("RECIPE-7", "START", []);
+
+// ... and then changing your mind.
+var cmda = await host.CancelProgramCommandAsync("RECIPE-7", "START");
+```
+
+```csharp
+equipment.AnswerProgramCommandCancel = (programId, command) => running.TryStop(programId, command)
+    ? GemRemoteCommandAcknowledgement.Performed
+    : GemRemoteCommandAcknowledgement.CannotPerformNow;
+```
+
+**S7F43 names the command by the same two items that started it**, because there is no command
+identifier anywhere in stream 7. So a host that sent one command for a program can cancel it, and a
+host that sent the same command twice has said nothing the reference can tell apart.
+
+**It refuses by default**, with `CannotPerformNow` rather than `DoesNotExist` - a machine that
+tracks nothing in flight is not saying the command never existed, it is saying it will not stop it,
+and a host deciding whether to wait or to give up needs those apart. The cancel also does **not**
+check the command against the model, which is the one place it differs from S7F37: a command may
+have been withdrawn since it was started, and a host that could not then cancel it would be stuck
+with something running that nothing can stop.
+
+This row was refused for nine chapters on the ground that cancelling "needs a register of commands
+in flight that neither this library nor the reference has". The second half is true; the first is a
+confusion, because *this library* needs no register - it carries a `PPID` and an `RCMD` and hands
+back a `CMDA`, which is item for item what S7F37 already does. The same error `TRJOBMS` exposed in
+stream 4: an argument about what an application must track, mistaken for one about what the row
+carries.
+
 ## A report that says what its values are
 
 S6F19 answers with a report's values in the order the report defines them, so a host has to have
@@ -1147,7 +1180,7 @@ not a wall in front of it.
 | Not implemented | Why it is not a one-line addition |
 | --- | --- |
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
-| Six pairs of stream 7 | Sixteen of its twenty-two primaries are here now, and the six that are not were each refused on evidence rather than on provenance. **The matrix family**, S7F11 through S7F16: no item in the reference is named for a matrix, and the only matrix word anywhere is `ACKC7` 3, "Matrix overflow" - a capability's failure mode is not its definition, so what these rows transfer is a vocabulary the source never wrote down. **S7F21/F22**, whose name is the whole of what the reference says about it: a one-item body answered with an `ACKC7` could be made to mean anything, and "reference" is not a transaction. **S7F35/F36**, a directory reply that carries bodies - either the reference abbreviated and it is `PPID` alone, like S7F8 and S7F20, or a directory request returns every formatted program whole, which is not a directory; the two readings put different bytes on the wire. **S7F43/F44**, cancelling a command sent earlier, which needs a register of commands in flight that neither this library nor the reference has. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) |
+| Five pairs of stream 7 | Seventeen of its twenty-two primaries are here now, and **stream 7 is where the item list stopped discriminating**: nine of its rows carry `PPID, PPBODY` and six of those are served, and seven of its primaries carry `PPID` alone with six of those served. So "every item in this row is defined" is true of all five refusals and says nothing about any of them - what decides is whether the row's *name* names an action on its fields. **The matrix family**, S7F11 to S7F16, is **write-only**: a send, a load inquire and a verify, and no request and no directory anywhere in the reference, so a matrix program could be stored and never read back - and it would be stored under a `PPID` that S7F5 would hand back as a plain program, because the rows are item for item the plain ones. S7F13 also loses to S7F1, which is a definition where it is an illustration. **S7F21/F22** is `PPID` answered by an `ACKC7`, which is the shape of six served rows - so the shape says nothing and the word "Reference" is all that is left; a handler would be given a program identifier and no action, which is S1F9's position. **S7F35/F36** is a body whose two readings put different bytes on the wire: the two served directory replies say `PPID` alone and S7F26, a definition, says a program reply is a `PPID` and a `PPBODY`. A body guessed wrong is unparseable rather than merely uninterpretable, which is the rule the stream 6 chapter named. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) and [`SecsCatalogStream7RefusalTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7RefusalTests.cs) |
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
 | S1F9/F10, the material transfer status | The one row of streams 1, 5 and 10 that the gapless sweep left out, and the only thing missing from those three streams now. Its two items, `TSIP` and `TSOP`, are `A[n]` with no tables and named by stream 1 alone - so there is no sibling anywhere to read a reading off, which is the test the other eight rows passed. And what it reports is material transfer, a subject this repository serves properly in stream 3 and in E87: a pass-through of two string lists whose meaning nobody states would be an API with nothing behind it, beside two packages that have something. [`SecsCatalogGaplessTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogGaplessTests.cs) pins both reasons |
 | Three pairs of stream 6 | The rest of the stream is here. **S6F21/F22** and **S6F29/F30** were refused on the field each row turns on: `CELLNAME` is what makes a data cell report a *cell* report rather than the event report it is otherwise identical to, and `NRED` is the enable-or-disable flag S6F29 exists to carry - both undefined, both named by one row, so carrying either untouched would leave this library unable to tell apart the two things its row distinguishes. The same reason S14F23 stays out. **S6F25/F26** was refused on something new: not a field but a **body**. Its two items are both defined and both already read here, and the reference records an item list rather than a nesting - S6F16 is recorded as `DATAID` and `CEID` and carries a whole event report - so the two served rows that could settle whether a report list follows disagree, and a body guessed wrong is unparseable rather than merely uninterpretable. [`SecsCatalogStream6Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream6Tests.cs) pins all three |

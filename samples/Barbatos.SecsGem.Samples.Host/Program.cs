@@ -1563,6 +1563,18 @@ internal static class Program
         // "completion later" - the same narrowing S2F22 does, for the same reason.
         ok &= programCmda == GemRemoteCommandAcknowledgement.CannotPerformNow;
 
+        // And cancelling it, which was refused for nine chapters because cancelling "needs a
+        // register of commands in flight". The library needs none: S7F43 carries the same PPID and
+        // RCMD that S7F37 does, and whether it can be stopped is the machine's to answer.
+        var cancelled = await host.CancelProgramCommandAsync("RECIPE-7", "START", cancellationToken);
+
+        Console.WriteLine($"   S7F43 -> CMDA={cancelled}");
+
+        // CannotPerformNow, and it is the delegate's own default left alone: a machine that tracks
+        // nothing in flight will not stop a command, which is not the same as the command never
+        // having existed. A sample that overrode it would hide which answer is the default.
+        ok &= cancelled == GemRemoteCommandAcknowledgement.CannotPerformNow;
+
         if (equipment is not null)
         {
             Console.WriteLine();

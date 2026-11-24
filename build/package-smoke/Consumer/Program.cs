@@ -420,6 +420,14 @@ internal static class Program
         // from bin/ and cannot see a packaging mistake, and five chapters running this file is what
         // caught a declaration that never left the package - so the three rows that went in are
         // named, and so are the two refusals that are about a field the row turns on.
+        Assert(
+            GemEquipment.ProcessProgramMessages.Count == 11,
+            $"the packed stream 7 declares {GemEquipment.ProcessProgramMessages.Count} primaries, not eleven - S7F43 is the eleventh");
+
+        Assert(
+            GemEquipment.ProcessProgramMessages.Contains(((byte)7, (byte)43)),
+            "the packed stream 7 is missing the command cancel");
+
         foreach (var (stream, function) in new[] { ((byte)6, (byte)7), ((byte)6, (byte)17), ((byte)6, (byte)27) })
         {
             Assert(

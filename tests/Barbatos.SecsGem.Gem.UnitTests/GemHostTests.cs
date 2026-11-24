@@ -140,6 +140,7 @@ public class GemHostTests
         await host.IsProcessProgramAvailableAsync("RECIPE-1", token);
         await host.SendProgramCommandAsync("RECIPE-1", "START", [], token);
         await host.SendProgramCommandAsync("RECIPE-1", "START", [("LOTID", "LOT-1")], token);
+        await GemPair.SentAsync(host.CancelProgramCommandAsync("RECIPE-1", "START", token));
         await host.ListProcessProgramsAsync(token);
         await host.DeleteProcessProgramsAsync(["RECIPE-1"], token);
         await host.SendFormattedProcessProgramAsync(

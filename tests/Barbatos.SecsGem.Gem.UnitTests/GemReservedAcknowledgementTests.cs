@@ -116,6 +116,13 @@ public class GemReservedAcknowledgementTests
             host => host.SendProgramCommandAsync("RECIPE-1", "START", [("LOTID", "LOT-1")], GemPair.Token),
             (byte)GemRemoteCommandAcknowledgement.Other);
 
+        // The fourth CMDA site, added by the chapter that served S7F43. The rule is per site and
+        // not per item, so a fourth reader needs a fourth line here however many times the enum
+        // and the table have been compared.
+        await DriveAsync(7, 43, 44, "CMDA",
+            host => host.CancelProgramCommandAsync("RECIPE-1", "START", GemPair.Token),
+            (byte)GemRemoteCommandAcknowledgement.Other);
+
         // The spool reply, which was undriven until the stream 6 chapter went looking - and the
         // rule that predicted the hole is the one above: a site is driven, not an item. The fold
         // was correct all along, so this line never caught anything; what it stops is a later
@@ -203,7 +210,15 @@ public class GemReservedAcknowledgementTests
             Assert.True(hostLink.IsSelected && machineLink.IsSelected, "the pair did not select");
 
             var log = new RecordingLogger<GemHost>();
-            var answer = await ask(new GemHost(new GemHostOptions(), hostLink, clock, log));
+
+            // Bounded on the real clock, which a control earned: this file exists to catch an
+            // undriven reader, and until the stream 7 chapter it could hang instead of failing.
+            // A control that made a host send the wrong function left the hand-built machine with
+            // nothing to answer, so the call waited out a T3 the FakeTimeProvider never advances
+            // and the whole run died with no summary - which reads as "the control found nothing".
+            var answer = await ask(new GemHost(new GemHostOptions(), hostLink, clock, log))
+                .AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5), GemPair.Token);
 
             // Three assertions, and the second is the one that matters: before this chapter the
             // cast produced 40 itself, which is not a member of any of these enums.

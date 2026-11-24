@@ -33,6 +33,145 @@ public class GemProcessProgramSweepTests
 {
     private static readonly byte[] Body = [1, 2, 3, 4];
 
+    [Fact]
+    public async Task Cancelling_a_program_command_refuses_by_default_and_never_runs_the_command()
+    {
+        var store = new GemInMemoryProcessProgramStore();
+
+        await using var pair = GemPair.Start(programs: store);
+        await pair.OpenAsync();
+
+        await store.SaveAsync("RECIPE-1", new byte[] { 1 }, GemPair.Token);
+
+        var ran = 0;
+
+        pair.Equipment.Model.RemoteCommands.TryGetValue("START", out _);
+
+        // The default. A machine that tracks nothing in flight is not saying the command never
+        // existed - it is saying it will not stop it, which is CannotPerformNow and not
+        // DoesNotExist. A host deciding whether to wait or give up needs those apart.
+        Assert.Equal(
+            GemRemoteCommandAcknowledgement.CannotPerformNow,
+            await GemPair.SentAsync(pair.Host.CancelProgramCommandAsync("RECIPE-1", "START", GemPair.Token)));
+
+        (string Program, string Command) asked = default;
+
+        pair.Equipment.AnswerProgramCommandCancel = (programId, command) =>
+        {
+            asked = (programId, command);
+            return GemRemoteCommandAcknowledgement.Performed;
+        };
+
+        Assert.Equal(
+            GemRemoteCommandAcknowledgement.Performed,
+            await GemPair.SentAsync(pair.Host.CancelProgramCommandAsync("RECIPE-1", "START", GemPair.Token)));
+
+        Assert.Equal(("RECIPE-1", "START"), asked);
+
+        // And the command itself was never run, which is the whole content of this row: S7F43 is
+        // item for item S7F37, so the function number is the only thing that says cancel rather
+        // than start - and the two must not share a path.
+        Assert.Equal(0, ran);
+    }
+
+    [Fact]
+    public async Task A_cancel_for_a_program_the_machine_does_not_have_says_it_cannot_rather_than_asking()
+    {
+        var store = new GemInMemoryProcessProgramStore();
+
+        await using var pair = GemPair.Start(programs: store);
+        await pair.OpenAsync();
+
+        var reached = 0;
+
+        pair.Equipment.AnswerProgramCommandCancel = (_, _) =>
+        {
+            reached++;
+            return GemRemoteCommandAcknowledgement.Performed;
+        };
+
+        // No such program, so the machine answers without consulting the application - the same
+        // guard S7F37 has, and the same code: CMDA has no value for a missing program.
+        Assert.Equal(
+            GemRemoteCommandAcknowledgement.CannotPerformNow,
+            await GemPair.SentAsync(pair.Host.CancelProgramCommandAsync("NOT-HERE", "START", GemPair.Token)));
+
+        Assert.Equal(0, reached);
+    }
+
+    [Fact]
+    public async Task A_cancel_names_a_command_the_model_no_longer_declares()
+    {
+        var store = new GemInMemoryProcessProgramStore();
+
+        await using var pair = GemPair.Start(programs: store);
+        await pair.OpenAsync();
+
+        await store.SaveAsync("RECIPE-1", new byte[] { 1 }, GemPair.Token);
+
+        var asked = string.Empty;
+
+        pair.Equipment.AnswerProgramCommandCancel = (_, command) =>
+        {
+            asked = command;
+            return GemRemoteCommandAcknowledgement.Performed;
+        };
+
+        // Deliberately a command this model does not declare, which is where the cancel differs
+        // from S7F37: a command may have been withdrawn since it was started, and a host that
+        // could not then cancel it would be stuck with something running that nothing can stop.
+        Assert.Equal(
+            GemRemoteCommandAcknowledgement.Performed,
+            await GemPair.SentAsync(pair.Host.CancelProgramCommandAsync("RECIPE-1", "WITHDRAWN", GemPair.Token)));
+
+        Assert.Equal("WITHDRAWN", asked);
+    }
+
+    [Fact]
+    public async Task The_cancel_answers_on_S7F44_which_only_a_frame_can_show()
+    {
+        var store = new GemInMemoryProcessProgramStore();
+
+        await using var pair = GemPair.Start(programs: store);
+        await pair.OpenAsync();
+
+        await store.SaveAsync("RECIPE-1", new byte[] { 1 }, GemPair.Token);
+
+        pair.Equipment.AnswerProgramCommandCancel = (_, _) => GemRemoteCommandAcknowledgement.Performed;
+
+        using var primary = new SecsMessage(7, 43, replyExpected: true)
+        {
+            Name = "ProcessProgramRelatedRemoteCommandCancelSend",
+            Item = SecsItem.L(
+                SecsItem.A("RECIPE-1").Named("PPID"),
+                SecsItem.A("START").Named("RCMD")),
+        };
+
+        using var reply = await pair.AskEquipmentAsync(primary);
+
+        // The connection matches a reply by its system bytes and never by its function, so a
+        // handler answering on S7F42 would come back through GemHost looking correct. This stream
+        // has three rows whose reply is a bare CMDA, which is exactly the company in which that
+        // mistake would hide.
+        Assert.Equal(7, reply.S);
+        Assert.Equal(44, reply.F);
+        Assert.Equal(SecsItem.B((byte)GemRemoteCommandAcknowledgement.Performed), reply.Item);
+    }
+
+    [Fact]
+    public async Task The_cancel_is_undeclared_without_a_process_program_store()
+    {
+        await using var pair = GemPair.Start();
+        await pair.OpenAsync();
+
+        // Opt-in with the rest of stream 7: a machine that manages no process programs declares
+        // none of these, so the connection answers S9F3 for the stream rather than a CMDA meaning
+        // no.
+        Assert.Contains(((byte)7, (byte)43), GemEquipment.ProcessProgramMessages);
+        Assert.DoesNotContain(((byte)7, (byte)43), GemEquipment.HandledMessages);
+    }
+
+
     private string? _commandProgram;
     private string? _commandLot;
 

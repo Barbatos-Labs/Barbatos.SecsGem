@@ -33,12 +33,17 @@ public class GemProcessProgramTests
             Assert.DoesNotContain(pair, GemEquipment.HandledMessages);
         }
 
-        // Ten: the five rows the reference documents, and five it illustrates that the stream 7
+        // Eleven: the five rows the reference documents, five it illustrates that the stream 7
         // sweep measured and implemented - the directory, the verify, the availability question and
-        // the two program-related remote commands. The first three name only items the documented
-        // five already carry; the commands borrow RCMD, CPNAME and CPVAL from stream 2, where this
+        // the two program-related remote commands - and the command cancel, which the sweep refused
+        // and a later re-read overturned. The first three name only items the documented five
+        // already carry; the commands borrow RCMD, CPNAME and CPVAL from stream 2, where this
         // library already serves them. Either way nothing is inferred, in a stream with no gaps.
-        Assert.Equal(10, GemEquipment.ProcessProgramMessages.Count);
+        //
+        // The cancel was refused on the ground that it "needs a register of commands in flight
+        // that neither this library nor the reference has" - which is what an application must
+        // track, not what the row carries. S7F43 is item for item S7F37.
+        Assert.Equal(11, GemEquipment.ProcessProgramMessages.Count);
         Assert.All(GemEquipment.ProcessProgramMessages, p => Assert.Equal(7, p.Stream));
         Assert.All(GemEquipment.ProcessProgramMessages, p => Assert.True(p.Function % 2 == 1));
 

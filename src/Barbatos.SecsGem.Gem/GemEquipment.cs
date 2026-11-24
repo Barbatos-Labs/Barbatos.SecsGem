@@ -264,6 +264,7 @@ public sealed class GemEquipment : IAsyncDisposable
         (7, 31),   // Process Program Available Request
         (7, 37),   // Process Program Related Remote Command Send
         (7, 41),   // ... and the one with parameters
+        (7, 43),   // ... and cancelling one that was sent earlier
     ];
 
     /// <summary>The formatted process program messages, answered only when a formatted store is configured.</summary>
@@ -905,6 +906,27 @@ public sealed class GemEquipment : IAsyncDisposable
     public Func<uint, uint, GemGrant> AnswerMultiBlockInquiry { get; set; }
         = static (_, _) => GemGrant.Accepted;
 
+    /// <summary>Gets or sets what this machine answers a request to cancel a program command - S7F44.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A delegate rather than a model member</strong>, and this one is the reason the row
+    /// was refused for nine chapters: the refusal said cancelling needs "a register of commands in
+    /// flight that neither this library nor the reference has". The second half is true and the
+    /// first is a confusion - <em>this library</em> needs no register. S7F43 carries a <c>PPID</c>
+    /// and an <c>RCMD</c>, which is item for item what S7F37 carries, and the question "can you
+    /// stop that one" is the machine's to answer. An application that starts long-running commands
+    /// already tracks them, exactly as it must for S7F37.
+    /// </para>
+    /// <para>
+    /// <strong>Refuses with <see cref="GemRemoteCommandAcknowledgement.CannotPerformNow"/></strong>
+    /// and not with <c>DoesNotExist</c>, which is the distinction worth having: a machine that
+    /// tracks nothing in flight is not saying the command never existed, it is saying it cannot
+    /// stop it. A host deciding whether to wait or to give up needs those apart.
+    /// </para>
+    /// </remarks>
+    public Func<string, string, GemRemoteCommandAcknowledgement> AnswerProgramCommandCancel { get; set; }
+        = static (_, _) => GemRemoteCommandAcknowledgement.CannotPerformNow;
+
     /// <summary>Says a posted exception has gone - S5F11, answered by S5F12.</summary>
     /// <param name="exceptionId">EXID, the identifier the post used.</param>
     /// <param name="cancellationToken">Cancels the send.</param>
@@ -1463,6 +1485,7 @@ public sealed class GemEquipment : IAsyncDisposable
             (7, 33) => await OnFormattedProgramInquireAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (7, 37) => await OnProgramCommandAsync(transaction.Message, 38, cancellationToken).ConfigureAwait(false),
             (7, 41) => await OnProgramCommandAsync(transaction.Message, 42, cancellationToken).ConfigureAwait(false),
+            (7, 43) => await OnProgramCommandCancelAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             (10, 3) => await OnTerminalDisplayAsync(transaction.Message, multiBlock: false, cancellationToken).ConfigureAwait(false),
             (10, 5) => await OnTerminalDisplayAsync(transaction.Message, multiBlock: true, cancellationToken).ConfigureAwait(false),
             (10, 9) => await OnBroadcastAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
@@ -2784,6 +2807,51 @@ public sealed class GemEquipment : IAsyncDisposable
     /// should answer S9F3 for the whole stream rather than refuse one function of it.
     /// </para>
     /// </remarks>
+    /// <summary>Answers S7F43 - a request to cancel a command sent earlier.</summary>
+    /// <remarks>
+    /// <strong>Not <see cref="OnProgramCommandAsync"/> with a flag</strong>, deliberately. That
+    /// handler runs the command, and this row's whole content is that it must not: the item list is
+    /// identical, so the function number is the only thing that says cancel rather than start, and
+    /// sharing a path would make one line of dispatch the difference between stopping a recipe and
+    /// running it.
+    /// </remarks>
+    private async ValueTask<SecsMessage?> OnProgramCommandCancelAsync(
+        SecsMessage request,
+        CancellationToken cancellationToken)
+    {
+        if (_programs is null && _formatted is null)
+        {
+            return null;
+        }
+
+        var cmda = GemRemoteCommandAcknowledgement.DoesNotExist;
+
+        if (request.Item is { IsList: true, Count: >= 2 } body && body[0].Format.IsText())
+        {
+            var programId = body[0].GetString().TrimEnd();
+            var name = ReadCommandName(body[1]);
+
+            if (programId.Length == 0 || !await HasProgramAsync(programId, cancellationToken).ConfigureAwait(false))
+            {
+                cmda = GemRemoteCommandAcknowledgement.CannotPerformNow;
+            }
+            else if (name.Length > 0)
+            {
+                // Not checked against Model.RemoteCommands, which is where this differs from
+                // OnProgramCommandAsync: a command may have been withdrawn from the model since it
+                // was started, and a host that cannot then cancel it would be stuck with something
+                // running that nothing can stop.
+                cmda = AnswerProgramCommandCancel(programId, name);
+            }
+        }
+
+        return new SecsMessage(7, 44, replyExpected: false)
+        {
+            Name = "ProcessProgramRelatedRemoteCommandCancelAcknowledge",
+            Item = SecsItem.B((byte)cmda).Named("CMDA"),
+        };
+    }
+
     private async ValueTask<SecsMessage?> OnProgramCommandAsync(
         SecsMessage request,
         byte replyFunction,

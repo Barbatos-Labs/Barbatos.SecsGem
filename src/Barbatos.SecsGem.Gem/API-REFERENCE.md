@@ -122,6 +122,7 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `AnswerExceptionAbort` | `Func<string, GemExceptionAbortResult> { get; set; }` | What S5F18 says. **Refuses by default**, which is the opposite way round from this stack's other answer delegates: this one stops something the machine is in the middle of, so a machine nobody told how to abort a recovery cannot abort one. A delegate rather than a model member, because stream 5 has no exception table for one to be declared against. |
 | `AnswerInitiateProcessing` | `Func<string, GemInitiateProcessingAcknowledgement> { get; set; }` | What S2F28 says, given the trimmed `PPID`. **Refuses by default**, for `AnswerExceptionAbort`'s reason: starting processing is the machine doing something, and answering nought would tell a host material was being processed when nothing was. |
 | `AnswerMultiBlockInquiry` | `Func<uint, uint, GemGrant> { get; set; }` | What S2F40 says, given `DATAID` and `DATALENGTH`. **Grants by default**, the opposite way round and deliberately: a handshake whose only purpose is to let this end refuse should not refuse by silence. |
+| `AnswerProgramCommandCancel` | `Func<string, string, GemRemoteCommandAcknowledgement> { get; set; }` | What S7F44 says, given the `PPID` and the `RCMD` the command was sent with. **Refuses with `CannotPerformNow`** by default - a machine tracking nothing in flight will not stop a command, which is a different answer from the command never having existed. Does not check the command against the model, unlike S7F37's path: a command withdrawn since it started still has to be cancellable. |
 | `SpoolSuppressedMessages` | `IReadOnlyCollection<(byte Stream, byte Function)> { get; }` | What a host has turned off with S2F43, as a snapshot. Empty until one does, which is where almost every machine stays. |
 | `ReportTerminalNotAccessibleAsync` | `ValueTask<bool> ReportTerminalNotAccessibleAsync(byte terminalId = 0, CancellationToken cancellationToken = default)` | S10F7, which has no reply at all. **Not `ACKC10` 2 by another route**: that code answers a display request, where this is volunteered before anybody asks. Needs no `IGemTerminal`, and is **not spooled** - which terminals were unreachable an hour ago is not news anybody can act on. |
 | `SendDiscreteVariableDataAsync` | `ValueTask<bool> SendDiscreteVariableDataAsync(uint eventId, CancellationToken cancellationToken = default)` | S6F3: DATAID and CEID, which is all this reference's row names - **no values**, since the items that would carry them, `DVNAME` and `DVVAL`, are named by none of its 524 rows. Gated on the same two conditions as `TriggerEventAsync`, because S2F37 disables a CEID and this message names one. |
@@ -1201,7 +1202,7 @@ non-zero member already covered the whole range:
 | `RSPACK` | 0 | 1-63 | `GemSpoolResetAcknowledgement.Error` |
 | `STRACK` | 0 | 1-63 | `GemSpoolResetAcknowledgement.Error` |
 
-`ACKC7` is read at **four** sites now, `CMDA` at **three** and `GRANT` at **two**, and the counts
+`ACKC7` is read at **four** sites now, `CMDA` at **four** and `GRANT` at **two**, and the counts
 matter more than the
 table above: the stream 7 sweep added two `CMDA` readers, a control moved the boundary at one of
 them, and the whole suite stayed green. The same hole `ACKC7` had when one of its three sites was
@@ -1330,6 +1331,7 @@ table claiming it.
 | `VerifyProcessProgramAsync(id, body)` | S7F9 | `GemProcessProgramAcknowledgement`. **Only `Accepted` means yes**: `ACKC7` has no code for a mismatch, so read anything else as "not verified" rather than as a reason |
 | `IsProcessProgramAvailableAsync(id)` | S7F31 | `GemProcessProgramGrant`. Compare on `AlreadyHave` - `Ok` means "go ahead and send", which answers S7F1 and not this |
 | `SendProgramCommandAsync(programId, command, parameters)` | S7F37, or S7F41 when `parameters` is non-empty | `GemRemoteCommandAcknowledgement`. S2F21 and S2F41 with a program named, narrowed the same way |
+| `CancelProgramCommandAsync(programId, command)` | S7F43 | `GemRemoteCommandAcknowledgement`. **The command is named by the two items that started it**, because stream 7 has no command identifier - so a host that sent the same command twice has said nothing the reference can tell apart. `CannotPerformNow` is the refusal to expect from a machine that tracks nothing in flight, and it is the default at the other end; `DoesNotExist` would mean the program or the command is unknown |
 | `VerifyFormattedProcessProgramAsync(program)` | S7F27 | `GemProcessProgramAcknowledgement`. Compares the structure, model name and revision included |
 | `InquireFormattedProcessProgramAsync(id, length)` | S7F33 | `GemProcessProgramGrant`. Cannot answer `NoSpace`: the formatted store declares no capacity |
 | `DeleteProcessProgramsAsync(ids)` | S7F17 | `GemProcessProgramAcknowledgement`. Empty list means every program |
