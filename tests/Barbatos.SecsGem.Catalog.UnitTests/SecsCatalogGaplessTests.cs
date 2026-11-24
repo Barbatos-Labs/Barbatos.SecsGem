@@ -6,19 +6,24 @@
 namespace Barbatos.SecsGem.Catalog.UnitTests;
 
 /// <summary>
-/// The seven gapless streams, and the one row of their last nine that still stays out.
+/// The seven gapless streams, which are now served whole.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Three chapters have now been decided by the same pair of measures - gaps and own anchors - so
-/// this file asserts the whole partition rather than one stream of it: seven streams have no gaps
-/// of either kind, six have no vocabulary of their own, and no stream is both. Streams 4, 7, 12
-/// and 9 were finished by earlier chapters; streams 1, 5 and 10 are finished here.
+/// Three chapters were decided by the same pair of measures - gaps and own anchors - so this file
+/// asserts the whole partition rather than one stream of it: seven streams have no gaps of either
+/// kind, six have no vocabulary of their own, and no stream is both. Streams 4, 7, 12 and 9 were
+/// finished by earlier chapters; streams 1, 5 and 10 by the chapter this file was written for.
 /// </para>
 /// <para>
-/// The nine rows left in those three were all rows the reference illustrates rather than defines,
-/// and eight went in. The ninth is S1F9/F10, and the two measures that let the others in are the
-/// two that keep it out.
+/// <strong>Except one row, for five chapters.</strong> S1F9/F10 was refused on two grounds and the
+/// sweep that re-read every refusal in the repository found both of them wrong - which is why the
+/// test below now says why it goes in rather than why it stays out. The first ground was that
+/// <c>TSIP</c> and <c>TSOP</c> are text with no table, which is <c>TRACK</c>'s position exactly:
+/// <strong>untabled is not undefined</strong>, and stream 4's job half was refused on the same
+/// mistake for nine chapters. The second was that material transfer is a subject served properly
+/// elsewhere - and it is, on <em>worse</em> evidence, because E87's port status row carries a name
+/// the dictionary does not define at all.
 /// </para>
 /// </remarks>
 public class SecsCatalogGaplessTests
@@ -79,7 +84,7 @@ public class SecsCatalogGaplessTests
     }
 
     [Fact]
-    public void S1F9_stays_out_because_its_two_items_are_text_nobody_wrote_values_for()
+    public void S1F9s_two_items_are_defined_and_untabled_which_is_TRACKs_position()
     {
         var stream = Stream(1);
         var request = Assert.Single(stream.Messages, message => message.Function == 9);
@@ -88,9 +93,11 @@ public class SecsCatalogGaplessTests
         Assert.Empty(request.DataItems);
         Assert.Equal<string[]>(["TSIP", "TSOP"], [.. data.DataItems]);
 
-        // Both are A[n] with no table, and both are named by stream 1 alone - so there is no
-        // sibling anywhere to read a reading off, which is the test that let the other eight rows
-        // in. What a "transfer status input port" contains the reference never says.
+        // Both are A[n] with no table, and both are named by stream 1 alone. The refusal read that
+        // as "no sibling anywhere to read a reading off" - true, and not a reason to leave the row
+        // out, because there is nothing to read: the format is given and the values are the
+        // machine's. Carrying a field nobody wrote values for is what this repository does for
+        // every own gap, in three packages.
         foreach (var name in (string[])["TSIP", "TSOP"])
         {
             var item = Item(name);
@@ -100,11 +107,39 @@ public class SecsCatalogGaplessTests
             Assert.Equal<byte[]>([1], [.. item.Streams]);
         }
 
-        // And the second reason, which is independent of the first: what the row reports is
-        // material transfer, and this repository serves that subject properly in stream 3 and in
-        // E87. A pass-through of two string lists whose meaning nobody states would be an API with
-        // nothing behind it, beside two packages that have something.
+        // TRACK is the comparison, and it is exact: an A[n] with no table, which stream 4's job
+        // half was refused on for nine chapters until somebody looked it up. Stream 4 is served
+        // whole now, and this row was the last one in the repository refused the same way.
+        var track = Item("TRACK");
+
+        Assert.Equal("A", track.FormatToken);
+        Assert.Empty(track.Codes);
+    }
+
+    [Fact]
+    public void And_the_row_this_repository_already_serves_for_that_subject_is_the_weaker_one()
+    {
+        // The refusal's second ground: material transfer is a subject served properly in stream 3
+        // and in E87, so a pass-through of two strings would be an API with nothing behind it.
+        // The subject half is true.
         Assert.Contains("Material Status", Stream(3).Name, StringComparison.Ordinal);
+
+        var portStatus = Assert.Single(Stream(3).Messages, message => message.Function == 22);
+
+        Assert.Equal<string[]>(["PTN", "PORTSTATUS", "CARRIERID"], [.. portStatus.DataItems]);
+
+        // And here is what makes the conclusion backwards. E87's storage port status carries
+        // PORTSTATUS, which has NO DICTIONARY ENTRY AT ALL - and Barbatos.SecsGem.Carriers serves
+        // that row by choosing a meaning for it and saying so in its README. Two rows, one job,
+        // and the firmer source wins: S1F10's two items are defined where this one's is not, so
+        // the repository was serving the weaker of the pair and refusing the better.
+        Assert.False(SecsCatalog.TryGetDataItem("PORTSTATUS", out _));
+
+        // Which is also why the vocabulary is the machine's in both: a status name is text on every
+        // reading, so choosing what it MEANS is a house convention a fab can replace, where
+        // choosing a FORMAT would be bytes a third party cannot parse. That is the line between
+        // this row and the ones the sweep left refused.
+        Assert.Equal("A", Item("TSIP").FormatToken);
     }
 
     [Fact]

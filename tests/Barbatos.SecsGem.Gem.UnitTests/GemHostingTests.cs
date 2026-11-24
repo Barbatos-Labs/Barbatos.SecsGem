@@ -40,7 +40,7 @@ public class GemHostingTests
         return services.BuildServiceProvider();
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_whole_graph_resolves_despite_the_cycle()
     {
         await using var provider = Build();
@@ -52,7 +52,7 @@ public class GemHostingTests
         Assert.Same(provider.GetRequiredService<HsmsConnection>(), provider.GetRequiredService<HsmsConnection>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Every_GEM_message_is_in_the_routing_table()
     {
         await using var provider = Build();
@@ -69,7 +69,7 @@ public class GemHostingTests
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_routing_table_is_also_the_declaration_of_what_this_entity_understands()
     {
         await using var provider = Build();
@@ -88,7 +88,7 @@ public class GemHostingTests
         Assert.Null(router.CatchAll);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_model_can_be_built_from_the_container()
     {
         var services = new ServiceCollection();
@@ -115,7 +115,7 @@ public class GemHostingTests
         Assert.Equal(451d, value.FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_model_name_too_long_for_MDLN_fails_rather_than_being_truncated_on_the_wire()
     {
         await using var provider = Build(configure: options => options.ModelName = new string('x', 21));
@@ -126,7 +126,7 @@ public class GemHostingTests
         Assert.Contains("E30 allows 20", error.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_zero_retry_interval_is_refused_because_it_is_a_denial_loop()
     {
         await using var provider = Build(configure: options => options.EstablishCommunicationsRetryInterval = TimeSpan.Zero);
@@ -137,7 +137,7 @@ public class GemHostingTests
         Assert.Contains("must be positive", error.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_transient_control_state_cannot_be_the_default_one()
     {
         await using var provider = Build(configure: options => options.DefaultControlState = GemControlState.AttemptOnline);
@@ -157,7 +157,7 @@ public class GemHostingTests
     /// idempotent through <c>TryAdd</c>. <c>DeclareOnce</c> on the builder settles it, and this is
     /// the package with the most sets to get wrong.
     /// </remarks>
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Registering_gem_twice_declares_every_set_once()
     {
         var services = new ServiceCollection();

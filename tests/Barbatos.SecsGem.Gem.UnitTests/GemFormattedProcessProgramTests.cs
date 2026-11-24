@@ -43,7 +43,7 @@ public class GemFormattedProcessProgramTests
 
     // ----------------------------------------------------------------- opt-in
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void The_formatted_half_is_declared_on_its_own()
     {
         // Two capabilities, not one with two spellings: equipment may offer either half of stream 7,
@@ -61,7 +61,7 @@ public class GemFormattedProcessProgramTests
         Assert.All(GemEquipment.FormattedProcessProgramMessages, p => Assert.True(p.Function % 2 == 1));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Both_halves_can_be_registered_together()
     {
         var services = new ServiceCollection();
@@ -97,7 +97,7 @@ public class GemFormattedProcessProgramTests
         Assert.NotNull(provider.GetRequiredService<IGemFormattedProcessProgramStore>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_formatted_store_can_be_the_only_one()
     {
         var services = new ServiceCollection();
@@ -123,7 +123,7 @@ public class GemFormattedProcessProgramTests
 
     // ----------------------------------------------------------------- S7F23 and S7F25
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_formatted_program_survives_the_round_trip()
     {
         await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
@@ -165,7 +165,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal("RAMP", second[1][0].GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_with_no_commands_is_still_a_program()
     {
         await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
@@ -189,7 +189,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal(0, read.Item[3].Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_formatted_program_nobody_sent_comes_back_as_a_zero_length_list()
     {
         await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
@@ -206,7 +206,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal(0, reply.Item.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_parameter_keeps_the_padding_it_arrived_with()
     {
         await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
@@ -230,7 +230,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal(string.Empty, read.Item[3][0][1][1].GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_identifier_is_trimmed_the_way_every_other_PPID_is()
     {
         await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
@@ -261,7 +261,7 @@ public class GemFormattedProcessProgramTests
 
     // ----------------------------------------------------------------- bodies the stack refuses
 
-    [Theory]
+    [Theory(Timeout = 15_000)]
     [InlineData(3)]
     [InlineData(5)]
     public async Task A_body_of_the_wrong_length_is_a_length_error(int count)
@@ -286,7 +286,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal((byte)GemProcessProgramAcknowledgement.LengthError, reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_command_that_is_not_a_code_and_a_list_is_a_length_error()
     {
         await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
@@ -306,7 +306,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal((byte)GemProcessProgramAcknowledgement.LengthError, reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_parameter_this_stack_cannot_carry_is_mode_unsupported()
     {
         await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
@@ -334,7 +334,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal(0, read.Item!.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_command_code_in_a_wider_format_is_read_when_it_fits_and_refused_when_it_does_not()
     {
         await using var link = GemLink.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
@@ -369,7 +369,7 @@ public class GemFormattedProcessProgramTests
 
     // ----------------------------------------------------------------- S7F17 and S7F19, both halves
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_directory_covers_both_halves_without_repeating_a_name()
     {
         await using var link = GemLink.Start(
@@ -406,7 +406,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal("SHAPED", listed.Item[1].GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_directory_lists_a_formatted_program_when_the_other_half_is_empty()
     {
         await using var link = GemLink.Start(
@@ -429,7 +429,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal("SHAPED", listed.Item[0].GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Deleting_a_formatted_program_works_through_the_shared_message()
     {
         var formatted = new GemInMemoryFormattedProcessProgramStore();
@@ -468,7 +468,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal((byte)GemProcessProgramAcknowledgement.NotFound, again.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_empty_delete_list_empties_both_halves()
     {
         var programs = new GemInMemoryProcessProgramStore();
@@ -500,7 +500,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal(0, formatted.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_store_that_is_still_working_is_the_answer_even_when_the_other_half_is_gone()
     {
         var programs = new GemInMemoryProcessProgramStore();
@@ -532,7 +532,7 @@ public class GemFormattedProcessProgramTests
 
     // ----------------------------------------------------------------- the types on their own
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_program_owns_its_commands()
     {
         List<GemProcessProgramCommand> commands = [new(1, ["A"])];
@@ -547,7 +547,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal("RECIPE-7 (BRBTOS 1.0.0, 1 commands)", program.ToString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_command_owns_its_parameters_and_refuses_a_hole()
     {
         List<string> parameters = ["A", "B"];
@@ -564,7 +564,7 @@ public class GemFormattedProcessProgramTests
         Assert.Throws<ArgumentNullException>(() => new GemFormattedProcessProgram("A", "M", "R", [null!]));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_in_memory_formatted_store_enforces_its_capacity()
     {
         var store = new GemInMemoryFormattedProcessProgramStore { Capacity = 2 };
@@ -586,7 +586,7 @@ public class GemFormattedProcessProgramTests
         Assert.Equal(new[] { "A", "B" }, (await store.ListAsync(token)).ToArray());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_in_memory_formatted_store_refuses_an_identifier_E5_would_not_allow()
     {
         var store = new GemInMemoryFormattedProcessProgramStore();

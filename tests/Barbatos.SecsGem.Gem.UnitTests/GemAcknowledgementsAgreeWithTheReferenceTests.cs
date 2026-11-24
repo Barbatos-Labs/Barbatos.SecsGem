@@ -79,7 +79,7 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         { "STRACK", 1, 2 },
     };
 
-    [Theory]
+    [Theory(Timeout = 15_000)]
     [MemberData(nameof(Guarded))]
     public void The_reserved_range_starts_where_this_package_says_it_does(string item, byte reserved, int members)
     {
@@ -96,7 +96,7 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.StartsWith($"{reserved}-", last.Value, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void The_acknowledgements_without_a_reserved_range_are_the_ones_this_package_reads_differently()
     {
         // COMMACK names 0 and 1 and reserves nothing, so GemCommunicationAcknowledgement has two
@@ -213,7 +213,7 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.Equal(2, Enum.GetValues<GemInitiateProcessingAcknowledgement>().Length);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Every_guarded_enum_has_its_catch_all_member_at_the_boundary()
     {
         // The other half of the claim: the table says where the reserved range starts, and the
@@ -241,7 +241,7 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.Equal((byte)1, (byte)GemSpoolResetAcknowledgement.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void The_two_items_served_from_a_second_package_agree_with_the_table_and_so_name_for_name()
     {
         // CMDA is read here for S2F22 and in Barbatos.SecsGem.ProcessJobs for S16F4 and S16F24;
@@ -309,7 +309,7 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.Equal<string[]>(["Accepted", "Error"], Enum.GetNames<GemSpoolResetAcknowledgement>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void No_guarded_enum_has_a_member_beyond_its_boundary()
     {
         // Because a member above the catch-all could never be reached: the reader folds everything

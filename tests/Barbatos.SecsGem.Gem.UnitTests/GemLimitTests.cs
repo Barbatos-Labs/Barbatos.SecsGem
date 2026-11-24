@@ -55,7 +55,7 @@ public class GemLimitTests
 
     // ----------------------------------------------------------------- opt-in
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Limit_messages_are_declared_on_their_own()
     {
         Assert.Equal(2, GemEquipment.LimitMessages.Count);
@@ -70,7 +70,7 @@ public class GemLimitTests
 
     // ----------------------------------------------------------------- defining
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_band_is_set_and_reported_back()
     {
         await using var pair = GemPair.Start(Model, limits: true);
@@ -104,7 +104,7 @@ public class GemLimitTests
         Assert.Null(attributes.Maximum);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_variable_the_machine_does_not_have_is_refused_without_taking_the_others_down()
     {
         await using var pair = GemPair.Start(Model, limits: true);
@@ -131,7 +131,7 @@ public class GemLimitTests
         Assert.Equal([PressureVariable], attributes.Select(entry => entry.VariableId));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_band_that_is_not_a_band_is_named_and_takes_its_variable_with_it()
     {
         await using var pair = GemPair.Start(Model, limits: true);
@@ -170,7 +170,7 @@ public class GemLimitTests
         Assert.Empty(await pair.Host.ReadVariableLimitsAsync([], GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Limits_are_removed_one_variable_at_a_time_or_all_at_once()
     {
         await using var pair = GemPair.Start(Model, limits: true);
@@ -198,7 +198,7 @@ public class GemLimitTests
 
     // ----------------------------------------------------------------- the crossing
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Leaving_the_band_is_an_event_and_a_wobble_inside_it_is_not()
     {
         await using var pair = GemPair.Start(Model, limits: true);
@@ -245,7 +245,7 @@ public class GemLimitTests
         Assert.Equal([LimitEvent, LimitEvent], events);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_value_exactly_on_a_bound_is_inside()
     {
         await using var pair = GemPair.Start(Model, limits: true);
@@ -268,7 +268,7 @@ public class GemLimitTests
         Assert.True(await pair.Equipment.CheckLimitsAsync(PressureVariable, token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_variable_with_no_band_no_event_or_no_number_reports_nothing()
     {
         await using var pair = GemPair.Start(Model, limits: true);
@@ -293,7 +293,7 @@ public class GemLimitTests
         Assert.False(await pair.Equipment.CheckLimitsAsync(999, token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Redefining_a_band_forgets_which_side_the_value_was_on()
     {
         await using var pair = GemPair.Start(Model, limits: true);
@@ -320,7 +320,7 @@ public class GemLimitTests
         Assert.True(await pair.Equipment.CheckLimitsAsync(PressureVariable, token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_crossing_with_no_host_listening_is_not_reported_but_is_remembered()
     {
         await using var link = GemLink.Start(Model, limits: true);
@@ -360,7 +360,7 @@ public class GemLimitTests
 
     // ----------------------------------------------------------------- the band on its own
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_band_refuses_what_cannot_be_a_band()
     {
         var band = new GemVariableLimit(1, 900d, 1_100d);

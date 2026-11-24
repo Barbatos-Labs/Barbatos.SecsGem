@@ -32,7 +32,7 @@ public class GemStream6Tests
 
     // ----------------------------------------------------------------- S6F17 and S6F18
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_annotated_report_answers_with_every_value_identified_and_its_units()
     {
         await using var pair = GemPair.Start(Model);
@@ -61,7 +61,7 @@ public class GemStream6Tests
         Assert.Equal(18, reply.F);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_annotated_report_is_what_the_plain_one_cannot_say()
     {
         await using var pair = GemPair.Start(Model);
@@ -87,7 +87,7 @@ public class GemStream6Tests
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void An_annotated_entry_that_is_not_three_items_is_skipped_rather_than_guessed_at()
     {
         // ReadAnnotatedReport is static and public, so this needs no machine at all - which is
@@ -116,7 +116,7 @@ public class GemStream6Tests
         Assert.Equal(1UL, Assert.Single(values).VariableId);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_annotated_report_the_machine_does_not_define_comes_back_empty()
     {
         await using var pair = GemPair.Start(Model);
@@ -128,7 +128,7 @@ public class GemStream6Tests
         Assert.Equal(0, reply.Item!.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_report_naming_a_variable_the_model_does_not_hold_is_refused_at_build_time()
     {
         // Written as a test of the annotated reply and it would not run: the builder refuses the
@@ -152,7 +152,7 @@ public class GemStream6Tests
 
     // ----------------------------------------------------------------- S6F7 and S6F8
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_data_transfer_request_answers_with_what_the_machine_filed_under_the_identifier()
     {
         await using var pair = GemPair.Start(Model);
@@ -175,7 +175,7 @@ public class GemStream6Tests
         Assert.Equal(SecsItem.B(1, 2, 3), reply.Item[1]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_identifier_the_machine_has_nothing_under_answers_an_empty_body()
     {
         await using var pair = GemPair.Start(Model);
@@ -191,7 +191,7 @@ public class GemStream6Tests
         Assert.Equal(0, reply.Item!.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_machine_with_no_data_transfer_handler_answers_nothing_rather_than_throwing()
     {
         await using var pair = GemPair.Start(Model);
@@ -209,7 +209,7 @@ public class GemStream6Tests
 
     // ----------------------------------------------------------------- S6F27 and S6F28
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_notification_report_request_reads_back_what_S2F35_linked()
     {
         await using var pair = GemPair.Start(Model);
@@ -229,7 +229,7 @@ public class GemStream6Tests
         Assert.Empty(await GemPair.SentAsync(pair.Host.RequestNotificationReportsAsync(1_001, GemPair.Token)));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_event_with_nothing_linked_is_a_different_body_from_an_event_that_is_not_there()
     {
         await using var pair = GemPair.Start(Model);
@@ -267,7 +267,7 @@ public class GemStream6Tests
 
     // ----------------------------------------------------------------- S6F9 and S6F10
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Unformatted_data_reaches_the_host_as_the_item_the_machine_sent()
     {
         await using var pair = GemPair.Start(Model);
@@ -299,7 +299,7 @@ public class GemStream6Tests
         Assert.Equal(GemReportAcknowledgement.Accepted, seen.Acknowledgement);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_handler_that_sets_nothing_accepts_and_the_acceptance_is_on_the_wire()
     {
         await using var pair = GemPair.Start(Model);
@@ -325,7 +325,7 @@ public class GemStream6Tests
         Assert.Equal(SecsItem.B(0), reply.Item);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_that_refuses_unformatted_data_puts_the_refusal_on_the_wire()
     {
         await using var pair = GemPair.Start(Model);
@@ -347,7 +347,7 @@ public class GemStream6Tests
         Assert.Equal(SecsItem.B(1), reply.Item);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_unformatted_send_the_host_cannot_read_is_refused_and_the_log_says_which()
     {
         var log = new RecordingLogger<GemHost>();
@@ -379,7 +379,7 @@ public class GemStream6Tests
                 && message.Contains("could not read", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Unformatted_data_is_spooled_for_a_host_that_is_not_there()
     {
         var spool = new GemInMemorySpool();

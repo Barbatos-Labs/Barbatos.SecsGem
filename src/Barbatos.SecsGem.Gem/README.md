@@ -1102,6 +1102,39 @@ await host.LoopbackAsync([0x00, 0x7F, 0xFF]);     // true when the echo matched 
 await host.LoopbackDataAsync([0x00, 0x7F, 0xFF]); // the bytes, for a caller that wants to look
 ```
 
+## Where the material is, which is two strings and no vocabulary
+
+```csharp
+equipment.AnswerMaterialTransferStatus = () => new GemMaterialTransferStatus("READY", "BLOCKED");
+```
+
+```csharp
+var status = await host.RequestMaterialTransferStatusAsync();   // S1F9
+
+Console.WriteLine(status);          // TSIP=READY TSOP=BLOCKED
+Console.WriteLine(status.IsEmpty);  // false
+```
+
+**`TSIP` and `TSOP` are carried untouched**, because the reference defines them - both `A[n]` - and
+never says what values they take. A machine with no transfer ports answers with both strings
+empty, which is the only "no" the row has: S1F10 carries no acknowledgement code.
+
+**This row was refused for five chapters and the sweep that re-read every refusal found both of its
+reasons wrong.** The first was that two items of text with no table and named by stream 1 alone
+leave no sibling to read a reading off. True, and not a reason to leave the row out - it is
+`TRACK`'s position exactly, which kept stream 4's job half out for nine chapters until somebody
+looked the item up. **Untabled is not undefined**, and carrying a field nobody wrote values for is
+what this repository does for every own gap.
+
+The second was that material transfer is a subject served properly in stream 3 and in E87. It is -
+on **worse** evidence. E87's storage port status, S3F21/F22, carries `PORTSTATUS`, which has no
+dictionary entry at all, and `Barbatos.SecsGem.Carriers` serves that row by choosing a meaning and
+saying so. Two rows, one job, and the firmer source wins: this one's items are defined where that
+one's is not, so the repository was serving the weaker of the pair and refusing the better.
+
+With it, **stream 1 is served whole** - and so are all seven of the streams this reference leaves
+no gap in.
+
 ## The other end of the conversation
 
 E30 models the *equipment*, so everything above is the machine's side. `GemHost` is the host's:
@@ -1182,7 +1215,6 @@ not a wall in front of it.
 | A spool over a database | `GemFileSpool` holds reports across the equipment's own restart, which is the durability E30 does not require and most fabs want. A spool over a database - shared between two controllers, or backed up with everything else - is an `IGemSpool` of about a hundred lines, and the interface is the whole contract |
 | Five pairs of stream 7 | Seventeen of its twenty-two primaries are here now, and **stream 7 is where the item list stopped discriminating**: nine of its rows carry `PPID, PPBODY` and six of those are served, and seven of its primaries carry `PPID` alone with six of those served. So "every item in this row is defined" is true of all five refusals and says nothing about any of them - what decides is whether the row's *name* names an action on its fields. **The matrix family**, S7F11 to S7F16, is **write-only**: a send, a load inquire and a verify, and no request and no directory anywhere in the reference, so a matrix program could be stored and never read back - and it would be stored under a `PPID` that S7F5 would hand back as a plain program, because the rows are item for item the plain ones. S7F13 also loses to S7F1, which is a definition where it is an illustration. **S7F21/F22** is `PPID` answered by an `ACKC7`, which is the shape of six served rows - so the shape says nothing and the word "Reference" is all that is left; a handler would be given a program identifier and no action, which is S1F9's position. **S7F35/F36** is a body whose two readings put different bytes on the wire: the two served directory replies say `PPID` alone and S7F26, a definition, says a program reply is a `PPID` and a `PPBODY`. A body guessed wrong is unparseable rather than merely uninterpretable, which is the rule the stream 6 chapter named. The figures are pinned in [`SecsCatalogStream7Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7Tests.cs) and [`SecsCatalogStream7RefusalTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream7RefusalTests.cs) |
 | A documented range per status variable | E5 has S2F48 report the variable's own LIMITMIN and LIMITMAX beside the bands in force, and a `GemVariable` carries no range - so this equipment reports a zero-length item, which is E5's way of saying there is no documented bound. The host side reads one when another machine sends it |
-| S1F9/F10, the material transfer status | The one row of streams 1, 5 and 10 that the gapless sweep left out, and the only thing missing from those three streams now. Its two items, `TSIP` and `TSOP`, are `A[n]` with no tables and named by stream 1 alone - so there is no sibling anywhere to read a reading off, which is the test the other eight rows passed. And what it reports is material transfer, a subject this repository serves properly in stream 3 and in E87: a pass-through of two string lists whose meaning nobody states would be an API with nothing behind it, beside two packages that have something. [`SecsCatalogGaplessTests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogGaplessTests.cs) pins both reasons |
 | Three pairs of stream 6 | The rest of the stream is here. **S6F21/F22** and **S6F29/F30** were refused on the field each row turns on: `CELLNAME` is what makes a data cell report a *cell* report rather than the event report it is otherwise identical to, and `NRED` is the enable-or-disable flag S6F29 exists to carry - both undefined, both named by one row, so carrying either untouched would leave this library unable to tell apart the two things its row distinguishes. The same reason S14F23 stays out. **S6F25/F26** was refused on something new: not a field but a **body**. Its two items are both defined and both already read here, and the reference records an item list rather than a nesting - S6F16 is recorded as `DATAID` and `CEID` and carries a whole event report - so the two served rows that could settle whether a report list follows disagree, and a body guessed wrong is unparseable rather than merely uninterpretable. [`SecsCatalogStream6Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream6Tests.cs) pins all three |
 | S2F19/F20, reset and initialize | The one row of stream 2 left, and the clearest refusal in the reference: S2F19's **entire body is `RSTC`**, a name nobody wrote down, and `RIACK` is undefined too - the only row in the stream where both halves are gaps. An own gap is carried untouched unless it is the field the message turns on, and a reset code is *which* reset: carrying it opaquely would leave this library unable to tell one reset from another. Strictly worse than S14F23's `ENABLE`, which at least sat beside items that were defined, and there is no second field in the row to anchor a reading against. [`SecsCatalogStream2Tests`](../../tests/Barbatos.SecsGem.Catalog.UnitTests/SecsCatalogStream2Tests.cs) pins it |
 | A trace that outlives a reconnect | Deliberate, and the only part of tracing with no test of its own. Every trace is cancelled where the host's report definitions are reset, on a re-establish - and an in-memory transport pair cannot re-select after a deselect, because the select is driven by the connection's own state machine and nothing public asks it to. The test covers the other side: that a second S1F13 on a live conversation resets nothing |

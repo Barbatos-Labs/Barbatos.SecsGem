@@ -86,14 +86,14 @@ public class GemSpoolingTests
 
     // ----------------------------------------------------------------- opt-in
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void S6F23_is_not_in_the_core_declaration()
     {
         Assert.DoesNotContain(GemEquipment.SpoolMessages[0], GemEquipment.HandledMessages);
         Assert.Equal((6, 23), ((int)GemEquipment.SpoolMessages[0].Stream, (int)GemEquipment.SpoolMessages[0].Function));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Without_a_spool_a_report_that_cannot_be_delivered_is_dropped()
     {
         await using var link = await NotCommunicatingAsync(spool: null);
@@ -109,7 +109,7 @@ public class GemSpoolingTests
         Assert.Equal(0, link.Equipment.SpoolCountActual);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Spooling_can_be_turned_off_by_configuration_without_removing_the_spool()
     {
         await using var link = await NotCommunicatingAsync(
@@ -123,7 +123,7 @@ public class GemSpoolingTests
 
     // ----------------------------------------------------------------- holding
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_report_that_cannot_be_delivered_is_held()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
@@ -140,7 +140,7 @@ public class GemSpoolingTests
         Assert.NotNull(link.Equipment.SpoolStartTime);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_event_the_host_disabled_is_not_held()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
@@ -153,7 +153,7 @@ public class GemSpoolingTests
         Assert.Equal(GemSpoolState.Inactive, link.Equipment.SpoolState);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_alarm_is_held_too()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
@@ -167,7 +167,7 @@ public class GemSpoolingTests
 
     // ----------------------------------------------------------------- the point of it
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_held_report_carries_the_values_from_when_the_event_happened()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
@@ -199,7 +199,7 @@ public class GemSpoolingTests
         Assert.Equal(500d, report.Item![2][0][1][0].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Held_reports_are_handed_over_in_the_order_they_happened()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
@@ -237,7 +237,7 @@ public class GemSpoolingTests
         Assert.Null(link.Equipment.SpoolStartTime);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_host_may_throw_the_backlog_away_instead()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
@@ -261,7 +261,7 @@ public class GemSpoolingTests
         Assert.Equal(2, alive.F);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Asking_to_transmit_an_empty_spool_is_denied()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
@@ -275,7 +275,7 @@ public class GemSpoolingTests
         Assert.Equal((byte)GemSpooledDataAcknowledgement.Denied, rsda.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Theory]
+    [Theory(Timeout = 15_000)]
     [InlineData("U1")]
     [InlineData("U2")]
     [InlineData("U4")]
@@ -302,7 +302,7 @@ public class GemSpoolingTests
         Assert.Equal(0, link.Equipment.SpoolCountActual);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_transmit_burst_can_be_capped()
     {
         await using var link = await NotCommunicatingAsync(
@@ -339,7 +339,7 @@ public class GemSpoolingTests
 
     // ----------------------------------------------------------------- the answer comes first
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_transmit_does_not_begin_until_the_acknowledgement_is_on_the_wire()
     {
         using var gate = new OutputGate();
@@ -398,7 +398,7 @@ public class GemSpoolingTests
         Assert.Equal(11, report.F);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_transmit_asked_for_without_a_reply_is_still_made()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
@@ -426,7 +426,7 @@ public class GemSpoolingTests
 
     // ----------------------------------------------------------------- full
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_full_spool_keeps_the_oldest_by_default()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool(capacity: 2));
@@ -460,7 +460,7 @@ public class GemSpoolingTests
         Assert.Equal(200d, second.Item![2][0][1][0].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_full_spool_can_be_told_to_keep_the_newest_instead()
     {
         await using var link = await NotCommunicatingAsync(
@@ -496,7 +496,7 @@ public class GemSpoolingTests
 
     // ----------------------------------------------------------------- the pieces on their own
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_spooled_message_survives_encoding_and_decoding()
     {
         using var original = new SecsMessage(6, 11, replyExpected: true)
@@ -518,7 +518,7 @@ public class GemSpoolingTests
         Assert.Equal(original, restored);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_message_with_no_body_spools_and_comes_back_with_no_body()
     {
         using var original = new SecsMessage(1, 1, replyExpected: true);
@@ -530,7 +530,7 @@ public class GemSpoolingTests
         Assert.Null(restored.Item);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_in_memory_spool_hands_things_back_in_order_and_only_once_committed()
     {
         var spool = new GemInMemorySpool(capacity: 4);
@@ -562,7 +562,7 @@ public class GemSpoolingTests
         Assert.False(await spool.RemoveHeadAsync(token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_spool_that_holds_nothing_is_refused_outright()
     {
         // A capacity of zero is a slower way of dropping the message, so it is a configuration

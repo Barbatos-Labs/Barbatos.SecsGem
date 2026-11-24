@@ -63,7 +63,7 @@ public class GemTraceTests
 
     // ----------------------------------------------------------------- opt-in
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Traces_are_declared_on_their_own()
     {
         Assert.Single(GemEquipment.TraceMessages);
@@ -77,7 +77,7 @@ public class GemTraceTests
 
     // ----------------------------------------------------------------- the sampling
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_trace_samples_on_its_interval_and_reports_in_groups()
     {
         await using var pair = GemPair.Start(Model, traces: true);
@@ -115,7 +115,7 @@ public class GemTraceTests
         Assert.Equal(2, groups.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_last_group_goes_even_when_it_is_short()
     {
         await using var pair = GemPair.Start(Model, traces: true);
@@ -138,7 +138,7 @@ public class GemTraceTests
         Assert.Equal(3u, groups[1].Sample);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Every_sample_carries_the_value_at_the_moment_it_was_taken()
     {
         await using var pair = GemPair.Start(Model, traces: true);
@@ -173,7 +173,7 @@ public class GemTraceTests
         Assert.Equal([300d], groups[2].Values);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_trace_can_be_stopped_before_it_finishes()
     {
         await using var pair = GemPair.Start(Model, traces: true);
@@ -203,7 +203,7 @@ public class GemTraceTests
 
     // ----------------------------------------------------------------- what TIAACK is for
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_variable_the_machine_does_not_trace_is_named_as_the_reason()
     {
         await using var pair = GemPair.Start(Model, traces: true);
@@ -220,7 +220,7 @@ public class GemTraceTests
             await pair.Host.StartTraceAsync(Trace(variables: [10u]), GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_group_size_that_does_not_fit_the_samples_asked_for_is_named_too()
     {
         await using var pair = GemPair.Start(Model, traces: true);
@@ -235,7 +235,7 @@ public class GemTraceTests
             await pair.Host.StartTraceAsync(Trace(totalSamples: 4, groupSize: 0), GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task More_variables_than_the_machine_will_sample_is_named_too()
     {
         await using var pair = GemPair.Start(Model, gem: options => options.MaxTraceVariables = 1, traces: true);
@@ -250,7 +250,7 @@ public class GemTraceTests
             await pair.Host.StartTraceAsync(Trace(variables: [2u]), GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task One_trace_too_many_is_refused_but_replacing_one_is_not()
     {
         await using var pair = GemPair.Start(Model, gem: options => options.MaxTraces = 1, traces: true);
@@ -271,7 +271,7 @@ public class GemTraceTests
             await pair.Host.StartTraceAsync(Trace(id: 1, totalSamples: 50, seconds: 2d), GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_period_the_wire_cannot_carry_is_refused_before_it_is_sent()
     {
         await using var pair = GemPair.Start(Model, traces: true);
@@ -288,7 +288,7 @@ public class GemTraceTests
                 GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_period_in_hundredths_survives_the_wire()
     {
         await using var pair = GemPair.Start(Model, traces: true);
@@ -314,7 +314,7 @@ public class GemTraceTests
         await GemPair.WaitUntilAsync(() => groups.Count == 1, "the group to arrive after three seconds");
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_that_is_not_a_trace_request_is_refused_rather_than_run()
     {
         await using var link = GemLink.Start(Model, traces: true);
@@ -350,7 +350,7 @@ public class GemTraceTests
     /// the other side by proving neither happens when it should not.
     /// </para>
     /// </remarks>
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_second_request_to_establish_leaves_a_running_trace_alone()
     {
         await using var link = GemLink.Start(
@@ -417,7 +417,7 @@ public class GemTraceTests
 
     // ----------------------------------------------------------------- the request on its own
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_request_owns_its_variables_and_says_what_it_asked_for()
     {
         List<uint> variables = [1, 2];

@@ -319,6 +319,12 @@ internal static class Program
         var connection = app.Services.GetRequiredService<HsmsConnection>();
         var equipment = app.Services.GetRequiredService<GemEquipment>();
 
+        // What S1F10 reports: two strings with no vocabulary anywhere in the reference, so they are
+        // this machine's own words. Set here rather than in the model because TSIP and TSOP are not
+        // variables - no SVID names them and no report can carry them.
+        equipment.AnswerMaterialTransferStatus =
+            () => new GemMaterialTransferStatus("READY", "IDLE");
+
         connection.StateChanged += (_, state) => Console.WriteLine($"   [link]    {state}");
         equipment.CommunicationStateChanged += (_, state) => Console.WriteLine($"   [comms]   {state}");
         equipment.ControlStateChanged += (_, state) => Console.WriteLine($"   [control] {state}");

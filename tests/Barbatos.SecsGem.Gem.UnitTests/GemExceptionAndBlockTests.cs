@@ -44,7 +44,7 @@ public class GemExceptionAndBlockTests
 
     // ------------------------------------------------------------------ S5F9, the exception post
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_exception_post_reaches_the_host_with_all_four_fields()
     {
         await using var pair = GemPair.Start(Model);
@@ -71,7 +71,7 @@ public class GemExceptionAndBlockTests
         Assert.Equal(pair.Clock.GetUtcNow().UtcDateTime, seen.PostedAt);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_exception_is_not_an_alarm_and_does_not_arrive_as_one()
     {
         await using var pair = GemPair.Start(Model);
@@ -104,7 +104,7 @@ public class GemExceptionAndBlockTests
         await GemPair.WaitUntilAsync(() => alarms == 1, "the alarm to reach the host");
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_post_that_crosses_as_the_wrong_shape_is_refused_rather_than_accepted()
     {
         await using var pair = GemPair.Start(Model);
@@ -139,7 +139,7 @@ public class GemExceptionAndBlockTests
         Assert.Null(seen.PostedAt);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_timestamp_that_will_not_parse_leaves_the_instant_unknown_and_the_post_standing()
     {
         await using var pair = GemPair.Start(Model);
@@ -167,7 +167,7 @@ public class GemExceptionAndBlockTests
         Assert.Equal("still worth hearing", seen.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_exception_the_link_cannot_carry_is_spooled_like_a_report()
     {
         var spool = new GemInMemorySpool();
@@ -188,7 +188,7 @@ public class GemExceptionAndBlockTests
 
     // ----------------------------------------------------- S6F3, the discrete variable data send
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_discrete_variable_data_send_names_an_event_and_carries_no_values()
     {
         await using var link = GemLink.Start(Model);
@@ -209,7 +209,7 @@ public class GemExceptionAndBlockTests
         Assert.Equal(1_000u, message.Item[1].FirstValueOrDefault<uint>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task It_arrives_on_the_event_report_event_and_says_which_message_brought_it()
     {
         await using var pair = GemPair.Start(Model);
@@ -231,7 +231,7 @@ public class GemExceptionAndBlockTests
         Assert.Equal((3, 1_000UL, 0), seen[1]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task It_obeys_the_same_two_gates_the_event_report_obeys()
     {
         await using var pair = GemPair.Start(Model);
@@ -253,7 +253,7 @@ public class GemExceptionAndBlockTests
         Assert.True(await pair.Equipment.SendDiscreteVariableDataAsync(2_000, GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_discrete_send_of_the_wrong_shape_is_refused_with_ACKC6_one()
     {
         await using var pair = GemPair.Start(Model);
@@ -273,7 +273,7 @@ public class GemExceptionAndBlockTests
 
     // ---------------------------------------------------------- S6F5, the multi-block inquire
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_multi_block_inquire_is_granted_by_default_and_carries_the_length_it_was_given()
     {
         await using var pair = GemPair.Start(Model);
@@ -293,7 +293,7 @@ public class GemExceptionAndBlockTests
         Assert.NotEqual(0u, asked.DataId);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_that_says_no_is_obeyed_and_each_refusal_comes_back_as_itself()
     {
         await using var pair = GemPair.Start(Model);
@@ -322,7 +322,7 @@ public class GemExceptionAndBlockTests
             await pair.Equipment.InquireMultiBlockAsync(1, GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_reserved_GRANT6_folds_onto_Other_rather_than_onto_a_refusal()
     {
         var log = new RecordingLogger<GemEquipment>();
@@ -347,7 +347,7 @@ public class GemExceptionAndBlockTests
                 && message.Contains("reserves", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_inquire_with_nobody_to_ask_is_refused_and_never_spooled()
     {
         await using var link = await NotCommunicatingAsync(new GemInMemorySpool());
@@ -391,7 +391,7 @@ public class GemExceptionAndBlockTests
         return link;
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_inquire_the_host_cannot_read_is_refused_finally_rather_than_with_busy()
     {
         await using var pair = GemPair.Start(Model);
@@ -418,7 +418,7 @@ public class GemExceptionAndBlockTests
         Assert.Equal(1, asked);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_exception_post_can_be_sent_without_asking_for_an_answer()
     {
         await using var link = GemLink.Start(Model, options => options.ExceptionPostsExpectReply = false);
@@ -445,7 +445,7 @@ public class GemExceptionAndBlockTests
         Assert.True(await sent.WaitAsync(TimeSpan.FromSeconds(5), GemLink.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_grant_of_the_wrong_shape_is_a_refusal_and_not_a_crash()
     {
         await using var link = GemLink.Start(Model);

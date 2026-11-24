@@ -582,6 +582,15 @@ internal static class Program
             {
                 Run = (id, text) => $"SPID {id}: {text.Length} characters, exit 0",
             });
+        // What S1F10 reports. Two strings with no vocabulary anywhere in the reference, so these
+        // are this machine's own words - the same freedom E87 gives CARRIERSTATUS, on an item that
+        // at least has a format. Set here rather than beside the other delegates further down,
+        // because the conversation reads stream 1 before it reaches them: a delegate assigned
+        // after the question has been asked is a delegate the sample reports as empty, which is
+        // how this line found its first home wrong.
+        equipment.AnswerMaterialTransferStatus =
+            () => new GemMaterialTransferStatus("READY", "IDLE");
+
         await using var host = new GemHost(hostOptions, hostLink);
 
         // Neither end of stream 12 is disposable, and neither end of stream 3: no state, no timer,
@@ -1280,6 +1289,15 @@ internal static class Program
             Console.WriteLine($"   S1F5  -> form 200 is not one of mine: {missing.Item!.Count} value(s)");
             ok &= missing.Item.Count == 0;
         }
+
+        // And the last row of stream 1, which was refused for five chapters on TRACK's mistake:
+        // TSIP and TSOP are defined and untabled, so what they contain is the machine's and this
+        // library carries the two strings. In memory the machine answers from a delegate this
+        // sample sets; over a socket the equipment sample sets its own.
+        var transfer = await host.RequestMaterialTransferStatusAsync(cancellationToken);
+
+        Console.WriteLine($"   S1F9  -> {transfer}");
+        ok &= !transfer.IsEmpty;
 
         // And S1F23 asks what collection events there are and what each one is about. The variable
         // list is the machine's description, declared beside the event in the model.

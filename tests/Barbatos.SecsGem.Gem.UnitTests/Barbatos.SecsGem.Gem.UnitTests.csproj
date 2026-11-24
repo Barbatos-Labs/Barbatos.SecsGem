@@ -6,6 +6,13 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
+    <!-- xUnit1069 wants every test with a Timeout to name TestContext.Current.CancellationToken
+         itself; these pass GemPair.Token, which IS that property, so the analyser fires on all of
+         them. The Timeout is deliberate and project-wide, and a control earned it: remove S1F9
+         from the equipment's routing table and the host waits on a T3 the FakeTimeProvider never
+         advances, so the run dies with no summary and reads exactly like a control that found
+         nothing. Three earlier chapters paid for that lesson one await at a time. -->
+    <NoWarn>$(NoWarn);xUnit1069</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

@@ -17,7 +17,7 @@ public class GemCommunicationTests
 {
     // ----------------------------------------------------------------- establishing
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_equipment_asks_to_establish_communications_as_soon_as_the_link_is_selected()
     {
         await using var link = GemLink.Start();
@@ -35,7 +35,7 @@ public class GemCommunicationTests
         Assert.Equal("0.1.0", body.Item[1].GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_selected_link_is_not_yet_a_conversation()
     {
         await using var link = GemLink.Start();
@@ -48,7 +48,7 @@ public class GemCommunicationTests
         Assert.False(link.Equipment.IsCommunicating);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task COMMACK_zero_establishes_communication()
     {
         await using var link = GemLink.Start();
@@ -59,7 +59,7 @@ public class GemCommunicationTests
         Assert.Equal(GemCommunicationState.Communicating, link.Equipment.CommunicationState);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task COMMACK_one_leaves_the_equipment_waiting_and_it_asks_again_after_the_interval()
     {
         await using var link = GemLink.Start(configure: options =>
@@ -85,7 +85,7 @@ public class GemCommunicationTests
         Assert.Equal(13, retry.Data.F);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_may_establish_communication_itself()
     {
         await using var link = GemLink.Start();
@@ -112,7 +112,7 @@ public class GemCommunicationTests
             "the equipment to accept the host's S1F13");
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_second_S1F13_does_not_throw_away_what_the_host_already_configured()
     {
         await using var link = GemLink.Start();
@@ -147,7 +147,7 @@ public class GemCommunicationTests
         Assert.True(link.Equipment.IsCommunicating);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Communication_disabled_means_nothing_is_offered_and_nothing_is_accepted()
     {
         await using var link = GemLink.Start(configure: options => options.CommunicationEnabled = false);
@@ -170,7 +170,7 @@ public class GemCommunicationTests
         Assert.False(link.Equipment.IsCommunicating);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Losing_the_link_ends_the_conversation_and_takes_the_equipment_offline()
     {
         await using var link = GemLink.Start();
@@ -197,7 +197,7 @@ public class GemCommunicationTests
 
     // ----------------------------------------------------------------- control state
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_default_control_state_decides_where_it_lands()
     {
         await using var remote = GemLink.Start(configure: o => o.DefaultControlState = GemControlState.OnlineRemote);
@@ -213,7 +213,7 @@ public class GemCommunicationTests
         Assert.Equal(GemControlState.EquipmentOffline, offline.Equipment.ControlState);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task S1F1_answers_with_the_identity_when_online()
     {
         await using var link = GemLink.Start();
@@ -226,7 +226,7 @@ public class GemCommunicationTests
         Assert.Equal("BRBTOS", reply.Item[0].GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task S1F1_answers_with_a_zero_length_list_when_offline()
     {
         await using var link = GemLink.Start(configure: o => o.DefaultControlState = GemControlState.EquipmentOffline);
@@ -240,7 +240,7 @@ public class GemCommunicationTests
         Assert.Equal(0, reply.Item.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task S1F15_puts_the_equipment_in_host_offline()
     {
         await using var link = GemLink.Start();
@@ -253,7 +253,7 @@ public class GemCommunicationTests
         Assert.Equal(GemControlState.HostOffline, link.Equipment.ControlState);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task S1F17_brings_it_back_from_host_offline()
     {
         await using var link = GemLink.Start();
@@ -269,7 +269,7 @@ public class GemCommunicationTests
         Assert.Equal(GemControlState.OnlineRemote, link.Equipment.ControlState);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task S1F17_when_already_online_says_so_rather_than_pretending_to_act()
     {
         await using var link = GemLink.Start();
@@ -281,7 +281,7 @@ public class GemCommunicationTests
         Assert.Equal(GemControlState.OnlineRemote, link.Equipment.ControlState);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task S1F17_is_refused_while_the_equipment_itself_is_offline()
     {
         await using var link = GemLink.Start(configure: o => o.DefaultControlState = GemControlState.EquipmentOffline);
@@ -295,7 +295,7 @@ public class GemCommunicationTests
         Assert.Equal(GemControlState.EquipmentOffline, link.Equipment.ControlState);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Going_online_is_refused_until_there_is_a_conversation_to_be_online_to()
     {
         await using var link = GemLink.Start(configure: o => o.DefaultControlState = GemControlState.EquipmentOffline);
@@ -311,7 +311,7 @@ public class GemCommunicationTests
         Assert.Equal(GemControlState.OnlineRemote, link.Equipment.ControlState);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_transition_passes_through_attempt_online_so_an_observer_can_see_it()
     {
         await using var link = GemLink.Start(configure: o => o.DefaultControlState = GemControlState.EquipmentOffline);
@@ -327,7 +327,7 @@ public class GemCommunicationTests
         Assert.Equal([GemControlState.AttemptOnline, GemControlState.OnlineRemote], seen);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Every_transition_is_reported_once_with_a_reason()
     {
         await using var link = GemLink.Start();

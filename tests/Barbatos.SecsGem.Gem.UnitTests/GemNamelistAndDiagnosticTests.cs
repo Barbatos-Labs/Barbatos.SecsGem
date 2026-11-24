@@ -57,7 +57,7 @@ public class GemNamelistAndDiagnosticTests
 
     // --------------------------------------------------------------- the data variable namelist
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_data_variable_namelist_answers_with_names_and_units()
     {
         await using var pair = GemPair.Start(Model);
@@ -75,7 +75,7 @@ public class GemNamelistAndDiagnosticTests
         Assert.Equal(string.Empty, all[0].Units);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_data_variable_the_machine_has_not_got_comes_back_named_nothing()
     {
         await using var pair = GemPair.Start(Model);
@@ -95,7 +95,7 @@ public class GemNamelistAndDiagnosticTests
 
     // ------------------------------------------------------------ the collection event namelist
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_event_namelist_answers_with_names_and_the_variables_each_is_about()
     {
         await using var pair = GemPair.Start(Model);
@@ -115,7 +115,7 @@ public class GemNamelistAndDiagnosticTests
         Assert.True(all[1].Exists);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_event_the_machine_has_not_got_comes_back_named_nothing()
     {
         await using var pair = GemPair.Start(Model);
@@ -130,7 +130,7 @@ public class GemNamelistAndDiagnosticTests
         Assert.Equal("CEID 777 is not one this machine has", answered[1].ToString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_namelist_is_the_machines_account_and_not_the_hosts_reports()
     {
         await using var pair = GemPair.Start(Model);
@@ -148,7 +148,7 @@ public class GemNamelistAndDiagnosticTests
 
     // --------------------------------------------------------------- the simple remote command
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_simple_remote_command_runs_the_same_handler_as_the_one_with_parameters()
     {
         await using var pair = GemPair.Start(Model);
@@ -161,7 +161,7 @@ public class GemNamelistAndDiagnosticTests
         Assert.Equal("yes", _started);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_command_the_machine_does_not_have_is_answered_does_not_exist()
     {
         await using var pair = GemPair.Start(Model);
@@ -175,7 +175,7 @@ public class GemNamelistAndDiagnosticTests
             await pair.Host.SendRemoteCommandAsync("NOPE", GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Seven_codes_narrow_onto_three_and_the_detail_is_lost_on_purpose()
     {
         await using var pair = GemPair.Start(Model);
@@ -194,7 +194,7 @@ public class GemNamelistAndDiagnosticTests
             await pair.Host.SendCommandAsync("PUMP", [], GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_command_that_needs_remote_control_is_refused_when_the_host_is_not_in_charge()
     {
         await using var pair = GemPair.Start(Model);
@@ -224,7 +224,7 @@ public class GemNamelistAndDiagnosticTests
 
     // ------------------------------------------------------------------------ the loopback
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_loopback_echoes_what_it_was_sent()
     {
         await using var pair = GemPair.Start(Model);
@@ -236,7 +236,7 @@ public class GemNamelistAndDiagnosticTests
         Assert.Equal<byte[]>(sent, [.. (await pair.Host.LoopbackDataAsync(sent, GemPair.Token)).Span]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_empty_loopback_is_still_an_answer()
     {
         await using var pair = GemPair.Start(Model);
@@ -248,7 +248,7 @@ public class GemNamelistAndDiagnosticTests
         Assert.True((await pair.Host.LoopbackDataAsync(default, GemPair.Token)).IsEmpty);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_loopback_is_answered_off_line_because_a_diagnostic_you_cannot_run_is_no_use()
     {
         await using var pair = GemPair.Start(Model);
@@ -261,7 +261,7 @@ public class GemNamelistAndDiagnosticTests
         Assert.True(await pair.Host.LoopbackAsync(new byte[] { 9 }, GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_loopback_goes_the_other_way_too()
     {
         await using var pair = GemPair.Start(Model);
@@ -282,7 +282,7 @@ public class GemNamelistAndDiagnosticTests
         Assert.Equal<byte[]>([1, 2, 3], [.. reply.Item!.GetMemory<byte>().Span]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_loopback_body_sent_as_text_is_echoed_as_text()
     {
         await using var pair = GemPair.Start(Model);

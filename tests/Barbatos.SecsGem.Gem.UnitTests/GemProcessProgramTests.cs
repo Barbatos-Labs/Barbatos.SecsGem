@@ -22,7 +22,7 @@ public class GemProcessProgramTests
 
     // ----------------------------------------------------------------- opt-in
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Stream_seven_is_not_in_the_core_declaration()
     {
         // Equipment without a store should get S9F3 for stream 7 - "I do not do that" - rather than
@@ -57,7 +57,7 @@ public class GemProcessProgramTests
 
     // ----------------------------------------------------------------- S7F1
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_new_program_is_granted()
     {
         await using var link = GemLink.Start(Model, programs: new GemInMemoryProcessProgramStore());
@@ -72,7 +72,7 @@ public class GemProcessProgramTests
         Assert.Equal((byte)GemProcessProgramGrant.Ok, reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_already_stored_is_not_granted_again()
     {
         await using var link = GemLink.Start(Model, programs: new GemInMemoryProcessProgramStore());
@@ -94,7 +94,7 @@ public class GemProcessProgramTests
         Assert.Equal((byte)GemProcessProgramGrant.AlreadyHave, reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_too_large_for_the_store_is_refused_before_the_bytes_are_sent()
     {
         await using var link = GemLink.Start(
@@ -113,7 +113,7 @@ public class GemProcessProgramTests
         Assert.Equal((byte)GemProcessProgramGrant.NoSpace, reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_empty_identifier_is_refused()
     {
         await using var link = GemLink.Start(Model, programs: new GemInMemoryProcessProgramStore());
@@ -127,7 +127,7 @@ public class GemProcessProgramTests
         Assert.Equal((byte)GemProcessProgramGrant.InvalidId, reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_declared_length_is_read_in_whatever_format_the_host_chose()
     {
         await using var link = GemLink.Start(Model, programs: new GemInMemoryProcessProgramStore());
@@ -143,7 +143,7 @@ public class GemProcessProgramTests
 
     // ----------------------------------------------------------------- S7F3 and S7F5
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_survives_the_round_trip_byte_for_byte()
     {
         var body = new byte[512];
@@ -175,7 +175,7 @@ public class GemProcessProgramTests
         Assert.Equal(body, read.Item[1].GetSpan<byte>().ToArray());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_nobody_sent_comes_back_as_a_zero_length_list()
     {
         await using var link = GemLink.Start(Model, programs: new GemInMemoryProcessProgramStore());
@@ -191,7 +191,7 @@ public class GemProcessProgramTests
         Assert.Equal(0, reply.Item.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_that_is_not_binary_is_a_length_error_rather_than_a_crash()
     {
         await using var link = GemLink.Start(Model, programs: new GemInMemoryProcessProgramStore());
@@ -216,7 +216,7 @@ public class GemProcessProgramTests
 
     // ----------------------------------------------------------------- S7F17 and S7F19
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Deleting_a_program_removes_it_and_deleting_a_missing_one_says_so()
     {
         await using var link = GemLink.Start(Model, programs: new GemInMemoryProcessProgramStore());
@@ -241,7 +241,7 @@ public class GemProcessProgramTests
         Assert.Equal((byte)GemProcessProgramAcknowledgement.NotFound, again.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_empty_delete_list_means_every_program()
     {
         var store = new GemInMemoryProcessProgramStore();
@@ -265,7 +265,7 @@ public class GemProcessProgramTests
         Assert.Equal(0, store.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_current_program_list_names_what_is_stored()
     {
         await using var link = GemLink.Start(Model, programs: new GemInMemoryProcessProgramStore());
@@ -291,7 +291,7 @@ public class GemProcessProgramTests
 
     // ----------------------------------------------------------------- the store on its own
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_in_memory_store_enforces_its_capacity()
     {
         var store = new GemInMemoryProcessProgramStore { Capacity = 2 };
@@ -307,7 +307,7 @@ public class GemProcessProgramTests
         Assert.Equal(2, store.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_in_memory_store_copies_what_it_is_given()
     {
         var store = new GemInMemoryProcessProgramStore();
@@ -324,7 +324,7 @@ public class GemProcessProgramTests
         Assert.Equal(new byte[] { 1, 2, 3 }, stored!.Value.ToArray());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_identifier_longer_than_E5_allows_is_refused()
     {
         var store = new GemInMemoryProcessProgramStore();

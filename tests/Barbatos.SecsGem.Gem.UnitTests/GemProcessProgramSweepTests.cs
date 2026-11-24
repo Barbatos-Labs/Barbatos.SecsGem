@@ -33,7 +33,7 @@ public class GemProcessProgramSweepTests
 {
     private static readonly byte[] Body = [1, 2, 3, 4];
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Cancelling_a_program_command_refuses_by_default_and_never_runs_the_command()
     {
         var store = new GemInMemoryProcessProgramStore();
@@ -74,7 +74,7 @@ public class GemProcessProgramSweepTests
         Assert.Equal(0, ran);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_cancel_for_a_program_the_machine_does_not_have_says_it_cannot_rather_than_asking()
     {
         var store = new GemInMemoryProcessProgramStore();
@@ -99,7 +99,7 @@ public class GemProcessProgramSweepTests
         Assert.Equal(0, reached);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_cancel_names_a_command_the_model_no_longer_declares()
     {
         var store = new GemInMemoryProcessProgramStore();
@@ -127,7 +127,7 @@ public class GemProcessProgramSweepTests
         Assert.Equal("WITHDRAWN", asked);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_cancel_answers_on_S7F44_which_only_a_frame_can_show()
     {
         var store = new GemInMemoryProcessProgramStore();
@@ -158,7 +158,7 @@ public class GemProcessProgramSweepTests
         Assert.Equal(SecsItem.B((byte)GemRemoteCommandAcknowledgement.Performed), reply.Item);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_cancel_is_undeclared_without_a_process_program_store()
     {
         await using var pair = GemPair.Start();
@@ -218,7 +218,7 @@ public class GemProcessProgramSweepTests
 
     // ------------------------------------------------------------- S7F7, the directory
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_directory_and_the_current_eppd_answer_the_same_question()
     {
         await using var pair = GemPair.Start(Model, programs: Stored(), formatted: Shaped());
@@ -234,7 +234,7 @@ public class GemProcessProgramSweepTests
         Assert.Equal<string[]>([.. eppd], [.. directory]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_directory_is_answered_on_the_function_it_was_asked_on()
     {
         await using var link = GemLink.Start(Model, programs: Stored());
@@ -252,7 +252,7 @@ public class GemProcessProgramSweepTests
 
     // ------------------------------------------------------------- S7F9, the verify
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_that_matches_verifies()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -263,7 +263,7 @@ public class GemProcessProgramSweepTests
             await pair.Host.VerifyProcessProgramAsync("RECIPE-7", Body, GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_the_machine_has_not_got_is_not_found()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -274,7 +274,7 @@ public class GemProcessProgramSweepTests
             await pair.Host.VerifyProcessProgramAsync("NOPE", Body, GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_of_the_wrong_length_is_a_length_error()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -286,7 +286,7 @@ public class GemProcessProgramSweepTests
             await pair.Host.VerifyProcessProgramAsync("RECIPE-7", new byte[] { 1, 2 }, GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_of_the_right_length_and_the_wrong_contents_has_no_word_of_its_own()
     {
         var log = new RecordingLogger<GemEquipment>();
@@ -314,7 +314,7 @@ public class GemProcessProgramSweepTests
                 && message.Contains("no code", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_verify_whose_body_this_end_cannot_read_is_a_length_error()
     {
         await using var link = GemLink.Start(Model, programs: Stored());
@@ -334,7 +334,7 @@ public class GemProcessProgramSweepTests
 
     // ------------------------------------------------------------- S7F31, availability
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_the_machine_holds_answers_already_have()
     {
         await using var pair = GemPair.Start(Model, programs: Stored(), formatted: Shaped());
@@ -354,7 +354,7 @@ public class GemProcessProgramSweepTests
             await pair.Host.IsProcessProgramAvailableAsync("SHAPED", GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_it_has_not_got_and_a_name_it_cannot_read_are_the_same_answer()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -373,7 +373,7 @@ public class GemProcessProgramSweepTests
 
     // ------------------------------------------------------- S7F33 and S7F27, the formatted half
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_formatted_inquire_says_whether_it_already_has_one()
     {
         await using var pair = GemPair.Start(Model, formatted: Shaped());
@@ -388,7 +388,7 @@ public class GemProcessProgramSweepTests
             await pair.Host.InquireFormattedProcessProgramAsync("NEW-ONE", 64, GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_formatted_inquire_cannot_refuse_on_space_and_does_not_pretend_to()
     {
         await using var link = GemLink.Start(Model, formatted: Shaped());
@@ -415,7 +415,7 @@ public class GemProcessProgramSweepTests
         Assert.Equal((byte)GemProcessProgramGrant.InvalidId, malformed.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_formatted_verify_compares_the_whole_structure()
     {
         await using var pair = GemPair.Start(Model, formatted: Shaped());
@@ -438,7 +438,7 @@ public class GemProcessProgramSweepTests
             await pair.Host.VerifyFormattedProcessProgramAsync(Formatted(command: "RAMP"), GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_formatted_program_the_machine_has_not_got_is_not_found()
     {
         await using var pair = GemPair.Start(Model, formatted: new GemInMemoryFormattedProcessProgramStore());
@@ -451,7 +451,7 @@ public class GemProcessProgramSweepTests
 
     // ------------------------------------------- S7F37 and S7F41, the program-related commands
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_related_command_runs_the_same_handler_and_says_which_program()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -468,7 +468,7 @@ public class GemProcessProgramSweepTests
         Assert.Null(_commandLot);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_form_with_parameters_carries_them_and_the_other_form_carries_none()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -487,7 +487,7 @@ public class GemProcessProgramSweepTests
         Assert.Contains(((byte)7, (byte)41), pair.Asked);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_command_about_a_program_the_machine_has_not_got_is_refused_before_the_handler()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -503,7 +503,7 @@ public class GemProcessProgramSweepTests
         Assert.Null(_commandProgram);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_command_the_machine_does_not_have_is_answered_does_not_exist()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -514,7 +514,7 @@ public class GemProcessProgramSweepTests
             await pair.Host.SendProgramCommandAsync("RECIPE-7", "NOPE", [], GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_control_state_rule_applies_to_the_stream_seven_form_too()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -536,7 +536,7 @@ public class GemProcessProgramSweepTests
 
     // ------------------------------------------------- S7F29 and S7F39, the two notices
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_machine_can_say_a_program_changed_or_was_selected()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -561,7 +561,7 @@ public class GemProcessProgramSweepTests
         Assert.Equal((39, "RECIPE-7", false), seen[1]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_notice_naming_no_program_is_not_accepted()
     {
         await using var pair = GemPair.Start(Model, programs: Stored());
@@ -583,7 +583,7 @@ public class GemProcessProgramSweepTests
             reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_notice_nobody_is_listening_to_is_not_sent_and_not_kept()
     {
         var spool = new GemInMemorySpool();
@@ -602,7 +602,7 @@ public class GemProcessProgramSweepTests
         Assert.Equal(0, link.Equipment.SpoolCountActual);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_notice_the_host_refuses_comes_back_refused()
     {
         await using var link = GemLink.Start(Model, programs: Stored());
@@ -621,7 +621,7 @@ public class GemProcessProgramSweepTests
             await sent.WaitAsync(TimeSpan.FromSeconds(5), GemLink.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_reserved_ACKC7_on_a_notice_folds_onto_Other()
     {
         var log = new RecordingLogger<GemEquipment>();

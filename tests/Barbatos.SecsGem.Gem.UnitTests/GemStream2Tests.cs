@@ -40,7 +40,7 @@ public class GemStream2Tests
 
     // ----------------------------------------------------------------- the service program family
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_inquire_grants_and_the_send_files_the_program_under_what_it_granted()
     {
         await using var pair = StartWithPrograms(out _);
@@ -62,7 +62,7 @@ public class GemStream2Tests
             await GemPair.SentAsync(pair.Host.RequestServiceProgramAsync(7, GemPair.Token)));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_send_with_no_inquire_before_it_is_refused_and_the_log_says_why()
     {
         var log = new RecordingLogger<GemEquipment>();
@@ -96,7 +96,7 @@ public class GemStream2Tests
                 && message.Contains("no S2F1", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task One_inquire_grants_one_send_and_the_second_is_refused()
     {
         await using var pair = StartWithPrograms(out var store);
@@ -113,7 +113,7 @@ public class GemStream2Tests
         Assert.Equal("ONE", await store.LoadAsync(7, GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_refused_inquire_means_the_send_never_reaches_the_store()
     {
         // Written first with an in-memory store whose MaxLength refused both the inquire and the
@@ -136,7 +136,7 @@ public class GemStream2Tests
         Assert.Equal(0, store.Saves);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_program_the_machine_does_not_have_comes_back_as_nothing()
     {
         await using var pair = StartWithPrograms(out _);
@@ -148,7 +148,7 @@ public class GemStream2Tests
         Assert.Null(await GemPair.SentAsync(pair.Host.ReadServiceProgramResultsAsync(999, GemPair.Token)));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Running_a_program_produces_results_a_host_can_read_back()
     {
         var store = new GemInMemoryServiceProgramStore
@@ -171,7 +171,7 @@ public class GemStream2Tests
             await GemPair.SentAsync(pair.Host.ReadServiceProgramResultsAsync(7, GemPair.Token)));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_store_that_was_not_told_how_to_run_a_program_refuses_to_run_one()
     {
         await using var pair = StartWithPrograms(out _);
@@ -187,7 +187,7 @@ public class GemStream2Tests
         Assert.Null(await GemPair.SentAsync(pair.Host.ReadServiceProgramResultsAsync(7, GemPair.Token)));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Replacing_a_program_discards_the_results_of_the_one_it_replaced()
     {
         var store = new GemInMemoryServiceProgramStore { Run = (_, text) => text };
@@ -209,7 +209,7 @@ public class GemStream2Tests
         Assert.Null(await GemPair.SentAsync(pair.Host.ReadServiceProgramResultsAsync(7, GemPair.Token)));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_directory_lists_every_identifier_the_store_holds()
     {
         await using var pair = StartWithPrograms(out _);
@@ -226,7 +226,7 @@ public class GemStream2Tests
         Assert.Equal<uint[]>([1, 2, 3], [.. listed.Order()]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_program_text_travels_exactly_as_it_was_given()
     {
         await using var pair = StartWithPrograms(out _);
@@ -243,7 +243,7 @@ public class GemStream2Tests
         Assert.Equal(Program, await GemPair.SentAsync(pair.Host.RequestServiceProgramAsync(7, GemPair.Token)));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_refusal_code_the_reference_does_not_name_comes_back_with_its_byte()
     {
         // ACKC2 has no table at all, so this library reads nought as acceptance and everything
@@ -263,7 +263,7 @@ public class GemStream2Tests
 
     // ----------------------------------------------------------------- S2F27
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Initiate_processing_refuses_by_default_and_accepts_when_the_machine_says_so()
     {
         await using var pair = GemPair.Start(Model);
@@ -312,7 +312,7 @@ public class GemStream2Tests
 
     // ----------------------------------------------------------------- S2F39
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_multi_block_inquire_grants_by_default_and_can_be_refused()
     {
         await using var pair = GemPair.Start(Model);
@@ -340,7 +340,7 @@ public class GemStream2Tests
         Assert.Equal((41u, 70_000u), asked);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_malformed_inquire_is_refused_as_invalid_rather_than_as_busy()
     {
         await using var pair = GemPair.Start(Model);
@@ -364,7 +364,7 @@ public class GemStream2Tests
 
     // ----------------------------------------------------------------- S2F43
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Resetting_spooling_names_the_messages_it_suppresses()
     {
         await using var pair = GemPair.Start(Model, spool: new GemInMemorySpool());
@@ -387,7 +387,7 @@ public class GemStream2Tests
         Assert.DoesNotContain(((byte)6, (byte)3), pair.Equipment.SpoolSuppressedMessages);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_stream_with_no_functions_names_every_message_of_that_stream()
     {
         await using var pair = GemPair.Start(Model, spool: new GemInMemorySpool());
@@ -408,7 +408,7 @@ public class GemStream2Tests
         Assert.DoesNotContain(((byte)6, (byte)11), pair.Equipment.SpoolSuppressedMessages);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_empty_request_is_accepted_and_changes_nothing()
     {
         await using var pair = GemPair.Start(Model, spool: new GemInMemorySpool());
@@ -425,7 +425,7 @@ public class GemStream2Tests
         Assert.Empty(pair.Equipment.SpoolSuppressedMessages);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task One_unreadable_entry_refuses_the_whole_message()
     {
         await using var pair = GemPair.Start(Model, spool: new GemInMemorySpool());
@@ -453,7 +453,7 @@ public class GemStream2Tests
         Assert.Equal(1, reply.Item[1].Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_suppressed_report_is_dropped_rather_than_held_and_the_drop_is_logged()
     {
         var log = new RecordingLogger<GemEquipment>();
@@ -506,7 +506,7 @@ public class GemStream2Tests
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Every_service_program_reply_comes_back_on_the_function_the_reference_pairs_it_with()
     {
         // The connection matches a reply by its system bytes and never by its function, so a
@@ -535,7 +535,7 @@ public class GemStream2Tests
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_reset_whose_body_is_not_a_list_is_refused()
     {
         await using var pair = GemPair.Start(Model, spool: new GemInMemorySpool());
@@ -555,7 +555,7 @@ public class GemStream2Tests
         Assert.Empty(pair.Equipment.SpoolSuppressedMessages);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_reserved_spooling_code_folds_onto_the_boundary()
     {
         // RSPACK's drive, which cannot live in GemReservedAcknowledgementTests because S2F44
@@ -574,7 +574,7 @@ public class GemStream2Tests
         Assert.False(reply.IsAccepted);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_reply_that_is_not_an_acknowledgement_and_a_list_throws()
     {
         // The guard that makes the reader's shape assumption explicit. S2F44 has two items and
@@ -589,7 +589,7 @@ public class GemStream2Tests
             host => host.ResetSpoolingAsync([new GemSpoolStreamReset(6, [11])], GemPair.Token)));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_stream_the_machine_refused_comes_back_with_its_own_acknowledgement_clear()
     {
         // The two levels doing something a single acknowledgement could not: the message was

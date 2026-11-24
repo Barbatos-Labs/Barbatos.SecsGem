@@ -1813,6 +1813,52 @@ public sealed class GemHost : IAsyncDisposable
             },
             cancellationToken);
 
+    /// <summary>Asks for the material transfer status - S1F9, answered by S1F10.</summary>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>What the machine calls the state of its input port and of its output port.</returns>
+    /// <exception cref="SecsException">The connection is not selected.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>The one primary in stream 1 with no body at all</strong> besides S1F1, and the last
+    /// row of this stream to be served. Both of its fields come back as they arrived, because
+    /// <c>TSIP</c> and <c>TSOP</c> are defined and untabled - see
+    /// <see cref="GemMaterialTransferStatus"/> for why that is a reason to carry them rather than
+    /// to leave the row out, and for the row this repository already serves on worse evidence.
+    /// </para>
+    /// <para>
+    /// A machine with nothing to report answers with both strings empty, which
+    /// <see cref="GemMaterialTransferStatus.IsEmpty"/> reports. There is no acknowledgement code in
+    /// the row, so that is the only "no" available and it cannot be told apart from a machine whose
+    /// ports are genuinely unnamed.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemMaterialTransferStatus> RequestMaterialTransferStatusAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(1, 9, replyExpected: true) { Name = "MaterialTransferStatusRequest" },
+            cancellationToken).ConfigureAwait(false);
+
+        // Two items in the row's order, and a bare pair is the only reading that leaves the
+        // message answerable: there is no port identifier anywhere in it, so a machine that sent a
+        // list of statuses per side would be handing a host values it could not attribute to a
+        // port. A list of one around either item is descended into, which is the tolerance every
+        // reader here has.
+        var body = reply.Item;
+
+        if (body is not { IsList: true, Count: >= 2 })
+        {
+            return default;
+        }
+
+        return new GemMaterialTransferStatus(Only(body[0]), Only(body[1]));
+
+        static string Only(SecsItem item)
+            => item is { IsList: true, Count: 1 }
+                ? GemItems.ReadText(item[0])
+                : GemItems.ReadText(item);
+    }
+
     /// <summary>Asks for a form with the variables named - S1F7, answered by S1F8.</summary>
     /// <param name="formCode">SFCD - which form.</param>
     /// <param name="cancellationToken">Cancels the work.</param>

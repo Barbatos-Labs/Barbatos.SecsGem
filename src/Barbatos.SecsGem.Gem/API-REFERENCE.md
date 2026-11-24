@@ -122,6 +122,7 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | `AnswerExceptionAbort` | `Func<string, GemExceptionAbortResult> { get; set; }` | What S5F18 says. **Refuses by default**, which is the opposite way round from this stack's other answer delegates: this one stops something the machine is in the middle of, so a machine nobody told how to abort a recovery cannot abort one. A delegate rather than a model member, because stream 5 has no exception table for one to be declared against. |
 | `AnswerInitiateProcessing` | `Func<string, GemInitiateProcessingAcknowledgement> { get; set; }` | What S2F28 says, given the trimmed `PPID`. **Refuses by default**, for `AnswerExceptionAbort`'s reason: starting processing is the machine doing something, and answering nought would tell a host material was being processed when nothing was. |
 | `AnswerMultiBlockInquiry` | `Func<uint, uint, GemGrant> { get; set; }` | What S2F40 says, given `DATAID` and `DATALENGTH`. **Grants by default**, the opposite way round and deliberately: a handshake whose only purpose is to let this end refuse should not refuse by silence. |
+| `AnswerMaterialTransferStatus` | `Func<GemMaterialTransferStatus> { get; set; }` | What S1F10 reports. **Both strings empty by default**, which is a machine saying it has nothing to report rather than refusing - the row carries no acknowledgement code, so that is the only answer available. A delegate rather than a model entry because `TSIP` and `TSOP` are not variables: no `SVID` names them, S1F11 does not list them and S2F33 cannot report them. |
 | `AnswerProgramCommandCancel` | `Func<string, string, GemRemoteCommandAcknowledgement> { get; set; }` | What S7F44 says, given the `PPID` and the `RCMD` the command was sent with. **Refuses with `CannotPerformNow`** by default - a machine tracking nothing in flight will not stop a command, which is a different answer from the command never having existed. Does not check the command against the model, unlike S7F37's path: a command withdrawn since it started still has to be cancellable. |
 | `SpoolSuppressedMessages` | `IReadOnlyCollection<(byte Stream, byte Function)> { get; }` | What a host has turned off with S2F43, as a snapshot. Empty until one does, which is where almost every machine stays. |
 | `ReportTerminalNotAccessibleAsync` | `ValueTask<bool> ReportTerminalNotAccessibleAsync(byte terminalId = 0, CancellationToken cancellationToken = default)` | S10F7, which has no reply at all. **Not `ACKC10` 2 by another route**: that code answers a display request, where this is volunteered before anybody asks. Needs no `IGemTerminal`, and is **not spooled** - which terminals were unreachable an hour ago is not news anybody can act on. |
@@ -143,6 +144,7 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | S1F3 | Selected Equipment Status Request | S1F4 |
 | S1F5 | Formatted Status Request | S1F6 - the form's `SV` values, or a zero-length list for no such form |
 | S1F7 | Fixed Form Request | S1F8 - an `SVNAME` beside every `SV`, nested per entry |
+| S1F9 | Material Transfer Status Request | S1F10 - `TSIP` and `TSOP`, carried untouched. The last row of this stream to be served, and the only one with no body at all besides S1F1 |
 | S1F11 | Status Variable Namelist Request | S1F12 - SVID, SVNAME, UNITS |
 | S1F13 | Establish Communications Request | S1F14 (COMMACK) |
 | S1F15 | Request Off-Line | S1F16 (OFLACK) |
@@ -363,6 +365,23 @@ re-establish. A form is the machine's own and never changes, which is why forms 
 variables rather than in the state a host can edit - and why a host cannot define one. `SFCD` has
 no table in the reference, so which form a code selects is the machine's to document and this
 library carries the byte.
+
+---
+
+### `GemMaterialTransferStatus`
+
+`public readonly record struct GemMaterialTransferStatus(string InputPort, string OutputPort)`
+
+What S1F10 reports: `TSIP` and `TSOP`, **carried untouched**. `IsEmpty` is true when the machine
+named neither, which is the default and the only "no" the row has - S1F10 has no acknowledgement
+code, so an equipment with no transfer ports cannot be told apart from one whose ports are
+genuinely unnamed.
+
+**Both items are defined and untabled**, which is why they are carried rather than kept off the
+wire: the reference gives the format and leaves the values to the machine. The row was refused for
+five chapters on the ground that there is no sibling to read a reading off - which is `TRACK`'s
+position exactly, and untabled is not undefined. The other ground was that E87 serves this subject
+properly, and it does, on worse evidence: `PORTSTATUS` has no dictionary entry at all.
 
 ---
 
@@ -1286,6 +1305,7 @@ table claiming it.
 | `ReadStatusAsync(svids)` | S1F3 | `SecsMessage` - **the caller disposes it**. Empty list asks for every status variable |
 | `ReadFormattedStatusAsync(formCode)` | S1F5 | `SecsMessage` - **the caller disposes it**. A zero-length body means no such form. Which form a code selects is the machine's to document; `SFCD` has no table |
 | `ReadFixedFormAsync(formCode)` | S1F7 | `SecsMessage` - **the caller disposes it**. S1F5's twin with an `SVNAME` beside every value, for a host meeting a machine for the first time |
+| `RequestMaterialTransferStatusAsync()` | S1F9 | `GemMaterialTransferStatus` - what the machine calls the state of its input port and of its output port, carried untouched. A reply short of its two items reads as both strings empty, because the row has no acknowledgement code to carry a complaint |
 | `ReadStatusNamelistAsync(svids)` | S1F11 | `IReadOnlyList<GemVariableDescription>` |
 | `ReadDataVariableNamelistAsync(vids)` | S1F21 | `IReadOnlyList<GemVariableDescription>` - data variables only. A status variable asked for here comes back with `Exists` false, like an identifier the machine has not got, which is what lets a host read the two lists side by side |
 | `ReadCollectionEventNamelistAsync(ceids)` | S1F23 | `IReadOnlyList<GemEventDescription>` - the name and the variables each event is about. The machine's own account, not the reports the host has linked |

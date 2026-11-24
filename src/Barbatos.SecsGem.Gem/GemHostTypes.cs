@@ -856,6 +856,54 @@ public sealed class GemHostErrorEventArgs : EventArgs
         : $"S9F{Function} (header {Convert.ToHexString(OffendingHeader.Span)})";
 }
 
+/// <summary>
+/// What S1F10 reports: the transfer status of the machine's input port and of its output port.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>Two strings carried untouched</strong>, because <c>TSIP</c> and <c>TSOP</c> are
+/// <em>defined</em> - both <c>A[n]</c> - and <strong>untabled</strong>. The reference says what
+/// format they take and never what values, and this row was refused for that: two items of text
+/// with no table, named by stream 1 alone, so there is no sibling anywhere to read a reading off.
+/// That is exactly where <c>TRACK</c> stood when stream 4's job half was refused for nine
+/// chapters. <strong>Untabled is not undefined</strong>, and a field nobody wrote values for is
+/// carried as it arrived rather than kept off the wire - which is what this repository already
+/// does for every own gap.
+/// </para>
+/// <para>
+/// <strong>And this row is better documented than the one already served for the same
+/// subject.</strong> The second half of the refusal said the subject is material transfer, which
+/// <c>Barbatos.SecsGem.Material</c> and <c>Barbatos.SecsGem.Carriers</c> serve properly. They do -
+/// and E87's storage port status, S3F21/F22, carries <c>PORTSTATUS</c>, which has <em>no
+/// dictionary entry at all</em>. Two rows, one job, and the firmer source wins: here that is this
+/// one, and the repository was serving the weaker. So the vocabulary is the machine's, as it is
+/// there.
+/// </para>
+/// <para>
+/// What a status <em>means</em> is therefore between the two ends, and nothing here interprets it.
+/// An equipment that has no transfer ports answers with both strings empty, which
+/// <see cref="IsEmpty"/> reports - not with a zero-length list, the way S1F2 and S1F6 say "nothing
+/// to tell you". Those two rows are selectors and this one is not: S1F10 has an input port and an
+/// output port whatever the machine has to say about them, so the arity never moves.
+/// </para>
+/// </remarks>
+/// <param name="InputPort"><c>TSIP</c> - what the machine calls the state of its input port.</param>
+/// <param name="OutputPort"><c>TSOP</c> - and of its output port.</param>
+public readonly record struct GemMaterialTransferStatus(string InputPort, string OutputPort)
+{
+    /// <summary>Gets whether the machine named no status at all.</summary>
+    /// <remarks>
+    /// True for two empty strings, which is the default and what an equipment with no transfer
+    /// ports answers. There is no code anywhere in the row to say "I do not do this", so an empty
+    /// pair is the only thing a machine can send and the only thing a host can read it as.
+    /// </remarks>
+    public bool IsEmpty => string.IsNullOrEmpty(InputPort) && string.IsNullOrEmpty(OutputPort);
+
+    /// <summary>Gets a short description, for logs.</summary>
+    /// <returns>The two items with their names, since neither has a meaning this library could print instead.</returns>
+    public override string ToString() => $"TSIP={InputPort} TSOP={OutputPort}";
+}
+
 /// <summary>The host's communication state changed.</summary>
 public sealed class GemHostCommunicationStateChangedEventArgs : EventArgs
 {

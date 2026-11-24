@@ -31,7 +31,7 @@ public class GemReservedAcknowledgementTests
 {
     private const byte Reserved = 40;
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_reserved_code_folds_onto_the_boundary_for_every_reader_that_can_meet_one()
     {
         // Twelve readers, each with the primary it sends, the reply the machine writes back, and

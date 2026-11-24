@@ -180,6 +180,7 @@ public sealed class GemEquipment : IAsyncDisposable
         (1, 3),    // Selected Equipment Status Request
         (1, 5),    // Formatted Status Request
         (1, 7),    // Fixed Form Request
+        (1, 9),    // Material Transfer Status Request
         (1, 11),   // Status Variable Namelist Request
         (1, 21),   // Data Variable Namelist Request
         (1, 23),   // Collection Event Namelist Request
@@ -906,6 +907,24 @@ public sealed class GemEquipment : IAsyncDisposable
     public Func<uint, uint, GemGrant> AnswerMultiBlockInquiry { get; set; }
         = static (_, _) => GemGrant.Accepted;
 
+    /// <summary>Gets or sets what this machine reports as its material transfer status - S1F10.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Both strings empty by default</strong>, which is a machine saying it has nothing to
+    /// report rather than refusing: S1F10 carries no acknowledgement code, so there is nowhere to
+    /// put a refusal and an empty pair is the only answer available. See
+    /// <see cref="GemMaterialTransferStatus"/> for why the row is served at all, and why the
+    /// vocabulary is this machine's.
+    /// </para>
+    /// <para>
+    /// A delegate rather than a model entry, because <c>TSIP</c> and <c>TSOP</c> are not variables:
+    /// no <c>SVID</c> names them, S1F11 does not list them and S2F33 cannot report them. They are
+    /// two fields of one row, and nothing else in E5 asks for them.
+    /// </para>
+    /// </remarks>
+    public Func<GemMaterialTransferStatus> AnswerMaterialTransferStatus { get; set; }
+        = static () => default;
+
     /// <summary>Gets or sets what this machine answers a request to cancel a program command - S7F44.</summary>
     /// <remarks>
     /// <para>
@@ -1426,6 +1445,7 @@ public sealed class GemEquipment : IAsyncDisposable
             (1, 3) => OnStatusRequest(transaction.Message),
             (1, 5) => OnStatusForm(transaction.Message, 6),
             (1, 7) => OnStatusForm(transaction.Message, 8),
+            (1, 9) => OnMaterialTransferStatus(),
             (1, 11) => OnStatusNamelist(transaction.Message),
             (1, 21) => OnDataVariableNamelist(transaction.Message),
             (1, 23) => OnCollectionEventNamelist(transaction.Message),
@@ -1720,6 +1740,22 @@ public sealed class GemEquipment : IAsyncDisposable
             ? SecsItem.L()
             : Identity(),
     };
+
+    private SecsMessage OnMaterialTransferStatus()
+    {
+        var status = AnswerMaterialTransferStatus();
+
+        // Exactly two items, always, and in the row's order. A null from a delegate somebody wrote
+        // badly becomes an empty string rather than an exception: the reply has to go out, because
+        // S1F9 expects one and there is no code in S1F10 to carry a complaint.
+        return new SecsMessage(1, 10, replyExpected: false)
+        {
+            Name = "MaterialTransferStatusData",
+            Item = SecsItem.L(
+                SecsItem.A(status.InputPort ?? string.Empty).Named("TSIP"),
+                SecsItem.A(status.OutputPort ?? string.Empty).Named("TSOP")),
+        };
+    }
 
     private SecsMessage OnEstablishCommunications()
     {

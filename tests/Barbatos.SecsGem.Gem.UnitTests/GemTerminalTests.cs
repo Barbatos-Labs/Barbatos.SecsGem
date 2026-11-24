@@ -21,7 +21,7 @@ public class GemTerminalTests
 
     // ----------------------------------------------------------------- opt-in
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Terminal_services_are_declared_on_their_own()
     {
         foreach (var pair in GemEquipment.TerminalMessages)
@@ -40,7 +40,7 @@ public class GemTerminalTests
         Assert.Contains(((byte)10, (byte)1), GemHost.HandledMessages);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Equipment_with_no_terminal_says_so_rather_than_refusing_each_message()
     {
         await using var pair = GemPair.Start(Model);
@@ -64,7 +64,7 @@ public class GemTerminalTests
 
     // ----------------------------------------------------------------- host to operator
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_single_block_reaches_the_operator()
     {
         var terminal = new GemInMemoryTerminal();
@@ -84,7 +84,7 @@ public class GemTerminalTests
         Assert.Equal("terminal 1: 1 block(s)", shown.ToString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Several_blocks_arrive_in_order_and_keep_their_blank_line()
     {
         var terminal = new GemInMemoryTerminal();
@@ -106,7 +106,7 @@ public class GemTerminalTests
         Assert.Equal(lines, shown.Lines);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_broadcast_says_that_it_is_one()
     {
         var terminal = new GemInMemoryTerminal();
@@ -128,7 +128,7 @@ public class GemTerminalTests
         Assert.Equal("broadcast: 1 block(s)", shown.ToString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_terminal_that_is_switched_off_refuses_and_keeps_nothing()
     {
         var terminal = new GemInMemoryTerminal
@@ -148,7 +148,7 @@ public class GemTerminalTests
         Assert.Empty(terminal.Displayed);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_this_stack_cannot_read_is_not_shown_to_anybody()
     {
         var terminal = new GemInMemoryTerminal();
@@ -170,7 +170,7 @@ public class GemTerminalTests
         Assert.Empty(terminal.Displayed);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Either_display_function_is_understood_whichever_way_the_text_arrives()
     {
         var terminal = new GemInMemoryTerminal();
@@ -203,7 +203,7 @@ public class GemTerminalTests
 
     // ----------------------------------------------------------------- operator to host
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_operator_message_reaches_the_host_and_its_answer_comes_back()
     {
         await using var pair = GemPair.Start(Model, terminal: new GemInMemoryTerminal());
@@ -230,7 +230,7 @@ public class GemTerminalTests
         Assert.Equal("terminal 2: cassette jammed in load port 2", seen.ToString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_operator_message_with_no_host_listening_is_not_held()
     {
         // Selected, but the host has denied S1F13 - the state a machine does most of its waiting
@@ -250,7 +250,7 @@ public class GemTerminalTests
 
     // ----------------------------------------------------------------- the terminal on its own
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_in_memory_terminal_keeps_what_it_can_and_drops_the_oldest()
     {
         var terminal = new GemInMemoryTerminal { Capacity = 2 };
@@ -270,7 +270,7 @@ public class GemTerminalTests
         Assert.Equal(["third"], terminal.Displayed.Last().Lines);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_message_owns_its_text_and_refuses_a_hole()
     {
         List<string> lines = ["one", "two"];

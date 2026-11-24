@@ -56,7 +56,7 @@ public class GemFileSpoolTests
 
     // ----------------------------------------------------------------- one message, one file
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_message_comes_back_exactly_as_it_went_in()
     {
         using var temporary = new TempDirectory();
@@ -88,7 +88,7 @@ public class GemFileSpoolTests
         Assert.Equal(1_013.25d, message.Item[1].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_message_with_no_body_and_a_message_with_no_name_both_survive()
     {
         using var temporary = new TempDirectory();
@@ -116,7 +116,7 @@ public class GemFileSpoolTests
         Assert.Equal(string.Empty, named.Name);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_too_big_for_the_small_object_heap_survives()
     {
         using var temporary = new TempDirectory();
@@ -145,7 +145,7 @@ public class GemFileSpoolTests
         Assert.Equal(payload, message.Item!.GetSpan<byte>().ToArray());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_name_longer_than_the_format_allows_is_refused_where_it_is_given()
     {
         using var temporary = new TempDirectory();
@@ -165,7 +165,7 @@ public class GemFileSpoolTests
 
     // ----------------------------------------------------------------- the restart
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_new_spool_over_the_same_directory_finds_what_the_last_one_held()
     {
         using var temporary = new TempDirectory();
@@ -205,7 +205,7 @@ public class GemFileSpoolTests
         Assert.Empty(Directory.GetFiles(temporary.Path));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_spool_that_reopens_does_not_reuse_a_sequence_number()
     {
         using var temporary = new TempDirectory();
@@ -236,7 +236,7 @@ public class GemFileSpoolTests
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_unfinished_write_is_not_a_record()
     {
         using var temporary = new TempDirectory();
@@ -257,7 +257,7 @@ public class GemFileSpoolTests
         Assert.False(File.Exists(partial));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_file_this_spool_did_not_write_is_left_where_it_is()
     {
         using var temporary = new TempDirectory();
@@ -275,7 +275,7 @@ public class GemFileSpoolTests
         Assert.True(File.Exists(stranger));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_record_that_cannot_be_read_is_dropped_rather_than_retried()
     {
         using var temporary = new TempDirectory();
@@ -304,7 +304,7 @@ public class GemFileSpoolTests
 
     // ----------------------------------------------------------------- the bounds still hold
 
-    [Theory]
+    [Theory(Timeout = 15_000)]
     [InlineData(GemSpoolOverflowPolicy.DiscardNewest, "LOT-1")]
     [InlineData(GemSpoolOverflowPolicy.DiscardOldest, "LOT-2")]
     public async Task A_full_spool_keeps_what_its_policy_says_and_the_directory_agrees(
@@ -341,7 +341,7 @@ public class GemFileSpoolTests
         Assert.Equal(expected, message.Item!.GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Purging_leaves_the_directory_empty()
     {
         using var temporary = new TempDirectory();
@@ -365,7 +365,7 @@ public class GemFileSpoolTests
         Assert.Equal(0, await new GemFileSpool(temporary.Path).CountAsync(token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_capacity_of_nothing_is_refused_and_the_directory_is_created()
     {
         using var temporary = new TempDirectory();
@@ -385,7 +385,7 @@ public class GemFileSpoolTests
 
     // ----------------------------------------------------------------- what the equipment does with it
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_equipment_adopts_a_spool_that_outlived_it()
     {
         using var temporary = new TempDirectory();
@@ -439,7 +439,7 @@ public class GemFileSpoolTests
         Assert.Empty(Directory.GetFiles(temporary.Path, "*" + GemFileSpool.RecordExtension));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_held_message_whose_body_is_not_an_item_tree_does_not_block_the_one_behind_it()
     {
         using var temporary = new TempDirectory();

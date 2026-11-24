@@ -44,7 +44,7 @@ public class GemNamelistTests
 
     // ----------------------------------------------------------------- S1F11
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_status_namelist_reports_every_status_variable_with_its_name_and_units()
     {
         await using var link = GemLink.Start(Model);
@@ -63,7 +63,7 @@ public class GemNamelistTests
         Assert.Equal("mbar", reply.Item[1][2].GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_unknown_identifier_in_a_namelist_gets_an_entry_with_no_name()
     {
         await using var link = GemLink.Start(Model);
@@ -81,7 +81,7 @@ public class GemNamelistTests
         Assert.Equal(string.Empty, reply.Item[1][1].GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_data_variable_is_not_in_the_status_namelist()
     {
         await using var link = GemLink.Start(Model);
@@ -97,7 +97,7 @@ public class GemNamelistTests
 
     // ----------------------------------------------------------------- S2F29
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_constant_namelist_reports_the_bounds_when_they_are_documented()
     {
         await using var link = GemLink.Start(Model);
@@ -120,7 +120,7 @@ public class GemNamelistTests
         Assert.Equal("mbar", entry[5].GetString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_constant_with_no_documented_bounds_reports_zero_length_items_rather_than_inventing_them()
     {
         await using var link = GemLink.Start(Model);
@@ -140,7 +140,7 @@ public class GemNamelistTests
         Assert.Equal(0, entry[4].Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_empty_constant_namelist_request_reports_every_constant()
     {
         await using var link = GemLink.Start(Model);
@@ -155,7 +155,7 @@ public class GemNamelistTests
 
     // ----------------------------------------------------------------- S5F5 and S5F7
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Listing_alarms_reports_every_one_with_its_text()
     {
         await using var link = GemLink.Start(Model);
@@ -173,7 +173,7 @@ public class GemNamelistTests
         Assert.Equal(0x00, reply.Item[1][0].FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Listing_alarms_says_which_one_is_in_alarm_right_now()
     {
         await using var link = GemLink.Start(Model);
@@ -194,7 +194,7 @@ public class GemNamelistTests
         Assert.False(link.Equipment.IsAlarmSet(901));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_enabled_alarm_listing_leaves_out_what_the_host_disabled()
     {
         await using var link = GemLink.Start(Model);
@@ -217,7 +217,7 @@ public class GemNamelistTests
         Assert.Equal(0, empty.Item!.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_alarm_is_recorded_as_set_even_with_nobody_to_tell()
     {
         await using var link = GemLink.Start(Model);
@@ -233,7 +233,7 @@ public class GemNamelistTests
 
     // ----------------------------------------------------------------- S6F15 and S6F19
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_can_ask_for_an_event_report_now()
     {
         await using var link = GemLink.Start(Model);
@@ -259,7 +259,7 @@ public class GemNamelistTests
         Assert.Equal(1013.25d, reply.Item[2][0][1][1].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_direct_request_is_answered_even_for_a_disabled_event()
     {
         await using var link = GemLink.Start(Model);
@@ -277,7 +277,7 @@ public class GemNamelistTests
         Assert.Equal(1_001u, reply.Item![1].FirstValueOrDefault<uint>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_unknown_event_gets_a_zero_length_reply()
     {
         await using var link = GemLink.Start(Model);
@@ -291,7 +291,7 @@ public class GemNamelistTests
         Assert.Equal(0, reply.Item!.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_can_ask_for_one_report_by_itself()
     {
         await using var link = GemLink.Start(Model);
@@ -308,7 +308,7 @@ public class GemNamelistTests
         Assert.Equal(1013.25d, reply.Item[1].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_undefined_report_gets_a_zero_length_reply()
     {
         await using var link = GemLink.Start(Model);
@@ -322,7 +322,7 @@ public class GemNamelistTests
         Assert.Equal(0, reply.Item!.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Every_new_message_is_in_the_declared_set()
     {
         // The routing table is the declaration of what this entity understands, so a handler that

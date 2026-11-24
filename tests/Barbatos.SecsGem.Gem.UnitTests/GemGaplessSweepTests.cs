@@ -10,7 +10,7 @@ namespace Barbatos.SecsGem.Gem.UnitTests;
 
 /// <summary>
 /// The last rows of the gapless streams: an exception's other three stages, the terminal nobody can
-/// reach, and the two status forms.
+/// reach, the two status forms, and the material transfer status.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,9 +20,14 @@ namespace Barbatos.SecsGem.Gem.UnitTests;
 /// which is the test that let stream 7's rows in and lets these in.
 /// </para>
 /// <para>
-/// One row of the nine stayed out, and <c>SecsCatalogGaplessTests</c> measures why: S1F9/F10, whose
-/// two items are free text with no tables, named by stream 1 alone, reporting material transfer -
-/// a subject stream 3 and E87 serve properly here.
+/// <strong>One row of the nine stayed out for five chapters and is in now.</strong> S1F9/F10's two
+/// items are free text with no tables, named by stream 1 alone, which was read as "no sibling to
+/// read a reading off" - and it is <c>TRACK</c>'s position exactly, where stream 4's job half sat
+/// for nine chapters before somebody looked the item up. <strong>Untabled is not undefined.</strong>
+/// The second ground was that the subject, material transfer, is served properly in stream 3 and
+/// in E87 - and so it is, on worse evidence: E87's port status row carries a name the dictionary
+/// does not define at all, and <c>Barbatos.SecsGem.Carriers</c> serves it by choosing a meaning.
+/// Two rows, one job, and the firmer source wins. <c>SecsCatalogGaplessTests</c> pins both halves.
 /// </para>
 /// </remarks>
 public class GemGaplessSweepTests
@@ -44,7 +49,7 @@ public class GemGaplessSweepTests
 
     // ------------------------------------------------- stream 5, an exception's other three stages
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_exception_runs_through_four_stages_on_one_event()
     {
         await using var pair = GemPair.Start(Model);
@@ -76,7 +81,7 @@ public class GemGaplessSweepTests
         Assert.Equal((GemExceptionStage.Cleared, "E-1", string.Empty, string.Empty), seen[3]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Each_stage_goes_out_on_its_own_function_and_is_answered_one_above()
     {
         await using var link = GemLink.Start(Model);
@@ -101,7 +106,7 @@ public class GemGaplessSweepTests
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_stage_that_arrives_with_the_wrong_number_of_items_is_refused()
     {
         await using var pair = GemPair.Start(Model);
@@ -126,7 +131,7 @@ public class GemGaplessSweepTests
         Assert.Equal((byte)GemAlarmAcknowledgement.Error, reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_host_can_ask_a_recovery_to_stop_and_is_refused_by_default()
     {
         await using var pair = GemPair.Start(Model);
@@ -142,7 +147,7 @@ public class GemGaplessSweepTests
         Assert.Contains("no handler", refused.ToString(), StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_machine_that_knows_how_to_abort_says_so_and_a_refusal_carries_its_reason()
     {
         await using var pair = GemPair.Start(Model);
@@ -173,7 +178,7 @@ public class GemGaplessSweepTests
         Assert.Equal("refused: 42 that recovery already finished", refused.ToString());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_abort_naming_no_exception_is_refused_without_asking_the_handler()
     {
         await using var pair = GemPair.Start(Model);
@@ -189,7 +194,7 @@ public class GemGaplessSweepTests
         Assert.Contains("named no exception", answer.ErrorText, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_handler_that_throws_leaves_the_recovery_where_it_was()
     {
         var log = new RecordingLogger<GemEquipment>();
@@ -211,7 +216,7 @@ public class GemGaplessSweepTests
             message => message.Contains("threw", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_abort_wrapped_in_a_list_of_one_is_read_too()
     {
         await using var link = GemLink.Start(Model);
@@ -235,7 +240,7 @@ public class GemGaplessSweepTests
         Assert.Equal(SecsFormat.Boolean, reply.Item[1].Format);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recovery_stage_the_link_cannot_carry_is_spooled()
     {
         var spool = new GemInMemorySpool();
@@ -261,7 +266,7 @@ public class GemGaplessSweepTests
 
     // ----------------------------------------------- stream 10, the terminal nobody can reach
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_terminal_that_cannot_be_reached_is_volunteered_rather_than_answered()
     {
         await using var pair = GemPair.Start(Model, terminal: new GemInMemoryTerminal());
@@ -279,7 +284,7 @@ public class GemGaplessSweepTests
         Assert.Equal((byte)2, seen);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_notice_needs_no_terminal_capability_and_is_not_spooled()
     {
         var spool = new GemInMemorySpool();
@@ -297,7 +302,7 @@ public class GemGaplessSweepTests
         Assert.Equal(0, link.Equipment.SpoolCountActual);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_machine_sends_it_and_does_not_answer_it()
     {
         // Either way on the wire, and only one direction is served: a host telling a machine that
@@ -308,9 +313,128 @@ public class GemGaplessSweepTests
         Assert.DoesNotContain(((byte)10, (byte)7), GemEquipment.HandledMessages);
     }
 
+    // ------------------------------------------------ stream 1, the material transfer status
+
+    [Fact(Timeout = 15_000)]
+    public async Task The_material_transfer_status_comes_back_as_the_two_strings_the_machine_named()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        pair.Equipment.AnswerMaterialTransferStatus =
+            () => new GemMaterialTransferStatus("READY", "BLOCKED");
+
+        var status = await pair.Host.RequestMaterialTransferStatusAsync(GemPair.Token);
+
+        // Carried untouched, which is the whole point: TSIP and TSOP are A[n] with no table, so
+        // what "READY" means is between the two ends and nothing here interprets it. The same
+        // thing Barbatos.SecsGem.Carriers does with CARRIERSTATUS, on an item that has no
+        // definition at all.
+        Assert.Equal("READY", status.InputPort);
+        Assert.Equal("BLOCKED", status.OutputPort);
+        Assert.False(status.IsEmpty);
+        Assert.Equal("TSIP=READY TSOP=BLOCKED", status.ToString());
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_machine_with_no_transfer_ports_answers_with_both_strings_empty()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        // The delegate's own default, left alone. S1F10 carries no acknowledgement code, so there
+        // is nowhere to put "I do not do this" - an empty pair is the only answer available, and a
+        // host cannot tell it from a machine whose ports are genuinely unnamed.
+        var status = await pair.Host.RequestMaterialTransferStatusAsync(GemPair.Token);
+
+        Assert.True(status.IsEmpty);
+        Assert.Equal(string.Empty, status.InputPort);
+        Assert.Equal(string.Empty, status.OutputPort);
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_machine_that_names_one_port_and_not_the_other_is_not_empty()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        pair.Equipment.AnswerMaterialTransferStatus =
+            () => new GemMaterialTransferStatus("READY", string.Empty);
+
+        // IsEmpty is about the whole answer and not about either field, because the row has no
+        // code to say which half a machine meant: one port named is a machine that said something,
+        // and a host that read this as nothing would discard it.
+        var status = await pair.Host.RequestMaterialTransferStatusAsync(GemPair.Token);
+
+        Assert.False(status.IsEmpty);
+        Assert.Equal("READY", status.InputPort);
+        Assert.Equal(string.Empty, status.OutputPort);
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task The_two_items_go_out_as_text_in_the_rows_order()
+    {
+        await using var link = GemLink.Start(Model);
+        await link.OpenAsync();
+
+        link.Equipment.AnswerMaterialTransferStatus =
+            () => new GemMaterialTransferStatus("IN", "OUT");
+
+        using var reply = await link.RequestAsync(new SecsMessage(1, 9, replyExpected: true));
+
+        // Pinned on the wire rather than through a round trip, because the reader takes a number
+        // as its digits - so a round trip could not tell an A from a U4. TSIP first and TSOP
+        // second, which is the row's order and the only thing in it that is not the machine's
+        // choice.
+        Assert.Equal(10, reply.F);
+        Assert.Equal(2, reply.Item!.Count);
+        Assert.Equal(SecsFormat.ASCII, reply.Item[0].Format);
+        Assert.Equal(SecsFormat.ASCII, reply.Item[1].Format);
+        Assert.Equal("IN", reply.Item[0].GetString());
+        Assert.Equal("OUT", reply.Item[1].GetString());
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_status_wrapped_in_a_list_of_one_is_read_too()
+    {
+        // The tolerance every reader here has: a machine that wrapped each item in a list of one
+        // is writing the same thing. The machine is played by hand because this library does not
+        // write that shape, so two real ends could never exercise the reader that accepts it.
+        await using var pair = GemPair.Start(
+            Model,
+            answerEquipment: _ => new SecsMessage(1, 10, replyExpected: false)
+            {
+                Item = SecsItem.L(
+                    SecsItem.L(SecsItem.A("READY").Named("TSIP")),
+                    SecsItem.L(SecsItem.A("IDLE").Named("TSOP"))),
+            });
+
+        await pair.OpenAsync();
+
+        var status = await pair.Host.RequestMaterialTransferStatusAsync(GemPair.Token);
+
+        Assert.Equal("READY", status.InputPort);
+        Assert.Equal("IDLE", status.OutputPort);
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_reply_short_of_two_items_reads_as_nothing_rather_than_throwing()
+    {
+        // There is no acknowledgement code in the row, so a body this end cannot read has to come
+        // back as the same empty pair a machine with nothing to say sends. Throwing would be
+        // inventing a distinction the row cannot carry.
+        await using var pair = GemPair.Start(
+            Model,
+            answerEquipment: _ => new SecsMessage(1, 10, replyExpected: false) { Item = SecsItem.L() });
+
+        await pair.OpenAsync();
+
+        Assert.True((await pair.Host.RequestMaterialTransferStatusAsync(GemPair.Token)).IsEmpty);
+    }
+
     // --------------------------------------------------------- stream 1, the two status forms
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_form_answers_with_values_and_its_twin_with_names_beside_them()
     {
         await using var pair = GemPair.Start(Model);
@@ -334,7 +458,7 @@ public class GemGaplessSweepTests
         Assert.Equal(1013.25, named.Item[1][1].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_form_code_is_carried_and_not_interpreted()
     {
         await using var pair = GemPair.Start(Model);
@@ -349,7 +473,7 @@ public class GemGaplessSweepTests
         Assert.Equal(1013.25, nine.Item[0].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_form_the_machine_has_not_got_is_a_zero_length_list()
     {
         await using var pair = GemPair.Start(Model);
@@ -364,7 +488,7 @@ public class GemGaplessSweepTests
         Assert.Equal(0, missingNamed.Item!.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_body_that_is_not_a_form_code_is_the_same_refusal()
     {
         await using var link = GemLink.Start(Model);
@@ -379,7 +503,7 @@ public class GemGaplessSweepTests
         Assert.Equal(0, reply.Item!.Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_form_is_not_a_report_and_a_host_cannot_define_one()
     {
         var builder = new GemEquipmentModelBuilder();
@@ -407,7 +531,7 @@ public class GemGaplessSweepTests
         Assert.Equal<byte[]>([1, 9], [.. model.StatusForms.Keys.Order()]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_form_naming_a_variable_the_machine_has_not_got_is_caught_at_build()
     {
         var missing = new GemEquipmentModelBuilder()
@@ -432,7 +556,7 @@ public class GemGaplessSweepTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_form_code_may_not_be_declared_twice_and_zero_is_a_legitimate_code()
     {
         var builder = new GemEquipmentModelBuilder()

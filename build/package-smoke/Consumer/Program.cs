@@ -428,7 +428,9 @@ internal static class Program
             GemEquipment.ProcessProgramMessages.Contains(((byte)7, (byte)43)),
             "the packed stream 7 is missing the command cancel");
 
-        foreach (var (stream, function) in new[] { ((byte)6, (byte)7), ((byte)6, (byte)17), ((byte)6, (byte)27) })
+        // S1F9 is the last row of stream 1 and went in five chapters after the gapless sweep left
+        // it out, so the packaged routing table is where its absence would show first.
+        foreach (var (stream, function) in new[] { ((byte)6, (byte)7), ((byte)6, (byte)17), ((byte)6, (byte)27), ((byte)1, (byte)9) })
         {
             Assert(
                 GemEquipment.HandledMessages.Contains((stream, function)),

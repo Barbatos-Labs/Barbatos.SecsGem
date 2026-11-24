@@ -108,7 +108,8 @@ internal sealed class GemPair : IAsyncDisposable
         bool traces = false,
         bool limits = false,
         RecordingLogger<GemHost>? hostLogger = null,
-        IGemServiceProgramStore? servicePrograms = null)
+        IGemServiceProgramStore? servicePrograms = null,
+        Func<SecsTransaction, SecsMessage?>? answerEquipment = null)
     {
         var options = new SecsGemOptions
         {
@@ -186,10 +187,35 @@ internal sealed class GemPair : IAsyncDisposable
 
         foreach (var (stream, function) in declared)
         {
-            equipmentRoutes.OnPrimary(stream, function, (transaction, token) =>
+            equipmentRoutes.OnPrimary(stream, function, async (transaction, token) =>
             {
                 asked.Enqueue((transaction.S, transaction.F));
-                return pendingEquipment!.HandleAsync(transaction, token);
+
+                if (answerEquipment is null)
+                {
+                    await pendingEquipment!.HandleAsync(transaction, token).ConfigureAwait(false);
+
+                    return;
+                }
+
+                // The machine played by hand, which is the only way to test a reader against a
+                // shape this library tolerates and never writes - a status wrapped in a list of
+                // one, a body short of its items. Two real ends can only exercise what this
+                // library itself emits. The same hook RecipePair has, and for the same reason.
+                var reply = answerEquipment(transaction);
+
+                if (reply is null)
+                {
+                    return;
+                }
+
+                using (reply)
+                {
+                    if (transaction.ReplyExpected)
+                    {
+                        await transaction.ReplyAsync(reply, token).ConfigureAwait(false);
+                    }
+                }
             });
         }
 

@@ -279,18 +279,41 @@ refusals overturned once somebody asked. So the question to ask of a stream is n
 the reference documents; it is whether its gaps and its anchors agree, and `SecsCatalogGaplessTests`
 asserts the whole partition so a later chapter cannot drift from it.
 
-**All seven gapless streams are now finished**, which makes the measure's job done rather than
-ongoing: streams 1, 4, 5, 7, 9, 10 and 12 have every row served that anything here is going to
-serve. One row of the seven stayed out and it is worth knowing which, because it is the shape of
-every refusal left - S1F9/F10, whose two items are text with no tables named by stream 1 alone, so
-there is no sibling anywhere to read a reading off. Everything still unimplemented is in a stream
-with gaps, which means **the group measure is spent and what is left needs measuring row by row**.
+**All seven gapless streams are now served whole**, with no exceptions left: streams 1, 4, 5, 7,
+9, 10 and 12 have every row served. The last one out was S1F9/F10, refused because its two items
+are text with no tables named by stream 1 alone - and that is `TRACK`'s mistake again, since both
+are *defined*. Everything still unimplemented is in a stream with gaps, which means **the group
+measure is spent and what is left needs measuring row by row**.
 Stream 2 had seven gaps and stream 6 four; neither could be done as a batch the way the gapless
 streams were. Both are finished now - stream 6 served four of its last seven pairs, stream 2 nine
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about. What a new chapter does is
-therefore re-read a refusal rather than find a row, and three of those have been overturned
-already - stream 4's job half, stream 7's command cancel and four pairs of stream 15.
+therefore re-read a refusal rather than find a row, and four of those have been overturned
+already - stream 4's job half, stream 7's command cancel, four pairs of stream 15 and stream 1's
+material transfer status.
+
+**A refusal with two reasons needs both of them re-read, and the weaker one is usually the one
+that was doing the work.** S1F9/F10 had two. The first was an item argument and wrong the way
+`TRACK` was wrong. The second was that the subject - material transfer - is served properly in
+stream 3 and in E87, so two strings nobody gives a vocabulary would be an API with nothing behind
+it. That half is where the chapter had to think, and it loses to the tie-break from stream 17:
+E87's port status row carries `PORTSTATUS`, which has **no dictionary entry at all**, and
+`Barbatos.SecsGem.Carriers` serves it by choosing a meaning and saying so. Two rows, one job, and
+the firmer source wins - so the repository was serving the weaker of the pair and refusing the
+better. **Ask what the row this one duplicates is made of before refusing it as a duplicate.**
+
+**Two of the three measures do not scale into verdicts, which a sweep of all 66 remaining
+refusals established.** `RivalSpellings` reads, because its relations are exact: an anagram or a
+prefix either way. The **tail-divergent twin** does not - it pairs a used name with any definition
+sharing a long stem, and half of those pairs are family members rather than spellings of one field.
+`RCPATTRVAL` against `RCPATTRID` pairs a value with an identifier. So a twin **marks a place to
+look** and settles nothing, and a chapter that read it mechanically would reopen seven refusals it
+should not. `SecsCatalogMeasureLimitTests` pins that, and the companion finding: the
+**producer-and-reader** question does scale, and it explains a standing refusal that had been
+argued from a count. No blocked transfer is implemented here because `BLKNUM`, `BLKEND` and
+`BLKSIZE` are written by the end that is sending and read by the end that is receiving - the one
+thing an opaque field cannot be. Stream 20's lock passes that test exactly as stream 15's does,
+and is refused for what its stream claims instead, plus an `OWNERID` the host would mint.
 Streams 19 and 20 have had that re-read and neither yielded a row, but **both stated reasons were
 wrong and have been replaced** - which is the normal outcome and still worth the chapter, because a
 refusal argued from the wrong place is the thing that gets re-derived.
@@ -481,12 +504,19 @@ a red test. A control runner that counts "Failed: 0" must also notice a run with
 **There is a blanket version of that bound and it costs one token per test**: `[Fact(Timeout = n)]`.
 xUnit v3 races the test against a delay and reports a real failure - verified here, not assumed -
 and it also cancels `TestContext.Current.CancellationToken`, so it catches awaits inside the library
-as well as the ones a test can see. `Barbatos.SecsGem.Recipes.UnitTests` carries it on every test
-for that reason. The one cost is xUnit1069, which wants each such test to name
-`TestContext.Current.CancellationToken` itself and cannot see that a pair helper already is it; that
-project suppresses the analyser in its `.csproj` with the reason written down. Prefer this in a new
-test project, and remember that a per-await bound has to be added at every site, which is how the
-fourth instance came to be written at all.
+as well as the ones a test can see. The one cost is xUnit1069, which wants each such test to name
+`TestContext.Current.CancellationToken` itself and cannot see that a pair helper already is it, so
+the project suppresses the analyser in its `.csproj` with the reason written down.
+
+**`Barbatos.SecsGem.Recipes.UnitTests` and `Barbatos.SecsGem.Gem.UnitTests` both carry it on every
+test now**, the second because the **fifth** instance turned up there one chapter later and could
+not be fixed per-await: a control that removed S1F9 from the equipment's routing table left the
+host waiting on a T3, and the await was a plain `GemHost` call in a test rather than a pair helper.
+**A per-await bound has to be added at every site, and that is why it keeps failing** - this trap
+has never once been caught by the bound someone remembered to write. Put the attribute on a new
+test project from the start, and on an old one the first time it bites. **And bound the control
+runner's own `dotnet build` and test exe**, because a hung run makes the runner sit forever: mine
+sat for fifty minutes before anybody looked.
 
 Older files here are **CRLF** where the newer ones are LF, `GemHost.cs` among them. A multi-line
 mini-patch against one of those matches zero times until the patch text is converted, which has now

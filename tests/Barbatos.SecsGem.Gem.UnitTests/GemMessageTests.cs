@@ -18,7 +18,7 @@ public class GemMessageTests
 
     // ----------------------------------------------------------------- S1F3
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_empty_status_request_answers_every_status_variable_and_no_data_variable()
     {
         await using var link = GemLink.Start();
@@ -34,7 +34,7 @@ public class GemMessageTests
         Assert.Equal(1013.25d, reply.Item[1].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_status_request_answers_in_the_order_it_was_asked()
     {
         await using var link = GemLink.Start();
@@ -49,7 +49,7 @@ public class GemMessageTests
         Assert.Equal(5, reply.Item[1].FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_unknown_status_variable_is_a_zero_length_item_in_its_place()
     {
         await using var link = GemLink.Start();
@@ -67,7 +67,7 @@ public class GemMessageTests
         Assert.Equal(1013.25d, reply.Item[2].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Asking_S1F3_for_a_data_variable_gets_a_zero_length_item()
     {
         await using var link = GemLink.Start();
@@ -81,7 +81,7 @@ public class GemMessageTests
         Assert.Equal(0, reply.Item![0].Count);
     }
 
-    [Theory]
+    [Theory(Timeout = 15_000)]
     [InlineData("U1")]
     [InlineData("U2")]
     [InlineData("U4")]
@@ -116,7 +116,7 @@ public class GemMessageTests
 
     // ----------------------------------------------------------------- S2F13 and S2F15
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_equipment_constant_can_be_read()
     {
         await using var link = GemLink.Start();
@@ -131,7 +131,7 @@ public class GemMessageTests
         Assert.Equal(42u, reply.Item![0].FirstValueOrDefault<uint>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Setting_a_read_only_constant_is_refused_without_changing_anything()
     {
         await using var link = GemLink.Start();
@@ -146,7 +146,7 @@ public class GemMessageTests
         Assert.Equal((byte)GemEquipmentConstantAcknowledgement.UnknownConstant, reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_writable_constant_takes_the_new_value()
     {
         var stored = 10u;
@@ -195,7 +195,7 @@ public class GemMessageTests
 
     // ----------------------------------------------------------------- the clock
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_equipment_reports_a_sixteen_character_timestamp()
     {
         await using var link = GemLink.Start();
@@ -210,7 +210,7 @@ public class GemMessageTests
         Assert.True(DateTime.TryParseExact(text, "yyyyMMddHHmmssff", CultureInfo.InvariantCulture, DateTimeStyles.None, out _));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_clock_set_moves_what_the_equipment_reports_and_nothing_else()
     {
         await using var link = GemLink.Start();
@@ -234,7 +234,7 @@ public class GemMessageTests
         Assert.StartsWith("2030", now.Item!.GetString(), StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_clock_set_can_be_refused()
     {
         await using var link = GemLink.Start(configure: o => o.AcceptHostClockSet = false);
@@ -251,7 +251,7 @@ public class GemMessageTests
 
     // ----------------------------------------------------------------- S2F33, S2F35, S2F37
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_defines_reports_links_them_and_enables_the_event()
     {
         await using var link = GemLink.Start();
@@ -283,7 +283,7 @@ public class GemMessageTests
         Assert.Equal<uint[]>([6_000], [.. link.Equipment.Model.ReportsForEvent(1_000)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_report_naming_an_unknown_variable_is_refused_on_the_wire_too()
     {
         await using var link = GemLink.Start();
@@ -297,7 +297,7 @@ public class GemMessageTests
         Assert.Equal((byte)GemDefineReportAcknowledgement.UnknownVariable, reply.Item!.FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_malformed_report_definition_is_an_invalid_format_rather_than_a_dropped_link()
     {
         await using var link = GemLink.Start();
@@ -318,7 +318,7 @@ public class GemMessageTests
 
     // ----------------------------------------------------------------- S6F11
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Triggering_an_event_sends_the_reports_linked_to_it()
     {
         await using var link = GemLink.Start();
@@ -349,7 +349,7 @@ public class GemMessageTests
         Assert.Equal(1013.25d, values[1].FirstValueOrDefault<double>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_disabled_event_sends_nothing_and_says_so()
     {
         await using var link = GemLink.Start();
@@ -367,7 +367,7 @@ public class GemMessageTests
         Assert.False(await link.Equipment.TriggerEventAsync(1_000, GemLink.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_unknown_event_is_not_reported()
     {
         await using var link = GemLink.Start();
@@ -376,7 +376,7 @@ public class GemMessageTests
         Assert.False(await link.Equipment.TriggerEventAsync(123_456, GemLink.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_event_with_nothing_linked_is_still_reported()
     {
         await using var link = GemLink.Start();
@@ -393,7 +393,7 @@ public class GemMessageTests
         Assert.Equal(0, report.Item[2].Count);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_event_report_can_be_sent_without_asking_for_an_acknowledgement()
     {
         await using var link = GemLink.Start(configure: o => o.EventReportsExpectReply = false);
@@ -408,7 +408,7 @@ public class GemMessageTests
 
     // ----------------------------------------------------------------- S2F41
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_remote_command_runs_and_sees_its_parameters()
     {
         string? seenLot = null;
@@ -442,7 +442,7 @@ public class GemMessageTests
         Assert.Equal(13u, seenSlot);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_unknown_remote_command_is_refused()
     {
         await using var link = GemLink.Start();
@@ -456,7 +456,7 @@ public class GemMessageTests
         Assert.Equal((byte)GemHostCommandAcknowledgement.InvalidCommand, reply.Item![0].FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_remote_command_is_refused_unless_the_host_is_actually_in_charge()
     {
         var ran = false;
@@ -486,7 +486,7 @@ public class GemMessageTests
         Assert.False(ran);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_command_that_only_reads_can_be_allowed_in_local_control()
     {
         await using var link = GemLink.Start(
@@ -510,7 +510,7 @@ public class GemMessageTests
         Assert.Equal((byte)GemHostCommandAcknowledgement.Accepted, reply.Item![0].FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_remote_command_handler_that_throws_does_not_cost_the_link()
     {
         await using var link = GemLink.Start(model: builder =>
@@ -536,7 +536,7 @@ public class GemMessageTests
 
     // ----------------------------------------------------------------- stream 5
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Setting_an_alarm_reports_it_and_raises_the_event_linked_to_it()
     {
         await using var link = GemLink.Start();
@@ -562,7 +562,7 @@ public class GemMessageTests
         Assert.Equal(2_000u, raised.Item![1].FirstValueOrDefault<uint>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Clearing_an_alarm_clears_the_bit_and_raises_the_other_event()
     {
         await using var link = GemLink.Start();
@@ -578,7 +578,7 @@ public class GemMessageTests
         Assert.Equal(2_001u, raised.Item![1].FirstValueOrDefault<uint>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_disabled_alarm_sends_no_S5F1_but_its_event_still_fires()
     {
         await using var link = GemLink.Start();
@@ -603,7 +603,7 @@ public class GemMessageTests
         Assert.Equal(11, raised.F);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Alarm_text_longer_than_E30_allows_is_truncated_rather_than_refused()
     {
         await using var link = GemLink.Start(model: builder =>
@@ -622,7 +622,7 @@ public class GemMessageTests
         Assert.Equal(GemOptions.MaxAlarmTextLength, alarm.Item![2].GetString().Length);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Nothing_is_reported_before_communication_is_established()
     {
         await using var link = GemLink.Start();

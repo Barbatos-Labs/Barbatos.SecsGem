@@ -34,7 +34,7 @@ public class GemEquipmentModelTests
 
     // ----------------------------------------------------------------- defaults
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_report_defined_at_configuration_time_is_there_from_the_start()
     {
         var model = Model();
@@ -42,7 +42,7 @@ public class GemEquipmentModelTests
         Assert.Equal<uint[]>([1, 2], [.. model.VariablesForReport(10)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void EnabledByDefault_decides_the_starting_state()
     {
         var model = Model();
@@ -53,7 +53,7 @@ public class GemEquipmentModelTests
         Assert.False(model.IsAlarmEnabled(901));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Nothing_is_linked_until_a_host_links_it()
     {
         var model = Model();
@@ -66,7 +66,7 @@ public class GemEquipmentModelTests
 
     // ----------------------------------------------------------------- S2F33
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Defining_a_report_accepts_it()
     {
         var model = Model();
@@ -77,7 +77,7 @@ public class GemEquipmentModelTests
         Assert.Equal<uint[]>([2, 3], [.. model.VariablesForReport(20)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Defining_a_report_that_names_an_unknown_variable_is_refused_and_changes_nothing()
     {
         var model = Model();
@@ -92,7 +92,7 @@ public class GemEquipmentModelTests
         Assert.Equal<uint[]>([1, 2], [.. model.VariablesForReport(10)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Defining_a_report_that_already_exists_is_refused()
     {
         var model = Model();
@@ -103,7 +103,7 @@ public class GemEquipmentModelTests
         Assert.Equal<uint[]>([1, 2], [.. model.VariablesForReport(10)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_report_with_no_variables_is_a_deletion()
     {
         var model = Model();
@@ -114,7 +114,7 @@ public class GemEquipmentModelTests
         Assert.Empty(model.VariablesForReport(10));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void An_empty_definition_list_deletes_every_report_and_every_link()
     {
         var model = Model();
@@ -129,7 +129,7 @@ public class GemEquipmentModelTests
         Assert.Empty(model.ReportsForEvent(100));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Deleting_one_report_unlinks_it_without_touching_the_others()
     {
         var model = Model();
@@ -143,7 +143,7 @@ public class GemEquipmentModelTests
 
     // ----------------------------------------------------------------- S2F35
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Linking_a_report_to_an_event_accepts_it()
     {
         var model = Model();
@@ -154,7 +154,7 @@ public class GemEquipmentModelTests
         Assert.Equal<uint[]>([10], [.. model.ReportsForEvent(100)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Linking_an_unknown_event_is_refused()
     {
         var model = Model();
@@ -164,7 +164,7 @@ public class GemEquipmentModelTests
             model.LinkEventReports([(999, new uint[] { 10 })]));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Linking_an_undefined_report_is_refused()
     {
         var model = Model();
@@ -176,7 +176,7 @@ public class GemEquipmentModelTests
         Assert.Empty(model.ReportsForEvent(100));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Linking_an_event_that_is_already_linked_is_refused()
     {
         var model = Model();
@@ -187,7 +187,7 @@ public class GemEquipmentModelTests
             model.LinkEventReports([(100, new uint[] { 10 })]));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_link_with_no_reports_removes_that_event_only()
     {
         var model = Model();
@@ -199,7 +199,7 @@ public class GemEquipmentModelTests
         Assert.Equal<uint[]>([10], [.. model.ReportsForEvent(200)]);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void An_empty_link_list_removes_every_link()
     {
         var model = Model();
@@ -215,7 +215,7 @@ public class GemEquipmentModelTests
 
     // ----------------------------------------------------------------- S2F37
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Enabling_a_named_event_leaves_the_others_alone()
     {
         var model = Model();
@@ -226,7 +226,7 @@ public class GemEquipmentModelTests
         Assert.True(model.IsEventEnabled(100));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void An_empty_event_list_means_every_event()
     {
         var model = Model();
@@ -243,7 +243,7 @@ public class GemEquipmentModelTests
         Assert.True(model.IsEventEnabled(300));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Enabling_an_unknown_event_is_refused_and_changes_nothing()
     {
         var model = Model();
@@ -257,7 +257,7 @@ public class GemEquipmentModelTests
 
     // ----------------------------------------------------------------- S5F3
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Disabling_one_alarm_leaves_the_others_alone()
     {
         var model = Model();
@@ -267,7 +267,7 @@ public class GemEquipmentModelTests
         Assert.False(model.IsAlarmEnabled(900));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Alarm_identifier_zero_means_every_alarm()
     {
         var model = Model();
@@ -283,7 +283,7 @@ public class GemEquipmentModelTests
         Assert.False(model.IsAlarmEnabled(901));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Enabling_an_unknown_alarm_is_an_error()
     {
         var model = Model();
@@ -293,7 +293,7 @@ public class GemEquipmentModelTests
 
     // ----------------------------------------------------------------- reset
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void Reset_puts_back_what_the_model_was_built_with()
     {
         var model = Model();
@@ -313,7 +313,7 @@ public class GemEquipmentModelTests
 
     // ----------------------------------------------------------------- the builder
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_duplicate_variable_identifier_is_a_configuration_error()
     {
         var builder = new GemEquipmentModelBuilder().AddStatusVariable(1, "A", () => SecsItem.U4(1u));
@@ -323,7 +323,7 @@ public class GemEquipmentModelTests
         Assert.Throws<ArgumentException>(() => builder.AddStatusVariable(1, "B", () => SecsItem.U4(2u)));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_duplicate_event_identifier_is_a_configuration_error()
     {
         var builder = new GemEquipmentModelBuilder().AddEvent(1, "First");
@@ -331,7 +331,7 @@ public class GemEquipmentModelTests
         Assert.Throws<ArgumentException>(() => builder.AddEvent(1, "Again"));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void An_alarm_numbered_zero_is_refused()
     {
         var builder = new GemEquipmentModelBuilder();
@@ -341,7 +341,7 @@ public class GemEquipmentModelTests
         Assert.Throws<ArgumentException>(() => builder.AddAlarm(new GemAlarm { Id = 0, Text = "Nowhere" }));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_default_report_naming_an_unknown_variable_fails_the_build()
     {
         var builder = new GemEquipmentModelBuilder()
@@ -353,7 +353,7 @@ public class GemEquipmentModelTests
         Assert.Contains("variable 2", error.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public void A_variable_is_read_every_time_it_is_asked_for()
     {
         var reads = 0;

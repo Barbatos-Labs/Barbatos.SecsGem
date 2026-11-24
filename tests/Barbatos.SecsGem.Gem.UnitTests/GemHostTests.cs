@@ -75,7 +75,7 @@ public class GemHostTests
 
     // ----------------------------------------------------------------- the completeness claim
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_host_can_send_every_primary_the_equipment_declares()
     {
         await using var pair = GemPair.Start(
@@ -167,6 +167,10 @@ public class GemHostTests
         await host.InquireMultiBlockAsync(41, 70_000, token);
         await host.ResetSpoolingAsync([new GemSpoolStreamReset(6, [11])], token);
 
+        // And the last row of stream 1, in five chapters after the gapless sweep left it out: this
+        // test is what caught its absence from the host the moment the equipment declared it.
+        await host.RequestMaterialTransferStatusAsync(token);
+
         List<(byte Stream, byte Function)> declared =
         [
             .. GemEquipment.HandledMessages,
@@ -191,7 +195,7 @@ public class GemHostTests
 
     // ----------------------------------------------------------------- establishing
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Both_ends_establish_communications_without_being_told_to()
     {
         await using var pair = GemPair.Start(Model);
@@ -204,7 +208,7 @@ public class GemHostTests
         Assert.True(pair.Host.IsCommunicating);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_that_refuses_the_machine_can_still_establish_from_its_own_side()
     {
         await using var pair = GemPair.Start(Model, host: options => options.AcceptCommunications = false);
@@ -231,7 +235,7 @@ public class GemHostTests
         Assert.True(pair.Host.IsCommunicating);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Communications_do_not_outlive_the_link()
     {
         await using var pair = GemPair.Start(Model);
@@ -256,7 +260,7 @@ public class GemHostTests
 
     // ----------------------------------------------------------------- stream 1
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_machine_answers_who_it_is_and_stops_when_it_goes_off_line()
     {
         await using var pair = GemPair.Start(Model);
@@ -278,7 +282,7 @@ public class GemHostTests
         Assert.NotNull(await pair.Host.AreYouThereAsync(GemPair.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task Status_values_come_back_aligned_with_what_was_asked_for()
     {
         await using var pair = GemPair.Start(Model);
@@ -298,7 +302,7 @@ public class GemHostTests
         Assert.Equal((byte)5, status.Item[2].FirstValueOrDefault<byte>());
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_namelist_says_which_identifiers_the_machine_does_not_have()
     {
         await using var pair = GemPair.Start(Model);
@@ -320,7 +324,7 @@ public class GemHostTests
 
     // ----------------------------------------------------------------- stream 2
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_constant_can_be_read_written_and_refused()
     {
         await using var pair = GemPair.Start(Model);
@@ -346,7 +350,7 @@ public class GemHostTests
         Assert.Equal(50u, _limit);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_constant_namelist_carries_its_bounds_as_items()
     {
         await using var pair = GemPair.Start(Model);
@@ -376,7 +380,7 @@ public class GemHostTests
         Assert.True(namelist[1].Default.IsEmpty);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task The_clock_can_be_read_and_set()
     {
         await using var pair = GemPair.Start(Model);
@@ -397,7 +401,7 @@ public class GemHostTests
         Assert.Equal(when.UtcDateTime, read.Value.UtcDateTime, TimeSpan.FromSeconds(1));
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_host_configures_its_own_reporting_and_receives_what_it_asked_for()
     {
         await using var pair = GemPair.Start(Model);
@@ -441,7 +445,7 @@ public class GemHostTests
         Assert.Equal("LOT-001", seenLot);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_remote_command_reaches_the_machine_and_its_acknowledgement_is_not_a_byte()
     {
         await using var pair = GemPair.Start(Model);
@@ -461,7 +465,7 @@ public class GemHostTests
         Assert.NotEqual(GemHostCommandAcknowledgement.CompletionLater, unknown);
     }
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_equipment_specific_acknowledgement_has_a_name_rather_than_being_a_cast()
     {
         // The machine is played by hand here, and it has to be. E5 reserves HCACK 7 to 63 for the
@@ -540,7 +544,7 @@ public class GemHostTests
 
     // ----------------------------------------------------------------- stream 5
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task An_alarm_arrives_and_the_listings_agree_with_it()
     {
         await using var pair = GemPair.Start(Model);
@@ -581,7 +585,7 @@ public class GemHostTests
 
     // ----------------------------------------------------------------- stream 7
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_recipe_goes_down_and_comes_back_in_both_flavours()
     {
         await using var pair = GemPair.Start(
@@ -644,7 +648,7 @@ public class GemHostTests
 
     // ----------------------------------------------------------------- stream 9
 
-    [Fact]
+    [Fact(Timeout = 15_000)]
     public async Task A_message_the_machine_does_not_implement_arrives_as_an_error_report()
     {
         // No spool, so S6F23 is not in the equipment's routing table at all.
