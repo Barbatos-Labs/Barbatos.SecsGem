@@ -152,6 +152,27 @@ that are supposed to hold on any machine:
 dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filter "*"
 ```
 
+## Coverage, and what is not here
+
+**215 of the reference's 274 primaries are declared.** The other fifty-nine are not "rows nobody has
+got to": each is refused for a stated reason, written down once and asserted as a partition - every
+refused primary appears exactly once, under the one measure that decides it.
+
+| the measure | rows |
+| --- | --- |
+| the field the row turns on is undefined | 9 |
+| the undefined field is written by one end and must be understood by the other | 9 |
+| a rival spelling gives it a second reading, and the two put different bytes out | 4 |
+| the body is a list of entries whose nesting no served row settles | 2 |
+| the name's object appears nowhere else, and the reply is only an acknowledgement | 1 |
+| every field reads, and what keeps it out is what declaring its stream would claim | 24 |
+| one undefined name addresses every transaction of the stream | 10 |
+
+Twenty-five of the fifty-nine carry no field this library cannot read, so the frontier is two kinds
+of claim rather than a backlog. Eleven of the reference's twenty streams hold them; the other nine
+are served whole. The table, the arithmetic and the per-row reasons are in
+[`Barbatos.SecsGem.Catalog`](src/Barbatos.SecsGem.Catalog/README.md#what-this-repository-does-not-serve-and-which-measure-decides-it).
+
 ## Roadmap
 
 | Phase | Scope | Status |

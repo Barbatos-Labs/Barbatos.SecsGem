@@ -467,6 +467,35 @@ The real S2F41 body is `<L[2] <A RCMD> <L[n] <L[2] <A CPNAME> <CPVAL>>>>`. The c
 the second would build the wrong message. Use [`Barbatos.SecsGem.Gem`](../Barbatos.SecsGem.Gem/README.md)
 for bodies that are actually built and parsed.
 
+## What this repository does not serve, and which measure decides it
+
+Fifty-nine of the reference's **274 primaries** are declared by nothing in this repository, and 215
+are. After seven chapters spent re-reading those refusals one group at a time, the list is written
+down in one place and asserted as a **partition**: every refused primary appears exactly once, under
+the one measure that decides it. A row with two reasons is filed under the one that would still
+refuse it if the other were answered - which is the lesson of the refusals that fell, because in
+every one of those the weaker reason was doing the work.
+
+| the measure | rows | and what it says |
+| --- | --- | --- |
+| the field the row turns on | 9 | The undefined name is what the message is *for* - `RSTC`, `CELLNAME`, `NRED`, `ENABLE`, `AUTOSEL` - so carrying it untouched would leave a library unable to tell apart the two things its row distinguishes |
+| producer and reader | 9 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, and a checksum the receiver has to compute and compare |
+| two readings, different bytes | 4 | A rival or a twin gives the name a second reading and the two disagree - an `A[n]` against E39's list for a recipe attribute, an anagram whose table belongs to another row |
+| a shape | 2 | The body is a list of entries and no served row settles its nesting. **A flat body of two items has one reading; a list has as many as there are nestings** |
+| a name with no second instance | 1 | S7F21: its object, *Reference*, appears in two of 524 row names - this row and its own acknowledgement - and its reply is only an acknowledgement |
+| what declaring the stream claims | 24 | Streams 17 and 20, whole. **Every field of these rows reads**; what keeps them out is that declaring one turns an honest S9F3 for the stream into an S9F5 for the rest, which invites a host to keep asking |
+| the addressing is missing | 10 | Stream 19, whole: `RCPNS` is undefined, has no rival anywhere, and addresses every transaction in the stream |
+
+**Twenty-five of the fifty-nine carry no field this library cannot read** - the twenty-four stream
+claims and the one name - so the frontier is not "rows nobody has got to". It is two kinds of claim,
+and neither is about effort. Four of the five rows refused on a stream claim whose every field is
+defined are S17F9, S17F13, S20F17 and S20F33, and the fifth, S20F15, is readable without being
+gap-free.
+
+The eleven streams that hold them are 2, 6, 7, 8, 13, 14, 15, 17, 19, 20 and 21; the other nine are
+served whole. `SecsCatalogRefusalPartitionTests` holds the table and the arithmetic, and each
+package asserts separately that its own leave-outs reach no routing table.
+
 ## Internal consistency, checked
 
 The data is third-party, so the tests assert the invariants rather than assuming them. All of these

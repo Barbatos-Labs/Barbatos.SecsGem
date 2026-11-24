@@ -293,7 +293,21 @@ measure is spent and what is left needs measuring row by row**.
 Stream 2 had seven gaps and stream 6 four; neither could be done as a batch the way the gapless
 streams were. Both are finished now - stream 6 served five of its last seven pairs, stream 2 nine
 of its last ten - so **every row of every stream has either been served or refused with a reason on
-the record**, and there is nothing left that nobody has argued about. What a new chapter does is
+the record**, and there is nothing left that nobody has argued about.
+
+**And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 215 of the reference's 274
+primaries are declared and the other **fifty-nine are a partition** - each appears exactly once,
+under the one measure that decides it, and a row with two reasons is filed under the one that would
+still refuse it if the other were answered. The seven measures and their counts: the field the row
+turns on (9), producer and reader (9), two readings that differ (4), a shape (2), a name with no
+second instance (1), what declaring the stream claims (24), the addressing is missing (10). Eleven
+streams hold them and the other nine are served whole. **Twenty-five of the fifty-nine carry no
+field this library cannot read**, so what is left is two kinds of claim and not a backlog - and the
+gap-free five among those are S17F9, S17F13, S20F17, S20F33 and S20F15. Re-read a refusal by
+starting from its row in that table, and if the table is what turns out to be wrong, that is the
+chapter.
+
+What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned
 already - stream 4's job half, stream 7's command cancel, formatted directory and matrix family,
 five pairs of stream 15, stream 1's material transfer status and stream 6's notification report.
