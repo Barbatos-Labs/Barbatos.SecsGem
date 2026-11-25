@@ -50,9 +50,19 @@ public interface IItemStore
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>Them, or an empty list when there is no such item.</returns>
     /// <remarks>
+    /// <para>
     /// The values are <c>ATTRDATA</c>, an <c>L</c> in the dictionary and E39's own item - so an
     /// attribute here is the same pair <c>Barbatos.SecsGem.Objects</c> serves on stream 14. An
     /// empty list is the only refusal S21F4 has, because it carries no acknowledgement code.
+    /// </para>
+    /// <para>
+    /// <strong>Whatever a store hands back stays the store's.</strong> This library copies each
+    /// value into the reply it builds and disposes neither, so a store may hand back the item it is
+    /// holding and a store that holds bytes may hand back a fresh one - the two shipped here do one
+    /// each, and the other end cannot tell. What a store must not do is hand back an item it has
+    /// already given to a message, since the first of the two disposed takes the other's payload
+    /// with it.
+    /// </para>
     /// </remarks>
     ValueTask<IReadOnlyList<ItemAttribute>> AttributesAsync(
         ItemAttributeRequest request,
@@ -139,14 +149,17 @@ public sealed class ItemInMemoryStore : IItemStore
     /// <exception cref="ArgumentNullException"><paramref name="item"/> is <see langword="null"/>.</exception>
     /// <remarks>
     /// <para>
-    /// <strong>An attribute's value stays this caller's item and is kept by reference</strong>,
-    /// which is a lifetime the caller has to honour: do not dispose it while the store holds it.
-    /// That matters because <c>ItemTransferCodec.AttributeBody</c> puts the value into the reply it
-    /// builds and a disposed reply disposes its children - harmless for a small value, which owns
-    /// nothing to release, but an attribute past <c>SecsCodecOptions.PooledPayloadThreshold</c>
-    /// would go back to the pool after the first S21F3 and be lent out again on the second.
-    /// <see cref="ItemFileStore.AddAsync"/> copies instead, because a record is bytes, so a caller
-    /// that wants to be rid of the ownership question can use that store.
+    /// <strong>An attribute's value stays this caller's item and is kept by reference</strong>, so
+    /// do not dispose one while the store holds it. That is the whole of the obligation now:
+    /// <c>ItemTransferCodec.AttributeBody</c> copies each value into the reply it builds, so an
+    /// S21F3 no longer reaches into what this store is holding. It used to, and the hazard was
+    /// written down here and called the caller's - which it never was, because the reply that
+    /// disposed the value belonged to the library. An attribute past
+    /// <c>SecsCodecOptions.PooledPayloadThreshold</c> went back to the pool after the first request
+    /// and was lent out again before the second; a small one owns nothing to release, and every
+    /// test of the pair set text, so nothing could fail.
+    /// <see cref="ItemFileStore.AddAsync"/> copies what it is given, because a record is bytes, so
+    /// a caller that wants no lifetime to think about at all can use that store.
     /// </para>
     /// <para>
     /// How a peer offers an item the other end can go and fetch, which stream 21 has no message

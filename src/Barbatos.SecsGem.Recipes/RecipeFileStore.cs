@@ -1040,7 +1040,11 @@ public sealed class RecipeFileStore : IRecipeStore
         cancellationToken.ThrowIfCancellationRequested();
 
         // Decoded fresh, so two hosts asking at once never share one item - the reason this store
-        // keeps the bytes where the in-memory one keeps the caller's own SecsItem.
+        // keeps the bytes where the in-memory one keeps the caller's own SecsItem. RecipeCodec
+        // copies the value into the reply and disposes nothing it was handed, so the item made here
+        // is read once and dropped: a rented buffer the pool replaces, which is the cheaper of the
+        // two readings because decoding unpooled would put a large enough attribute on the Large
+        // Object Heap.
         return ValueTask.FromResult(
             _attributes.TryGetValue((recipeNamespace, recipeId, attributeName), out var value)
                 ? SecsItem.Decode(value)

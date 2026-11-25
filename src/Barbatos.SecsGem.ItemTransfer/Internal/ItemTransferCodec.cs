@@ -190,9 +190,31 @@ internal static class ItemTransferCodec
 
     /// <summary>S21F4 - <c>L,2 { ITEMID, L,n { L,2 { ATTRID, ATTRDATA } } }</c>.</summary>
     /// <remarks>
+    /// <para>
     /// The nesting is S14F2's, because <c>ATTRID</c> and <c>ATTRDATA</c> are stream 14's items and
     /// <c>Barbatos.SecsGem.Objects</c> writes them that way. A flat item list cannot say this, so
     /// the shape comes from the stream that owns the vocabulary rather than from here.
+    /// </para>
+    /// <para>
+    /// <strong>Every value is copied in, because an item handed to a message becomes that
+    /// message's.</strong> A store hands back its own item - <c>ItemInMemoryStore</c> keeps the one
+    /// its caller built - and a reply is disposed once it has been sent, which disposes its
+    /// children: an attribute past <see cref="SecsCodecOptions.PooledPayloadThreshold"/> would have
+    /// had its buffer handed back to the pool after the first S21F3 and lent out again before the
+    /// second. This package's own remarks described that hazard for four chapters and left it to
+    /// the caller, which was never a lifetime a caller could honour - the reply is the library's.
+    /// </para>
+    /// <para>
+    /// <strong>The copy is here rather than in the two stores shipped with this package</strong>
+    /// because <see cref="IItemStore"/> is public: a store an application writes cannot be made to
+    /// keep bytes, and this is the one place every store's answer passes through on its way to a
+    /// message.
+    /// </para>
+    /// <para>
+    /// It stayed invisible until a sweep went looking, for the reason the same defect in
+    /// <c>Barbatos.SecsGem.Recipes</c> did: <strong>text never borrows.</strong> An <c>A[n]</c>
+    /// decodes into a string that owns nothing, and every test of this pair set text.
+    /// </para>
     /// </remarks>
     internal static SecsItem AttributeBody(string itemId, IReadOnlyList<ItemAttribute>? attributes)
     {
@@ -202,7 +224,7 @@ internal static class ItemTransferCodec
         {
             entries[i] = SecsItem.L(
                 SecsItem.A(attributes![i].Name).Named("ATTRID"),
-                attributes[i].Value.Named("ATTRDATA"));
+                SecsItem.Decode(attributes[i].Value.ToByteArray()).Named("ATTRDATA"));
         }
 
         return SecsItem.L(

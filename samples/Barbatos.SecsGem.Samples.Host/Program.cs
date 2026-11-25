@@ -693,6 +693,10 @@ internal static class Program
         // store, because the machine may ask it for a directory - which this demo makes it do.
         var machineItems = new ItemInMemoryStore();
 
+        // These two values are not disposed, because this store keeps them: an in-memory store
+        // holds the caller's own item where ItemFileStore holds its bytes. Nothing a host asks
+        // reaches into them - the codec copies each value into the S21F4 it builds, since an item
+        // handed to a message is disposed with it.
         machineItems.Add(
             new Item { Id = "RECIPE-7", Type = "recipe", Length = 3 },
             attributes:

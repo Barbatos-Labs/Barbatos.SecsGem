@@ -335,6 +335,16 @@ public interface IRecipeStore
     /// machine would be minting a value a host has to parse. Two readings differ there and it
     /// matters.
     /// </para>
+    /// <para>
+    /// <strong>Whatever a store hands back stays the store's.</strong> <c>RecipeCodec</c> copies the
+    /// value into S15F28 and into every entry of S15F4, and disposes nothing it was handed - so a
+    /// store may return the item it is holding, and a store that holds bytes may return a fresh one.
+    /// The two shipped here do one each and no host can tell. This is the contract
+    /// <c>IItemStore.AttributesAsync</c> states for the same pair of E39 items in
+    /// <c>Barbatos.SecsGem.ItemTransfer</c>, and saying it in one place per interface is what the
+    /// sweep for this defect was short of: the rule was in the codec's remarks and nowhere a store's
+    /// author would read it.
+    /// </para>
     /// </remarks>
     ValueTask<SecsItem?> GetAttributeAsync(
         string recipeNamespace,

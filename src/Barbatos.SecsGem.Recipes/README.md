@@ -457,6 +457,14 @@ Neither mistake could be seen with a text attribute: an `A[n]` decodes into a st
 nothing. Only an array format above the codec's pooling threshold borrows anything, and
 `RecipeDirectoryTests` drives a 4 KiB `B[n]` for that reason.
 
+Both mistakes were then looked for in every other package here, and **the reply half was found once
+more** - `Barbatos.SecsGem.ItemTransfer` put a store's own `ATTRDATA` straight into S21F4, which is
+the same hand-off of the same two E39 items. Nothing else carries an item it did not make:
+`Barbatos.SecsGem.DataSets` and `Barbatos.SecsGem.Objects` both hold encoded bytes and decode fresh,
+and `Barbatos.SecsGem.Gem` states at every delegate which end owns what. `IRecipeStore` now says the
+ownership rule on `GetAttributeAsync` itself, because it was in `RecipeCodec`'s remarks and nowhere a
+store's author would read it.
+
 ### Seven rules `RecipeInMemoryStore` makes up
 
 Eleven of the seventeen replies carry one `RMACK` and nothing else, and two more carry one beside a

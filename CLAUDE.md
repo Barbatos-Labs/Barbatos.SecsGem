@@ -907,6 +907,50 @@ bucket in the returning thread's own slot where nobody else can rent it, and the
 disposes a message is never the test's, so **one large value hides in that slot and two do not**.
 The test sets two, and ten controls land on it.
 
+**And the churn is load-bearing only where the store holds BYTES**, which the sweep below found out
+by running the control without it. A store that re-decodes a value answers the second request from
+the bytes and writes the borrowed buffer back unchanged, so nothing fails unless the pool is churned
+between the two reads; a store that holds the ITEM has nothing to restore it, and the next exchange
+rents the buffer and writes its own frame into it - the value comes back as somebody else's HSMS
+header, with no churn at all. So **keep the churn and do not trust it**: which half of the hazard a
+test is sitting on decides whether its absence is visible, and only a control says which.
+
+**Both mistakes were then swept for in all twenty-seven packages, and the reply half was found once
+more: `Barbatos.SecsGem.ItemTransfer` put a store's own `ATTRDATA` into S21F4.** The same two E39
+items, the same hand-off, one package along - and its own remarks had *described* the hazard and
+called it the caller's, asking an application not to dispose an attribute "while the store holds
+it" when the reply doing the disposing was the library's. So **a stated reason can be right about
+the bytes and wrong about whose job it is**, which is a second way for a reason to go stale: not
+out of date, but aimed at the wrong party from the start. The fix is the recipe one, and it belongs
+in the codec rather than in the two stores shipped with the package, because `IItemStore` is public
+- a store an application writes cannot be made to keep bytes, and the body builder is the one place
+every store's answer passes through.
+
+**The sweep's other half is where it found nothing, and the reason is the same sentence three times
+over: a store that keeps what a host sent keeps BYTES.** `Barbatos.SecsGem.DataSets`
+(`DataSetPayload`), `Barbatos.SecsGem.Objects` (`ObjectAttributeStore`, which wrote the rule down
+first and whose `EchoListBody` already copied the one body that echoes a request),
+`Barbatos.SecsGem.ControlPrograms` (`CPBODY` copied with `ToArray`), `Barbatos.SecsGem.Recipes`'
+lock and version, and every one of the eight durable stores through `DurableRecordDirectory` - none
+of them can hold an item, so none can lose one. `Barbatos.SecsGem.Gem` carries items at twelve
+public surfaces and states at each which end owns what: a variable's `Read` returns a fresh item
+the message takes, a constant's `Write` is handed one it must not keep, a remote command's
+parameters and every received report, trace sample and unformatted datum are views whose life is
+the handler, and `TraceRun` disposes the group it is filling. `Material`, `WaferMap`, `Carriers`,
+`Substrates`, `ControlJobs`, `ProcessJobs`, `Subsystems` and `PerformanceTracking` carry **no
+opaque item at all** - every body they build is made of parsed values - which is why the four
+object providers on stream 14 are safe without having to say so. And the keeping half cannot happen
+in stream 21 at all: **no row sets an attribute**, so `Add` is the only door and nothing a peer
+sends reaches it.
+
+**One thing the fix costs, written down because it is a consequence and not a defect.** A store
+that holds bytes decodes a fresh item per request, the codec copies it, and the fresh one is read
+once and dropped - so the rented buffer behind a large attribute is never handed back and the pool
+allocates another. Decoding unpooled instead would trade the rental for a plain array, and a large
+enough attribute would land on the Large Object Heap, which is a non-negotiable here. So the rental
+is the cheaper reading, and **it is not observable on a wire**: a buffer nobody returns is never
+lent out again, which is why there is no test for it and only a remark in both file stores.
+
 **Rebuild after a control run before trusting the suite.** A runner restores the *sources* it
 mutated and leaves the build output of its last control behind, and the catalogue's data file is
 embedded in the assembly - so the first run after a control sweep can report a failure that is not
