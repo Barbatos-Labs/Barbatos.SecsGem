@@ -223,6 +223,12 @@ public sealed class Item
 /// and is gone when the call returns. Copy anything kept past that. This is the same contract
 /// <c>ObjectAttribute</c> carries, for the same two items.
 /// </para>
+/// <para>
+/// <strong>And a value you hand this library stays yours.</strong> Both directions are the one
+/// rule read from each end: an item belongs to whoever made it, so <c>ItemInMemoryStore.Add</c>
+/// keeps what it is given and <c>ItemTransferCodec.AttributeBody</c> copies what it puts in a
+/// reply. Nothing here disposes an attribute it did not decode.
+/// </para>
 /// </remarks>
 public sealed class ItemAttribute
 {

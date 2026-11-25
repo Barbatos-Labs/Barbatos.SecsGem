@@ -508,6 +508,14 @@ All three answers hold for the **owner** and for a **namespace attribute** as we
 because `ArrayPool` keeps a single buffer per bucket in the returning thread's own slot and the
 thread that disposes a message is never the test's.
 
+Both mistakes were then looked for in every other package here, and **the reply half was found once
+more** - `Barbatos.SecsGem.ItemTransfer` put a store's own `ATTRDATA` straight into S21F4, which is
+the same hand-off of the same two E39 items. Nothing else carries an item it did not make:
+`Barbatos.SecsGem.DataSets` and `Barbatos.SecsGem.Objects` both hold encoded bytes and decode fresh,
+and `Barbatos.SecsGem.Gem` states at every delegate which end owns what. `IRecipeStore` now says the
+ownership rule on `GetAttributeAsync` itself, because it was in `RecipeCodec`'s remarks and nowhere a
+store's author would read it.
+
 ### Seven rules `RecipeInMemoryStore` makes up
 
 Twelve of the nineteen replies carry one `RMACK` and nothing else, and two more carry one beside a

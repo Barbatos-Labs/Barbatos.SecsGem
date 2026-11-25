@@ -60,7 +60,7 @@ waiting on.
 | Member | Notes |
 | --- | --- |
 | `ValueTask<IReadOnlyList<Item>> ListAsync(string itemType, CancellationToken)` | S21F1. Empty asks for every kind. `ITEMTYPE` has no vocabulary in the reference, so what a type means is the two ends' own business. |
-| `ValueTask<IReadOnlyList<ItemAttribute>> AttributesAsync(ItemAttributeRequest request, CancellationToken)` | S21F3. An empty attribute list asks for all of them, which is S14F1's reading of the same item. Empty is the only refusal S21F4 has. |
+| `ValueTask<IReadOnlyList<ItemAttribute>> AttributesAsync(ItemAttributeRequest request, CancellationToken)` | S21F3. An empty attribute list asks for all of them, which is S14F1's reading of the same item. Empty is the only refusal S21F4 has. **Whatever is handed back stays the store's**: the codec copies each value into the reply and disposes nothing. |
 | `ValueTask<ItemTransferGrant> RequestAsync(ItemTransferRequest request, CancellationToken)` | S21F5. The cheap place to say no: after the grant, the next message is the whole item. |
 | `ValueTask<ItemAcknowledgement> SaveAsync(string itemId, uint dataId, ItemPayload data, CancellationToken)` | S21F7. The payload is already copied out of the arriving message. |
 | `ValueTask<ItemAcknowledgement> AbortAsync(string itemId, uint dataId, CancellationToken)` | S21F15. |
@@ -75,7 +75,7 @@ waiting on.
 | `int Capacity { get; set; }` | How many items may be held. Default 64. A request beyond it is refused `NoSpace`. |
 | `int Count { get; }` | How many are held. |
 | `int GrantedCount { get; }` | How many transfers have been granted and not yet sent. |
-| `void Add(Item item, ItemPayload? data = null, IReadOnlyList<ItemAttribute>? attributes = null)` | Puts an item in without a transaction. **How a peer offers one**: stream 21 has no "I have a new item" primary, so the other end finds out with S21F1. |
+| `void Add(Item item, ItemPayload? data = null, IReadOnlyList<ItemAttribute>? attributes = null)` | Puts an item in without a transaction. **How a peer offers one**: stream 21 has no "I have a new item" primary, so the other end finds out with S21F1. The attribute values are **kept, not copied** - do not dispose one while the store holds it. No S21F3 reaches into them: the codec copies. |
 | `Item? Find(string itemId)` | `null` when there is none. |
 | `ItemPayload? Contents(string itemId)` | `null` when there are none. |
 
@@ -107,7 +107,7 @@ have a store, two peers in one process need two directories.
 | `int GrantedCount { get; }` | **Zero on every open**: a grant is a transaction in flight. |
 | `Item? Find(string itemId)` | Out of the index and not off the disk, so a directory request is not a scan of every record. |
 | `ValueTask<ItemPayload?> ContentsAsync(string itemId, CancellationToken cancellationToken = default)` | Asynchronous where `ItemInMemoryStore.Contents` is not, the contents being in a file. Null for an item that was only listed **and** for a record that will not read - the second is logged. |
-| `ValueTask AddAsync(Item item, ItemPayload? data = null, IReadOnlyList<ItemAttribute>? attributes = null, CancellationToken cancellationToken = default)` | **The only way an item gets attributes**, no row of stream 21 setting one. **Copies** the attribute values, where `ItemInMemoryStore.Add` keeps the caller's items - so the caller may dispose what it built. |
+| `ValueTask AddAsync(Item item, ItemPayload? data = null, IReadOnlyList<ItemAttribute>? attributes = null, CancellationToken cancellationToken = default)` | **The only way an item gets attributes**, no row of stream 21 setting one. **Copies** the attribute values, where `ItemInMemoryStore.Add` keeps the caller's items - so the caller may dispose what it built. The items `AttributesAsync` then decodes are read once and dropped, which the codec's copy makes unavoidable; see the type's remarks for why that is cheaper than decoding unpooled. |
 | `const string RecordExtension`, `PartialExtension` | `.item` and `.writing`. |
 
 A record is a list of fields and an **optional** payload, so an item that was listed and described
@@ -154,7 +154,7 @@ The contents of an item, as **the encoded item that carried them**. A deliberate
 | Member | Notes |
 | --- | --- |
 | `required string Name { get; init; }` | `ATTRID`, an `A` - E39's item. |
-| `required SecsItem Value { get; init; }` | `ATTRDATA`, an `L`. **A view into the reply** when it came from `AttributesAsync`. |
+| `required SecsItem Value { get; init; }` | `ATTRDATA`, an `L`. **A view into the reply** when it came from `AttributesAsync`, and **the caller's own item** when it was handed to a store. Nothing here disposes a value it did not decode; see *Whose item is it* in the README. |
 
 ### `ItemAttributeRequest`
 

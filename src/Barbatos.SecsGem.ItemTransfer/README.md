@@ -260,10 +260,33 @@ hours apart.
 only asks. It is also how a peer offers an item for the other end to fetch, there being no "I have a
 new item" primary. And it **copies** the attribute values it is given, where
 `ItemInMemoryStore.Add` keeps the caller's own items: a record is bytes, so a caller may dispose what
-it built, and every attribute request decodes a fresh item. That is worth knowing because
-`AttributeBody` puts a value *into* the reply it builds and a disposed reply disposes its children -
-harmless for a small value, which owns nothing to release, but an attribute past the codec's pooling
-threshold would go back to the pool after the first request.
+it built, and every attribute request decodes a fresh item.
+
+## Whose item is it
+
+An attribute's value is a `SecsItem`, because `ATTRDATA` is E39's and a SECS-II item carries its own
+format - so the question of **who owns it** needs an answer at every hand-off, and one of them was
+wrong from the day the package was written:
+
+- **A store keeps what it is given.** `ItemInMemoryStore.Add` holds the caller's own item;
+  `ItemFileStore.AddAsync` holds its bytes. Either way nothing in this library disposes an attribute
+  it did not decode.
+- **A reply is built from copies.** `ItemTransferCodec.AttributeBody` decodes a fresh item out of
+  each value's bytes for S21F4, because an item handed to a `SecsMessage` is disposed with it - so a
+  reply carrying a store's own value straight out destroyed it on the way. It did exactly that until
+  the sweep that followed the same defect in `Barbatos.SecsGem.Recipes`, and the hazard was *written
+  down here* and called the caller's: "do not dispose it while the store holds it" is a lifetime no
+  caller could honour, because the reply doing the disposing was the library's.
+- **`AttributesAsync` hands back views.** Each `ItemAttribute.Value` on the asking end points into
+  the reply, which is why the method takes a callback instead of returning a list. Copy anything kept
+  past it.
+
+Nothing could see the defect with a text attribute: an `A[n]` decodes into a string, which owns
+nothing. Only an array format past the codec's pooling threshold borrows a buffer, and
+`ItemAttributeOwnershipTests` drives a 4 KiB `B[n]` for that reason. The mirror mistake - a codec
+that *keeps* what arrived - cannot happen in this stream, and not because anything guards it: no row
+sets an attribute, so nothing a peer sends ever reaches a store's attributes. The one thing a peer
+does send whole is `ITEMDATA`, and `ItemPayload.From` has copied that to bytes since the beginning.
 
 ## Documentation
 

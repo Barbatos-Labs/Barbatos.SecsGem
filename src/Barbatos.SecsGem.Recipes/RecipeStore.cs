@@ -336,6 +336,18 @@ public interface IRecipeStore
     /// application as an item, exactly as stream 21's item attributes do, and stream 21 has no set
     /// row either. <see cref="GetNamespaceAttributeAsync"/> is that row.
     /// </para>
+    /// <para>
+    /// <strong>Whatever a store hands back stays the store's.</strong> <c>RecipeCodec</c> copies the
+    /// value into S15F28, into S15F52 and into every entry of S15F4, and disposes nothing it was
+    /// handed - so a store may return the item it is holding, and a store that holds bytes may
+    /// return a fresh one. The two shipped here do one each and no host can tell, and the rule
+    /// reaches <see cref="GetNamespaceAttributeAsync"/> and
+    /// <see cref="RecipeInMemoryStore.Owner"/> unchanged. This is the contract
+    /// <c>IItemStore.AttributesAsync</c> states for the same pair of E39 items in
+    /// <c>Barbatos.SecsGem.ItemTransfer</c>, and saying it in one place per interface is what the
+    /// sweep for this defect was short of: the rule was in the codec's remarks and nowhere a store's
+    /// author would read it.
+    /// </para>
     /// </remarks>
     ValueTask<SecsItem?> GetAttributeAsync(
         string recipeNamespace,
@@ -430,6 +442,12 @@ public interface IRecipeStore
     /// <see langword="null"/> and S15F52 goes out with a zero-length value - the way five served
     /// rows in three packages say no without an acknowledgement item. There is no code to tell
     /// "no such namespace" from "no such attribute", and the row has no item for one.
+    /// </para>
+    /// <para>
+    /// <strong>What comes back stays the store's</strong>, as it does at
+    /// <see cref="GetAttributeAsync"/> and for the identical reason: S15F52 is built by the same
+    /// code as S15F28 and it copies. Said here as well as there because a rule a store's author
+    /// has to go looking for is the rule that was missed once already.
     /// </para>
     /// </remarks>
     ValueTask<SecsItem?> GetNamespaceAttributeAsync(

@@ -38,14 +38,20 @@ namespace Barbatos.SecsGem.ItemTransfer;
 /// <para>
 /// <strong>An attribute is kept as the bytes it arrived in and decoded again for every
 /// request</strong>, where the in-memory store keeps the caller's own <c>SecsItem</c>. Necessary
-/// here, because a record is bytes - and safer, though the margin is narrower than it looks:
-/// <c>ItemTransferCodec.AttributeBody</c> puts an attribute's value <em>into</em> the reply it
-/// builds, a reply is disposed once it has been sent, and disposing a list disposes its children.
-/// For a small value that costs nothing, since an unpooled payload owns nothing to release; an
-/// attribute past <c>SecsCodecOptions.PooledPayloadThreshold</c> would have its buffer handed back
-/// to the pool after the first request and handed out again on the second. Keeping bytes also means
-/// <see cref="AddAsync"/> copies what it is given, so a caller may dispose the items it built -
-/// which <c>ItemInMemoryStore.Add</c> does not allow, because it keeps them.
+/// here, because a record is bytes - and it is also what made this store the safe one while
+/// <c>ItemTransferCodec.AttributeBody</c> still put a store's value straight <em>into</em> the
+/// reply it builds. The codec copies now, so both stores are safe and the difference a caller can
+/// still see is <see cref="AddAsync"/> copying what it is given: items built for this store may be
+/// disposed as soon as it returns, which <c>ItemInMemoryStore.Add</c> does not allow, because it
+/// keeps them.
+/// </para>
+/// <para>
+/// The copy the codec makes means a fresh item decoded here is read once and dropped, which costs
+/// the rented buffer behind an attribute past <c>SecsCodecOptions.PooledPayloadThreshold</c> - the
+/// pool allocates another. Decoding unpooled instead would trade that for a plain array, and a
+/// large enough attribute would land on the Large Object Heap, which this repository does not
+/// allow anywhere. So the rental is the cheaper of the two, and it is a cost rather than a defect:
+/// a buffer nobody hands back is never lent out again.
 /// </para>
 /// <para>
 /// <strong>What a restart keeps is what was sent; the grants are not.</strong> The items, their
@@ -265,9 +271,10 @@ public sealed class ItemFileStore : IItemStore
 
     /// <inheritdoc />
     /// <remarks>
-    /// Every call decodes the stored bytes afresh, so the items handed back are the caller's and
-    /// may be disposed with the reply they go into. That is the difference this store's remarks
-    /// explain: an attribute kept as a live item would be handed out twice and disposed once.
+    /// Every call decodes the stored bytes afresh, so no two callers ever share an item and this
+    /// store holds nothing a reply could reach into. The items are read, copied into the reply by
+    /// the codec and dropped; see this type's remarks for what that costs and why it is still the
+    /// cheaper of the two readings.
     /// </remarks>
     public ValueTask<IReadOnlyList<ItemAttribute>> AttributesAsync(
         ItemAttributeRequest request,
