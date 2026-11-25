@@ -1468,6 +1468,22 @@ internal static class Program
             Console.WriteLine($"   S6F27 -> CEID {ProcessEndEvent} has report(s) {string.Join(", ", linked)}");
             ok &= linked.Contains(HostReport);
 
+            // S6F29: the family's own enable, and a different switch from the S2F37 further up.
+            // That one says whether the event reports at all; this says whether the machine may
+            // announce it as a notification report rather than as S6F3 or S6F11. The row was
+            // refused here for chapters over NRED, which nothing defines - and it stands where
+            // S2F37 puts a defined BOOLEAN, so a boolean is what it is.
+            var off = await host.EnableNotificationReportAsync(false, ProcessEndEvent, cancellationToken);
+            var suppressed = await equipment.SendNotificationReportAsync(ProcessEndEvent, cancellationToken);
+            var on = await host.EnableNotificationReportAsync(true, ProcessEndEvent, cancellationToken);
+
+            Console.WriteLine(
+                $"   S6F29 -> disabled {off}, the machine then sent {suppressed}, re-enabled {on}");
+
+            ok &= off == GemReportAcknowledgement.Accepted;
+            ok &= !suppressed;
+            ok &= on == GemReportAcknowledgement.Accepted;
+
             // S6F9 and S6F7, the two rows of stream 6 with no CEID in them at all: a block of data
             // and the number the machine filed it under. V has no definition in the reference, so
             // the item travels exactly as it is given - the reading S6F11 already uses.

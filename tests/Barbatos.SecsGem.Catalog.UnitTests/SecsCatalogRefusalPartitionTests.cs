@@ -12,11 +12,18 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Fifty-nine of the reference's two hundred and seventy-four primaries are not declared anywhere
+/// Fifty-eight of the reference's two hundred and seventy-four primaries are not declared anywhere
 /// here. <strong>This file is that list, and it is a partition</strong>: every refused primary
 /// appears exactly once, under the one measure that decides it. A row with two reasons is filed
 /// under the one that would still refuse it if the other were answered - which is the lesson of the
 /// refusals that fell, because in every one of those the weaker reason was doing the work.
+/// </para>
+/// <para>
+/// It was fifty-nine until the chapter that re-read <strong>"the field the row turns on"</strong>,
+/// and S6F29 is the row that left: <c>NRED</c> is the flag that row exists to carry, which is what
+/// the measure says, and it stands in the slot S2F37's defined <c>BOOLEAN CEED</c> stands in - same
+/// two items, same order, same direction, and S2F37 served here. A flag read as a boolean needs no
+/// code table to be told from its opposite, so <c>Barbatos.SecsGem.Gem</c> serves the row.
 /// </para>
 /// <para>
 /// <strong>Two measures have been read as measures rather than as labels, and between them they
@@ -109,26 +116,22 @@ public class SecsCatalogRefusalPartitionTests
     [
         // ---------------------------------------------------------- the field the row turns on
         new(2, 19, Reason.FieldTheRowTurnsOn, "RSTC"),
+        // CELLNAME is the one case in the repository where the slot question has a NEGATIVE answer
+        // and that is itself the reason. S6F21 is S6F11 item for item - DATAID, CEID, then a name,
+        // then V - so there IS a defined item in the slot: RPTID, a U4. A U4 is not what a thing
+        // called CELLNAME can be, so the slot gives a format that contradicts the item's own name,
+        // and a reading the row refutes is no reading at all. S6F29's NRED went the other way and
+        // is served.
         new(6, 21, Reason.FieldTheRowTurnsOn, "CELLNAME"),
-        new(6, 29, Reason.FieldTheRowTurnsOn, "NRED"),
         new(14, 23, Reason.FieldTheRowTurnsOn, "ENABLE"),
         new(15, 33, Reason.FieldTheRowTurnsOn, "RCPSTATE"),
         new(15, 37, Reason.FieldTheRowTurnsOn, "RCPEXIST"),
-        new(15, 39, Reason.FieldTheRowTurnsOn, "SPACEAVAIL"),
         new(15, 41, Reason.FieldTheRowTurnsOn, "AUTOSEL"),
         new(15, 45, Reason.FieldTheRowTurnsOn, "CMPRESULT"),
 
         // A lock status whose lock state is undefined cannot tell locked from unlocked, which is
         // the whole row; OWNERID refuses it too and is filed where it decides something alone.
         new(20, 25, Reason.FieldTheRowTurnsOn, "RCPLOCK"),
-
-        // The same shape as S14F23's ENABLE, one stream over: an enable-or-disable flag nobody
-        // defined leaves the library unable to tell the two apart.
-        new(20, 29, Reason.FieldTheRowTurnsOn, "NOTIFYENABLE"),
-
-        // And a change report whose kind of change is undefined is a report of nothing in
-        // particular.
-        new(20, 31, Reason.FieldTheRowTurnsOn, "CHANGETYPE"),
 
         // S20F27 is S15F33 under an OBJSPEC, and its twin is filed on this measure for this name.
         new(20, 27, Reason.FieldTheRowTurnsOn, "RCPSTATE"),
@@ -164,6 +167,16 @@ public class SecsCatalogRefusalPartitionTests
         // S19F9 is CKSUM, S21F19 is CHKSUM; the reference defines none of the four, and all four
         // rows are refused for the same reason under four names.
         new(19, 9, Reason.ProducerAndReader, "CKSUM"),
+
+        // The namespace space, moved here from the field measure because the field measure was
+        // answerable and this is not. RMSPACE - the RM family's own space, a defined U4 that names
+        // no row - gives SPACEAVAIL and SPACETOTAL a format by the route CTLJOBID gives CJID one.
+        // What it does not give is a UNIT, and that is fatal in a way stream 21's LENGTH was not:
+        // there the store reports a count it was handed and says so, where here the machine mints
+        // two numbers the host does arithmetic with - it compares the space left against the size
+        // of what it wants to send. A quantity whose unit only one end knows is the producer and
+        // reader problem with the field defined.
+        new(15, 39, Reason.ProducerAndReader, "SPACEAVAIL"),
 
         // ---------------------------------------------------------- two readings, different bytes
         new(15, 27, Reason.ReadingsDiffer, "RCPATTRVAL"),
@@ -221,6 +234,16 @@ public class SecsCatalogRefusalPartitionTests
         new(19, 7, Reason.FirmerRow, "S15F7"),
         new(19, 11, Reason.FirmerRow, "S15F13"),
 
+        // Two of stream 20's, and the first of them cites a row this repository served in the very
+        // chapter that moved it. S20F29 is a notification enable keyed by a CEID, which is S6F29's
+        // two items with the order swapped; S20F31 is a change report keyed by a CEID, which is an
+        // event report, and S6F11 carries any event with any reports. Both were filed on an
+        // undefined name - NOTIFYENABLE and CHANGETYPE - and both names turned out to be readable:
+        // the first off S2F37's and S6F29's defined BOOLEAN, the second off RMCHGTYPE, the RM
+        // family's own change type, a defined U1 with four code values that names no row.
+        new(20, 29, Reason.FirmerRow, "S6F29"),
+        new(20, 31, Reason.FirmerRow, "S6F11"),
+
         // ---------------------------------------------------------- the addition is unobservable
         new(20, 15, Reason.UnobservableAddition, "RMACK has one refusal code"),
 
@@ -258,8 +281,8 @@ public class SecsCatalogRefusalPartitionTests
         var primaries = SecsCatalog.Messages.Count(message => message.IsPrimary);
 
         Assert.Equal(274, primaries);
-        Assert.Equal(59, Refused.Length);
-        Assert.Equal(215, primaries - Refused.Length);
+        Assert.Equal(58, Refused.Length);
+        Assert.Equal(216, primaries - Refused.Length);
 
         // Exactly once each, which is what makes this a partition rather than a list of notes.
         Assert.Equal(
@@ -292,7 +315,7 @@ public class SecsCatalogRefusalPartitionTests
         foreach (var (stream, functions) in new (byte Stream, byte[] Functions)[]
         {
             (2, [19]),
-            (6, [21, 29]),
+            (6, [21]),
             (7, [21]),
             (8, [7, 9]),
             (13, [9]),
@@ -367,12 +390,12 @@ public class SecsCatalogRefusalPartitionTests
 
         foreach (var (reason, count) in new (Reason Reason, int Count)[]
         {
-            (Reason.FieldTheRowTurnsOn, 15),
-            (Reason.ProducerAndReader, 12),
+            (Reason.FieldTheRowTurnsOn, 11),
+            (Reason.ProducerAndReader, 13),
             (Reason.ReadingsDiffer, 7),
             (Reason.Shape, 6),
             (Reason.NameAlone, 1),
-            (Reason.FirmerRow, 12),
+            (Reason.FirmerRow, 14),
             (Reason.UnobservableAddition, 1),
             (Reason.StandardContradicted, 4),
             (Reason.AddressingMissing, 1),
@@ -543,6 +566,42 @@ public class SecsCatalogRefusalPartitionTests
     }
 
     [Fact]
+    public void A_flag_in_a_defined_booleans_slot_is_readable_and_a_name_in_a_U4s_slot_is_not()
+    {
+        // The chapter that re-read "the field the row turns on", in one test: the slot question put
+        // to a flag, with an answer each way.
+        //
+        // S6F29 is S2F37's two items in S2F37's order, travelling the same way, and S2F37 is served
+        // here - so NRED stands where the defined BOOLEAN CEED stands, and a boolean tells enable
+        // from disable without a code table. That row is served and is not in this table.
+        Assert.Equal<string[]>(["NRED", "CEID"], [.. Items("S6F29")]);
+        Assert.Equal<string[]>(["CEED", "CEID"], [.. Items("S2F37")]);
+
+        Assert.False(SecsCatalog.TryGetDataItem("NRED", out _));
+        Assert.True(SecsCatalog.TryGetDataItem("CEED", out var enabled));
+        Assert.Equal("BOOLEAN", enabled!.FormatToken);
+
+        Assert.True(SecsCatalog.TryGetMessage(6, 29, out var notificationEnable));
+        Assert.True(SecsCatalog.TryGetMessage(2, 37, out var eventEnable));
+        Assert.Equal(eventEnable!.Direction, notificationEnable!.Direction);
+
+        Assert.DoesNotContain(Refused, refusal => refusal is { Stream: 6, Function: 29 });
+
+        // And the other way, which is the one case here where the slot's answer is itself the
+        // refusal. S6F21 is S6F11 item for item with a name where the report identifier goes, so
+        // there IS a defined item in CELLNAME's slot - RPTID, a U4 - and a U4 is not what a thing
+        // called CELLNAME can be. A slot that contradicts the item's own name has told you nothing.
+        Assert.Equal<string[]>(["DATAID", "CEID", "CELLNAME", "V"], [.. Items("S6F21")]);
+        Assert.Equal<string[]>(["DATAID", "CEID", "RPTID", "V"], [.. Items("S6F11")]);
+
+        Assert.True(SecsCatalog.TryGetDataItem("RPTID", out var reportId));
+        Assert.Equal("U4", reportId!.FormatToken);
+        Assert.False(SecsCatalog.TryGetDataItem("CELLNAME", out _));
+
+        Assert.Contains(Refused, refusal => refusal is { Stream: 6, Function: 21, Reason: Reason.FieldTheRowTurnsOn });
+    }
+
+    [Fact]
     public void The_control_job_rows_are_refused_for_what_they_are_and_not_for_their_identifier()
     {
         // The new measure, and every part of it is in the catalogue rather than in a reading of
@@ -709,10 +768,12 @@ public class SecsCatalogRefusalPartitionTests
             Assert.DoesNotContain((refusal.Stream, refusal.Function), declared);
         }
 
-        // And the rows that are GEM's own subject matter, named so a sweep can see which four the
-        // cross-check actually bites on.
+        // And the rows that are GEM's own subject matter, named so a sweep can see which three the
+        // cross-check actually bites on. It was four until S6F29 went in - and that row is the
+        // reason this assertion earns its place: a chapter that serves a row and forgets to take
+        // it out of the table is caught here rather than by a reader noticing.
         Assert.Equal<string[]>(
-            ["S2F19", "S6F21", "S6F29", "S7F21"],
+            ["S2F19", "S6F21", "S7F21"],
             [
                 .. Refused
                     .Where(refusal => refusal.Stream is 2 or 6 or 7)

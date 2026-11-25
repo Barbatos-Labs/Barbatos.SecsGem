@@ -702,6 +702,11 @@ internal sealed class ChamberRunner(
             // holding it too would double what a host finds waiting after a long absence - which
             // is a thing to demonstrate deliberately rather than as a side effect of a second
             // call in the same loop.
+            //
+            // Which form a machine sends used to be the application's decision alone, because the
+            // message that chooses it - S6F29 - was a row this library refused. It is served now,
+            // so a host that wants only one form disables the other for the CEID and this call
+            // starts answering false without anything here changing.
             if (equipment.IsCommunicating
                 && await equipment.SendNotificationReportAsync(Program.ProcessEndEvent, stoppingToken).ConfigureAwait(false))
             {

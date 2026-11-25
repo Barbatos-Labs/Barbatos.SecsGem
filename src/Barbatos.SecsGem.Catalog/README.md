@@ -560,7 +560,7 @@ for bodies that are actually built and parsed.
 
 ## What this repository does not serve, and which measure decides it
 
-Fifty-nine of the reference's **274 primaries** are declared by nothing in this repository, and 215
+Fifty-eight of the reference's **274 primaries** are declared by nothing in this repository, and 216
 are. After seven chapters spent re-reading those refusals one group at a time, the list is written
 down in one place and asserted as a **partition**: every refused primary appears exactly once, under
 the one measure that decides it. A row with two reasons is filed under the one that would still
@@ -569,17 +569,17 @@ every one of those the weaker reason was doing the work.
 
 | the measure | rows | and what it says |
 | --- | --- | --- |
-| the field the row turns on | 15 | The undefined name is what the message is *for* - `RSTC`, `CELLNAME`, `NRED`, `ENABLE`, `AUTOSEL`, stream 20's `RCPLOCK`, `NOTIFYENABLE` and `CHANGETYPE`, and the `RCPSTATE` that stream 15, 19 and 20 all report - so carrying it untouched would leave a library unable to tell apart the two things its row distinguishes |
-| producer and reader | 12 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, a checksum the receiver has to compute and compare - `CHECKSUM` in streams 15 and 20, `CKSUM` in stream 19, `CHKSUM` in stream 21, and defined under none of the four names - and an `OWNERID` the host mints |
+| the field the row turns on | 11 | The undefined name is what the message is *for* - `RSTC`, `CELLNAME`, `NRED`, `ENABLE`, `AUTOSEL`, stream 20's `RCPLOCK`, `NOTIFYENABLE` and `CHANGETYPE`, and the `RCPSTATE` that stream 15, 19 and 20 all report - so carrying it untouched would leave a library unable to tell apart the two things its row distinguishes |
+| producer and reader | 13 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, a checksum the receiver has to compute and compare - `CHECKSUM` in streams 15 and 20, `CKSUM` in stream 19, `CHKSUM` in stream 21, and defined under none of the four names - and an `OWNERID` the host mints |
 | two readings, different bytes | 7 | A rival or a twin gives the name a second reading and the two disagree - an `A[n]` against E39's list for a recipe attribute, an anagram whose table belongs to another row. Stream 20's attribute rows are stream 15's and carry the same twin |
 | a shape | 6 | The body is a list of entries and no served row settles its nesting - two recipe directories, a revision history, and stream 19's parameter rows. **A flat body of two items has one reading; a list has as many as there are nestings** |
 | a name with no second instance | 1 | S7F21: its object, *Reference*, appears in two of 524 row names - this row and its own acknowledgement - and its reply is only an acknowledgement |
-| a firmer row does the job | 12 | S17F9 and S17F13 against **S2F23**, and six of stream 20's against the stream 15 rows this repository serves - the delete, the namespace create, the download grant, the download send, the upload and the unlock. Four of stream 19's go the same way, once you see that its undefined `RCPNS` stands where the defined `RCPSPEC` stands in six rows the reference names twice. Where two rows do one job, the better-documented source wins |
+| a firmer row does the job | 14 | S17F9 and S17F13 against **S2F23**, and six of stream 20's against the stream 15 rows this repository serves - the delete, the namespace create, the download grant, the download send, the upload and the unlock. Four of stream 19's go the same way, once you see that its undefined `RCPNS` stands where the defined `RCPSPEC` stands in six rows the reference names twice. Where two rows do one job, the better-documented source wins |
 | the addition is unobservable | 1 | S20F15 renames **and** moves in one transaction, where stream 15 needs a copy and a delete. What the single transaction buys is atomicity, and `RMACK` has one refusal code, so a host told *Rejected* cannot learn whether the source survived |
 | the standard is contradicted | 4 | Stream 17's control-job four. The bodies are stream 16's with `PJ` rewritten to `CJ`, S17F1 builds a control job from a `PJID` where E94 builds one from its material, and the only two control-job items the dictionary defines are named by no row - so a codec for them would be this library inventing a wire and calling it E94 |
 | the addressing is missing | 1 | S17F7 alone. `DCID` is its whole body, undefined, named by stream 17 alone, and - unlike `RCPNS` and `CJID`, which both had a defined item in their slot - with no twin row anywhere to read a format off |
 
-**Five of the fifty-nine are gap-free**, and the figure is measured rather than asserted: S7F21,
+**Five of the fifty-eight are gap-free**, and the figure is measured rather than asserted: S7F21,
 S17F9, S17F13, S20F17 and S20F33. Four of those five are refused because a firmer row does their
 job and the fifth for a name, so no gap-free row anywhere here is refused on a field or on a shape.
 S20F15 sits beside them, readable without being gap-free.
@@ -599,7 +599,16 @@ is the dictionary's own control-job identifier. Reading a format off a slot is w
 with stream 8 as the example. Nobody applied it to stream 19 for two chapters.
 
 So **both measures that named a stream rather than a row have now collapsed**, between them
-thirty-eight of the fifty-nine. That is the thing to re-read next, wherever one is left.
+thirty-eight of what were then fifty-nine rows. There is no stream-level measure left, and the
+chapter after went at the largest row-level one instead - *the field the row turns on*, fifteen rows
+- with the question those two had sharpened: **what stands in the gap's slot?** It answered both
+ways. S6F29 is S2F37 item for item, so `NRED` stands where the defined `BOOLEAN CEED` stands, and
+the row is **served** - the first time a chapter here has taken a row out of this table rather than
+moving it. S6F21 is S6F11 item for item, so `CELLNAME`'s slot holds `RPTID`, a `U4`, and a `U4` is
+not what a name can be: a slot that contradicts the item's own name has told you nothing, and that
+row stays. Two more moved to a firmer row once their flags turned out to be readable, and the
+namespace space moved to producer and reader - `RMSPACE` gives it a format and nothing gives it a
+**unit**, which is fatal where the host does arithmetic with the number.
 
 The eleven streams that hold them are 2, 6, 7, 8, 13, 14, 15, 17, 19, 20 and 21; the other nine are
 served whole. `SecsCatalogRefusalPartitionTests` holds the table and the arithmetic, and each

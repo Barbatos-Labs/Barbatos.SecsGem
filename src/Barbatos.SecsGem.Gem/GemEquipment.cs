@@ -239,6 +239,7 @@ public sealed class GemEquipment : IAsyncDisposable
         (6, 7),    // Data Transfer Request
         (6, 17),   // Annotated Individual Report Request
         (6, 27),   // Notification Report Request
+        (6, 29),   // Enable/Disable Notification Report Send
         (2, 27),   // Initiate Processing Request
         (2, 39),   // Multi-block Inquire - the host asking this end, where S6F5 is the reverse
     ];
@@ -846,27 +847,32 @@ public sealed class GemEquipment : IAsyncDisposable
     /// </para>
     /// <para>
     /// So the bytes are <see cref="SendDiscreteVariableDataAsync"/>'s and the row is still its own:
-    /// E5 gives the notification report its own request - S6F27, served here - and its own enable,
-    /// S6F29, which stays out because <c>NRED</c> is the flag that row exists to carry and nothing
-    /// defines it. A machine implementing that family announces with this function rather than
-    /// with F3, and which form to send is the application's to choose, because the switch that
-    /// would choose it is the one message of the family this library cannot carry. A host reads
-    /// which arrived from <c>GemEventReportEventArgs.Function</c>, the property S6F3 added for
-    /// exactly this reason.
+    /// E5 gives the notification report its own request - S6F27 - and its own enable, S6F29, and
+    /// <strong>both are served here now</strong>. The enable was refused for several chapters
+    /// because <c>NRED</c> is the flag the row exists to carry and nothing defines it, which is one
+    /// true half and one that does not follow: <c>NRED</c> stands where S2F37's <c>CEED</c> stands,
+    /// same two items, same order, same direction, and <c>CEED</c> is a defined <c>BOOLEAN</c>. So
+    /// which form to announce with is no longer the application's to guess - a host disables the
+    /// notification form for a CEID and this method answers <see langword="false"/> for it. A host
+    /// still reads which form arrived from <c>GemEventReportEventArgs.Function</c>, the property
+    /// S6F3 added for exactly this reason.
     /// </para>
     /// <para>
-    /// Gated and spooled as <see cref="SendDiscreteVariableDataAsync"/> is: the event has to be one
-    /// this machine declares and the host must not have disabled it, since S2F37 disables a
-    /// <em>CEID</em> and this message names one. S2F43 suppresses it by row like any other report.
+    /// Gated and spooled as <see cref="SendDiscreteVariableDataAsync"/> is, with one gate more: the
+    /// event has to be one this machine declares, the host must not have disabled it with S2F37,
+    /// and the notification form must not be disabled for it with S6F29. S2F43 suppresses it by row
+    /// like any other report.
     /// </para>
     /// <para>
-    /// <strong>Both of those conditions are one test here</strong>, which is worth a line because
-    /// the sibling spells them as two and the first of its two is dead: an event the model does not
+    /// <strong>Those three conditions are two tests here</strong>, which is worth a line because
+    /// the sibling spells its two as two and the first of them is dead: an event the model does not
     /// hold can never be in the enabled set, since <c>GemEquipmentModel</c> answers S2F37 with
     /// <c>UnknownEvent</c> rather than enabling an identifier it does not know. A control removed
     /// the declared-event half and the whole suite stayed green, which is what a condition that
     /// cannot change the answer looks like from the outside - the same finding, in the same class,
-    /// that <c>OnAnnotatedIndividualReportRequest</c> records about its own sibling.
+    /// that <c>OnAnnotatedIndividualReportRequest</c> records about its own sibling. The notifying
+    /// half is the same shape and is <em>not</em> dead: the initial set is every declared event, so
+    /// it only ever differs from the enabled set once a host has sent S6F29.
     /// </para>
     /// </remarks>
     public async ValueTask<bool> SendNotificationReportAsync(
@@ -875,7 +881,10 @@ public sealed class GemEquipment : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (!Model.IsEventEnabled(eventId))
+        // Two switches now, and they are different questions. S2F37 says whether the event reports
+        // at all; S6F29 says whether this machine may announce it in the notification form rather
+        // than with S6F3 or S6F11. The second one arrived when S6F29's refusal was re-read.
+        if (!Model.IsEventEnabled(eventId) || !Model.IsEventNotifying(eventId))
         {
             return false;
         }
@@ -1621,6 +1630,7 @@ public sealed class GemEquipment : IAsyncDisposable
             (6, 7) => OnDataTransferRequest(transaction.Message),
             (6, 17) => OnAnnotatedIndividualReportRequest(transaction.Message),
             (6, 27) => OnNotificationReportRequest(transaction.Message),
+            (6, 29) => OnEnableNotificationReport(transaction.Message),
             (2, 27) => OnInitiateProcessing(transaction.Message),
             (2, 39) => OnMultiBlockInquireRequest(transaction.Message),
             (2, 43) => OnSpoolReset(transaction.Message),
@@ -2182,6 +2192,50 @@ public sealed class GemEquipment : IAsyncDisposable
         {
             Name = "LinkEventReportAcknowledge",
             Item = SecsItem.B((byte)lrack).Named("LRACK"),
+        };
+    }
+
+    /// <summary>Answers S6F29 by turning the notification form on or off for one event.</summary>
+    /// <param name="request">S6F29: NRED and a CEID.</param>
+    /// <returns>S6F30 carrying ACKC6.</returns>
+    /// <remarks>
+    /// <para>
+    /// The row this library refused for several chapters, and the reason it gave was that
+    /// <c>NRED</c> is undefined and is the flag the row exists to carry. The second half is true
+    /// and the first does not follow: <c>NRED</c> stands where <c>CEED</c> stands at S6F29's
+    /// sibling S2F37 - the same two items in the same order, travelling the same way, and S2F37 is
+    /// served here - and <c>CEED</c> is a defined <c>BOOLEAN</c>. So the format comes off the row,
+    /// which is what stream 8 did for <c>CPBODY</c>, and a boolean needs no code table to be told
+    /// from its opposite.
+    /// </para>
+    /// <para>
+    /// <strong>One event, and an undeclared one is refused.</strong> <c>ACKC6</c> has a single
+    /// refusal code, so S6F30 cannot say which of the two things went wrong - a body that made no
+    /// sense or a CEID this machine does not hold - and both arrive as
+    /// <see cref="GemReportAcknowledgement.Error"/>. That is the item's limit and not a choice
+    /// here: four rows of this stream answer with it and it has named nothing but accepted since
+    /// the reference was written.
+    /// </para>
+    /// </remarks>
+    private SecsMessage OnEnableNotificationReport(SecsMessage request)
+    {
+        var ackc6 = GemReportAcknowledgement.Error;
+
+        if (request.Item is { IsList: true, Count: 2 } body)
+        {
+            var notifying = body[0].FirstValueOrDefault<bool>();
+            var ids = ReadIdList(body[1]);
+
+            if (ids.Count == 1 && ids[0] <= uint.MaxValue)
+            {
+                ackc6 = Model.SetEventNotifying((uint)ids[0], notifying);
+            }
+        }
+
+        return new SecsMessage(6, 30, replyExpected: false)
+        {
+            Name = "EnableDisableNotificationReportAcknowledge",
+            Item = SecsItem.B((byte)ackc6).Named("ACKC6"),
         };
     }
 

@@ -360,7 +360,7 @@ stack reads that and uses `ERRCODE` as the reason beside it; `GemExceptionAbortR
 that with S5F18's `ACKA`. This row has nothing to play that part.
 
 A row is refused for an uninterpretable field only when that field is **the one the message turns
-on** - `ENABLE`, `NRED`, `CHKSUM`. What S4F19 turns on is the job and the link, and both are
+on** - `ENABLE`, `CELLNAME`, `CHKSUM`. What S4F19 turns on is the job and the link, and both are
 defined.
 
 ## What is not here yet

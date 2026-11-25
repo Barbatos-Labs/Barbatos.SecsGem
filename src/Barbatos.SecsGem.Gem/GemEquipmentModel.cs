@@ -56,6 +56,14 @@ public sealed class GemEquipmentModel
             reports.ToFrozenDictionary(report => report.Id, report => report.VariableIds.ToArray()),
             FrozenDictionary<uint, uint[]>.Empty,
             events.Values.Where(e => e.EnabledByDefault).Select(e => e.Id).ToFrozenSet(),
+
+            // Every declared event may be announced as a notification report until a host says
+            // otherwise, and the default is not a preference. S6F29 carries no default and there
+            // is no configuration flag for one, so the alternative - starting empty - would
+            // silently switch off a capability this library already serves, where starting full
+            // leaves SendNotificationReportAsync answering exactly as it did before the switch
+            // existed. A host that does not want the form disables it.
+            events.Keys.ToFrozenSet(),
             alarms.Values.Where(a => a.EnabledByDefault).Select(a => a.Id).ToFrozenSet(),
 
             // No limits until a host asks for some. They live here rather than on the variable
@@ -100,6 +108,26 @@ public sealed class GemEquipmentModel
     /// <param name="eventId">The CEID.</param>
     /// <returns><see langword="true"/> when enabled.</returns>
     public bool IsEventEnabled(uint eventId) => Current.EnabledEvents.Contains(eventId);
+
+    /// <summary>Gets a value indicating whether an event may be announced as a notification report.</summary>
+    /// <param name="eventId">The CEID.</param>
+    /// <returns><see langword="true"/> when the notification form is enabled.</returns>
+    /// <remarks>
+    /// <para>
+    /// S6F29's switch, and a different one from <see cref="IsEventEnabled"/>. S2F37 decides whether
+    /// an event reports at all; this decides whether the machine may announce it with S6F25, the
+    /// notification form, rather than with S6F3 or S6F11. Both have to be true before
+    /// <see cref="GemEquipment.SendNotificationReportAsync"/> sends anything.
+    /// </para>
+    /// <para>
+    /// The row that carries it was refused here for several chapters because <c>NRED</c> is
+    /// undefined, and that reading did not survive a re-read: <c>NRED</c> stands in the slot
+    /// <c>CEED</c> stands in at S2F37 - same two items, same order, same direction, and S2F37 is
+    /// served - and <c>CEED</c> is a defined <c>BOOLEAN</c>. A flag read as a boolean needs no code
+    /// table to be told apart from its opposite.
+    /// </para>
+    /// </remarks>
+    public bool IsEventNotifying(uint eventId) => Current.NotifyingEvents.Contains(eventId);
 
     /// <summary>Gets a value indicating whether an alarm currently reports.</summary>
     /// <param name="alarmId">The ALID.</param>
@@ -294,6 +322,49 @@ public sealed class GemEquipmentModel
         }
     }
 
+    /// <summary>Applies an S6F29 notification enable or disable.</summary>
+    /// <param name="eventId">The CEID whose notification form is changing.</param>
+    /// <param name="notifying">Whether the machine may announce it with S6F25.</param>
+    /// <returns>The ACKC6 to answer with.</returns>
+    /// <remarks>
+    /// <para>
+    /// One event per message, because the row carries one <c>CEID</c> and not a list - which is the
+    /// difference from <see cref="SetEventsEnabled"/>, where an empty list means every event.
+    /// </para>
+    /// <para>
+    /// <strong>And zero is an identifier here, not "every event".</strong>
+    /// <see cref="SetAlarmEnabled"/> reads a zero <c>ALID</c> as all of them because E30 says so
+    /// for S5F3; nothing says anything of the sort for S6F29, so reading it that way would be
+    /// inventing a wildcard a host could trip over. An undeclared event is answered
+    /// <see cref="GemReportAcknowledgement.Error"/>, which is the only refusal <c>ACKC6</c> has.
+    /// </para>
+    /// </remarks>
+    public GemReportAcknowledgement SetEventNotifying(uint eventId, bool notifying)
+    {
+        lock (_gate)
+        {
+            if (!Events.ContainsKey(eventId))
+            {
+                return GemReportAcknowledgement.Error;
+            }
+
+            var state = Current;
+            var set = new HashSet<uint>(state.NotifyingEvents);
+
+            if (notifying)
+            {
+                set.Add(eventId);
+            }
+            else
+            {
+                set.Remove(eventId);
+            }
+
+            Publish(state with { NotifyingEvents = set.ToFrozenSet() });
+            return GemReportAcknowledgement.Accepted;
+        }
+    }
+
     /// <summary>Applies an S5F3 alarm enable or disable.</summary>
     /// <param name="alarmId">The ALID, or zero for every alarm.</param>
     /// <param name="enabled">Whether it should report.</param>
@@ -448,6 +519,7 @@ public sealed class GemEquipmentModel
         FrozenDictionary<uint, uint[]> Reports,
         FrozenDictionary<uint, uint[]> EventLinks,
         FrozenSet<uint> EnabledEvents,
+        FrozenSet<uint> NotifyingEvents,
         FrozenSet<ulong> EnabledAlarms,
         FrozenDictionary<uint, GemVariableLimit[]> Limits);
 }

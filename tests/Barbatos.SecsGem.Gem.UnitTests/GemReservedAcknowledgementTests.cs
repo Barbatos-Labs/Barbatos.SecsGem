@@ -185,6 +185,16 @@ public class GemReservedAcknowledgementTests
             host => host.InquireMultiBlockAsync(41, 70_000, GemPair.Token),
             (byte)GemGrant.Other);
 
+        // ACKC6, and it is the first site in this repository that READS that item. Every other
+        // ACKC6 in the package writes one, because the host is the end that acknowledges a report
+        // - until S6F29, where the host sends the primary and the equipment answers. The reader
+        // was written with a boundary of 2 and corrected to 1 before this line existed: the table
+        // names zero and reserves 1 to 63, so Error is both the only refusal and the whole
+        // reserved range, exactly as Denied is for the spool reply above.
+        await DriveAsync(6, 29, 30, "ACKC6",
+            host => host.EnableNotificationReportAsync(false, 1, GemPair.Token),
+            (byte)GemReportAcknowledgement.Error);
+
         // RSPACK's drive is not here and that is deliberate: S2F44 carries a list, not a bare
         // code, so DriveAsync cannot write the reply - and ResetSpoolingAsync hands back a record
         // rather than an enum, so it does not fit the signature either. It is driven in

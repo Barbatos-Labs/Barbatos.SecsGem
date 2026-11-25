@@ -139,7 +139,9 @@ public class SecsCatalogStream2Tests
 
         // And it is the field the message turns on: a reset code is *which* reset. Carrying it
         // untouched would leave this library unable to tell one reset from another, which is the
-        // rule that kept ENABLE, NRED, CELLNAME and CHKSUM out.
+        // rule that keeps ENABLE, CELLNAME and CHKSUM out. NRED was on that list until a chapter
+        // asked what stands in its slot and found S2F37's defined BOOLEAN; RSTC has no such row,
+        // being the entire body of the only message that names it.
         Assert.Equal<byte[]>([19], [.. Stream().Messages.Where(m => m.DataItems.Contains("RSTC", StringComparer.Ordinal)).Select(m => m.Function)]);
 
         // Its acknowledgement is undefined too, which is the only row in the stream where both

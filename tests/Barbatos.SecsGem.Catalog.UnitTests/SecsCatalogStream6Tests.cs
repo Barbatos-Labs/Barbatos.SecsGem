@@ -188,16 +188,21 @@ public class SecsCatalogStream6Tests
     }
 
     [Fact]
-    public void The_two_gaps_that_do_block_a_row_are_each_the_only_thing_that_row_is_for()
+    public void The_one_gap_that_does_block_a_row_is_the_only_thing_that_row_is_for()
     {
         var stream = Stream();
 
         // The other half of reading an own gap twice. V is a payload, so carrying it untouched
-        // leaves the message usable. These two are not payloads: CELLNAME is what makes S6F21 a
-        // *cell* report rather than the event report it is otherwise identical to, and NRED is the
-        // enable-or-disable flag S6F29 exists to carry. Carrying either opaquely would leave this
-        // library unable to tell the two things the row distinguishes.
-        foreach (var (name, function) in new[] { ("CELLNAME", (byte)21), ("NRED", (byte)29) })
+        // leaves the message usable. CELLNAME is not a payload: it is what makes S6F21 a *cell*
+        // report rather than the event report it is otherwise identical to, and carrying it
+        // opaquely would leave this library unable to tell the two things the row distinguishes.
+        //
+        // NRED was the second name here and is not any more. Both rows were read the same way for
+        // chapters, and the slot separates them: S6F21 is S6F11 item for item, so CELLNAME's slot
+        // holds RPTID - a U4, which a name cannot be - while S6F29 is S2F37 item for item, so
+        // NRED's slot holds CEED, a defined BOOLEAN that says exactly what a flag needs. The second
+        // row is served; the first is still here.
+        foreach (var (name, function) in new[] { ("CELLNAME", (byte)21) })
         {
             Assert.False(SecsCatalog.TryGetDataItem(name, out _), name);
 

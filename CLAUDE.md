@@ -413,21 +413,26 @@ streams were. Both are finished now - stream 6 served five of its last seven pai
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about.
 
-**And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 215 of the reference's 274
-primaries are declared and the other **fifty-nine are a partition** - each appears exactly once,
+**And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 216 of the reference's 274
+primaries are declared and the other **fifty-eight are a partition** - each appears exactly once,
 under the one measure that decides it, and a row with two reasons is filed under the one that would
 still refuse it if the other were answered. The **nine** measures and their counts: the field the
-row turns on (15), producer and reader (12), two readings that differ (7), a shape (6), a name with
-no second instance (1), a firmer row does the job (12), the addition is unobservable (1), the
-standard is contradicted (4), the addressing is missing (1). Eleven streams hold them and the other nine are served whole. **Five of
-the fifty-nine are gap-free** - S7F21, S17F9, S17F13, S20F17 and S20F33 - and four of those five
-are refused because a firmer row does their job, so no gap-free row here is refused on a field or on
-a shape. Re-read a refusal by starting from its row in that table, and if the table is what turns
-out to be wrong, that is the chapter - which is how it came to have nine measures instead of the
-seven it shipped with, and why the figure above reads five where it read twenty-five. Two of the
-nine new or re-read measures were stream-level verdicts holding thirty-eight rows between them, and
-both collapsed when somebody read their rows one at a time: **a measure that names a stream rather
-than a row is the one to re-read next.**
+row turns on (11), producer and reader (13), two readings that differ (7), a shape (6), a name with
+no second instance (1), a firmer row does the job (14), the addition is unobservable (1), the
+standard is contradicted (4), the addressing is missing (1). Eleven streams hold them and the other
+nine are served whole. **Five of the fifty-eight are gap-free** - S7F21, S17F9, S17F13, S20F17 and
+S20F33 - and four of those five are refused because a firmer row does their job, so no gap-free row
+here is refused on a field or on a shape.
+
+Re-read a refusal by starting from its row in that table, and if the table is what turns out to be
+wrong, that is the chapter - which is how it came to have nine measures instead of the seven it
+shipped with, and why the figure above reads five where it read twenty-five. **Three chapters have
+re-read a measure and all three moved rows out of it.** Two were stream-level verdicts holding
+thirty-eight rows between them and both collapsed, which retired the rule they taught: a measure
+that names a stream rather than a row is the one to re-read next, and there is none left. The third
+went at the largest row-level measure with the question those two had sharpened - what stands in the
+gap's slot - and it is the only chapter so far that took a row **out** of the table rather than
+moving it: S6F29 is served, which is where the 216 and the fifty-eight come from.
 
 What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned
@@ -668,6 +673,17 @@ would leave the library unable to tell the two apart, which is the same reason s
 S21F19 stays out on `CHKSUM`. Look at where the gap sits in the row, not just at how many there
 are.
 
+**And then read it a THIRD time, for what stands in the gap's slot.** That is what emptied a
+quarter of the field measure. S6F29's `NRED` was the twin of `ENABLE` in every citation here - an
+enable-or-disable flag nobody defined - and S6F29 is S2F37 item for item, same order and same
+direction, so `NRED` stands where the defined `BOOLEAN CEED` stands. **A flag read as a boolean
+needs no code table to be told from its opposite**, so the row went in. The same question answers
+the other way at S6F21, which is the sharper half: `CELLNAME`'s slot is not empty either - S6F21 is
+S6F11 item for item, so the slot holds `RPTID`, a `U4` - and a `U4` is not what a thing called
+`CELLNAME` can be. **A slot that contradicts the item's own name has told you nothing**, which is
+the one place in this repository where the slot question answers against the row. So the field
+measure now means: the row turns on this field, AND nothing stands in its slot that could be read.
+
 **A refusal's stated reason is part of the API and goes stale like the rest of it.** Both stream 4
 refusals were argued from the message rows when the answer was in the item dictionary: one said a
 transfer job has no state model anywhere in the reference, where `TRJOBMS` names six states; the
@@ -687,7 +703,7 @@ believing it.
 `ERRCODE` has none either, so S4F20 carries no tabled item and a host cannot read a verdict off it.
 That is a reason to invent no verdict, not a reason to leave the row out: carrying a field nobody
 defined is what this repository does for every own gap, and a row is refused for an uninterpretable
-field only when that field is the one the message turns on - `ENABLE`, `NRED`, `CHKSUM`. What S4F19
+field only when that field is the one the message turns on - `ENABLE`, `CELLNAME`, `CHKSUM`. What S4F19
 turns on is its job and its link, and both are defined. So `ERRCODE` is a **reason, never a
 verdict**: where a row carries a tabled item, read that and put `ERRCODE` beside it, as
 `GemExceptionAbortResult` does with `ACKA`; where it carries none, hand all the fields back

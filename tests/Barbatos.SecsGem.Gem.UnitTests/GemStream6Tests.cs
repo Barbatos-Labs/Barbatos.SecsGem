@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace Barbatos.SecsGem.Gem.UnitTests;
 
 /// <summary>
-/// The five pairs of stream 6 that went in after the gapless sweep, driven end to end.
+/// The six pairs of stream 6 that went in after the gapless sweep, driven end to end.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -16,8 +16,17 @@ namespace Barbatos.SecsGem.Gem.UnitTests;
 /// one of its remaining rows had to be read twice - once for whether the field is defined, and once
 /// for what the field is <em>to the message</em>. <c>V</c> is a payload and is carried untouched,
 /// which is not an invention: S6F11 carries it too and is a row the reference illustrates in full.
-/// <c>CELLNAME</c> and <c>NRED</c> are what their rows are <em>for</em>, so those two stay out.
+/// <c>CELLNAME</c> and <c>NRED</c> are what their rows are <em>for</em>, so those two stayed out.
 /// <c>SecsCatalogStream6Tests</c> holds the measurements.
+/// </para>
+/// <para>
+/// <strong>And one of those two came back, which is why the field measure needed a third reading.</strong>
+/// "What the field is to the message" is not the last question: there is also what stands in the
+/// field's <em>slot</em>. S6F29 is S2F37 item for item - <c>NRED</c> where the defined
+/// <c>BOOLEAN CEED</c> goes, same order, same direction - so the flag is a boolean and a boolean
+/// needs no code table to be told from its opposite. <c>CELLNAME</c> has a slot too and it answers
+/// the other way: S6F21 is S6F11 item for item, so the slot holds <c>RPTID</c>, a <c>U4</c>, which
+/// is not what a thing called <c>CELLNAME</c> can be.
 /// </para>
 /// <para>
 /// <strong>The fifth went in on a different measure, a chapter later.</strong> S6F25 has no
@@ -574,5 +583,118 @@ public class GemStream6Tests
             // has to come back as itself.
             Assert.Equal("NotificationReportSend", held.Name);
         }
+    }
+
+    // ----------------------------------------------------------------- S6F29 and S6F30
+
+    [Fact(Timeout = 15_000)]
+    public async Task The_notification_enable_moves_one_switch_and_leaves_the_other()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        // Both on to begin with, which is the default the row needed: nothing in the reference
+        // gives one and there is no configuration flag for it, so starting empty would have
+        // switched off a capability this library already served.
+        Assert.True(pair.Equipment.Model.IsEventEnabled(1_000));
+        Assert.True(pair.Equipment.Model.IsEventNotifying(1_000));
+
+        Assert.Equal(
+            GemReportAcknowledgement.Accepted,
+            await pair.Host.EnableNotificationReportAsync(false, 1_000, GemPair.Token));
+
+        // One moved and one did not, which is the whole reason the row is not a duplicate of
+        // S2F37: that one says whether the event reports at all, this one says whether it may be
+        // announced in the notification form.
+        Assert.False(pair.Equipment.Model.IsEventNotifying(1_000));
+        Assert.True(pair.Equipment.Model.IsEventEnabled(1_000));
+
+        Assert.False(await pair.Equipment.SendNotificationReportAsync(1_000, GemPair.Token));
+
+        // And the other form still goes. Two switches rather than one switch with two names.
+        Assert.True(await pair.Equipment.SendDiscreteVariableDataAsync(1_000, GemPair.Token));
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task Enabling_it_again_brings_the_form_back()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        await pair.Host.EnableNotificationReportAsync(false, 1_000, GemPair.Token);
+
+        Assert.Equal(
+            GemReportAcknowledgement.Accepted,
+            await pair.Host.EnableNotificationReportAsync(true, 1_000, GemPair.Token));
+
+        Assert.True(pair.Equipment.Model.IsEventNotifying(1_000));
+        Assert.True(await pair.Equipment.SendNotificationReportAsync(1_000, GemPair.Token));
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task An_event_the_machine_does_not_hold_gets_the_one_refusal_ACKC6_has()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        Assert.Equal(
+            GemReportAcknowledgement.Error,
+            await pair.Host.EnableNotificationReportAsync(false, 9_999, GemPair.Token));
+
+        // Nothing changed for the events it does hold, which is what makes the refusal a refusal
+        // rather than a partial application.
+        Assert.True(pair.Equipment.Model.IsEventNotifying(1_000));
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task The_flag_is_a_boolean_on_the_wire_and_a_body_that_is_not_two_items_is_refused()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        // Read as a frame rather than through the API, because what the row was refused over is
+        // the format of this one item: NRED stands where S2F37 puts a defined BOOLEAN, so a
+        // boolean is what the machine reads - and a bare B[1] comes back, which is ACKC6 and not
+        // a list.
+        using var accepted = await pair.AskEquipmentAsync(new SecsMessage(6, 29, replyExpected: true)
+        {
+            Name = "EnableDisableNotificationReportSend",
+            Item = SecsItem.L(SecsItem.Boolean(false).Named("NRED"), SecsItem.U4(1_000u).Named("CEID")),
+        });
+
+        Assert.Equal(30, accepted.F);
+        Assert.False(accepted.Item!.IsList);
+        Assert.Equal((byte)GemReportAcknowledgement.Accepted, accepted.Item.FirstValueOrDefault<byte>());
+        Assert.False(pair.Equipment.Model.IsEventNotifying(1_000));
+
+        // And a body the row cannot be: one item where it wants two. ACKC6 has a single refusal
+        // code, so this is the same Error an unknown CEID gets - the item cannot tell them apart
+        // and the reply does not pretend to.
+        using var refused = await pair.AskEquipmentAsync(new SecsMessage(6, 29, replyExpected: true)
+        {
+            Name = "EnableDisableNotificationReportSend",
+            Item = SecsItem.L(SecsItem.Boolean(true).Named("NRED")),
+        });
+
+        Assert.Equal((byte)GemReportAcknowledgement.Error, refused.Item!.FirstValueOrDefault<byte>());
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_re_establish_restores_the_form_because_the_switch_is_the_hosts()
+    {
+        await using var pair = GemPair.Start(Model);
+        await pair.OpenAsync();
+
+        await pair.Host.EnableNotificationReportAsync(false, 1_000, GemPair.Token);
+
+        Assert.False(pair.Equipment.Model.IsEventNotifying(1_000));
+
+        // Reset is what a re-establish calls, and it puts the link state back to what the model was
+        // built with - so this switch comes back on with the report definitions and the links. A
+        // host that reconnects has no reason to believe its S6F29 survived, for the same reason it
+        // has none about its S2F33.
+        pair.Equipment.Model.Reset();
+
+        Assert.True(pair.Equipment.Model.IsEventNotifying(1_000));
     }
 }

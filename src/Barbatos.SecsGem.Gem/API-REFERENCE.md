@@ -102,7 +102,7 @@ sits on one `HsmsConnection`; it does not run the connection, it uses it.
 | Member | Signature | Notes |
 | --- | --- | --- |
 | ctor | `GemEquipment(GemOptions options, GemEquipmentModel model, HsmsConnection connection, TimeProvider? timeProvider = null, ILogger<GemEquipment>? logger = null, IGemProcessProgramStore? processPrograms = null, IGemSpool? spool = null, IGemFormattedProcessProgramStore? formattedProcessPrograms = null)` | `null` provider means `TimeProvider.System`; `null` logger discards diagnostics. The last three are the opt-in capabilities, and `null` in each leaves its messages undeclared rather than declared and refused. |
-| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The twenty-four core pairs. Registering them is how the equipment declares its capability - see below. |
+| `HandledMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The **thirty-four** core pairs. Registering them is how the equipment declares its capability - see below. This read *twenty-four* until the chapter that added S6F29 counted it: the figure had been stale for nine rows and nothing pinned it, so `GemHostTests` asserts it now - the same reason every count in `Barbatos.SecsGem.Catalog` is asserted rather than written. |
 | `ProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | The eleven unformatted stream 7 pairs - S7F1, S7F3, S7F5, S7F7, S7F9, S7F31, S7F37, S7F41, S7F43, and the S7F17/S7F19 that every half of stream 7 shares - registered only when a store is configured. Kept separate so equipment with no recipes answers S9F3 for stream 7 rather than refusing each message in turn, which is also why the two program-related remote commands are here rather than with the core set that owns their command table. |
 | `FormattedProcessProgramMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F23, S7F25, S7F27, S7F33 and S7F35, registered only when a formatted store is configured. Independent of `ProcessProgramMessages`, and disjoint from it: a stream and function may be declared only once. |
 | `ProcessProgramMatrixMessages` | `static IReadOnlyList<(byte Stream, byte Function)> { get; }` | S7F11, S7F13 and S7F15, registered only when a matrix store is configured. Stream 7's third capability and the smallest: E5 gives the matrix no request, no directory and no delete, so the list is three primaries and `IGemProcessProgramMatrixStore` is three methods. **Not covered by S7F17, S7F19 or S7F31** - those rows say *process program*, and the matrix rows are item for item the plain ones, so letting a matrix into the directory a host reads is exactly the confusion these rows were refused over. |
@@ -286,11 +286,13 @@ What the equipment publishes, plus the link state the host configures at run tim
 | `VariablesForReport` | `IReadOnlyList<uint> VariablesForReport(uint reportId)` | Empty when not defined. |
 | `ReportsForEvent` | `IReadOnlyList<uint> ReportsForEvent(uint eventId)` | Empty when nothing is linked. |
 | `IsEventEnabled` | `bool IsEventEnabled(uint eventId)` | |
+| `IsEventNotifying` | `bool IsEventNotifying(uint eventId)` | S6F29's switch, and a different question: S2F37 says whether the event reports, this says whether it may be announced with S6F25. Every declared event starts notifying |
 | `IsAlarmEnabled` | `bool IsAlarmEnabled(ulong alarmId)` | |
 | `Reset` | `void Reset()` | Back to what the model was built with. Called when communication is re-established. |
 | `DefineReports` | `GemDefineReportAcknowledgement DefineReports(IReadOnlyList<(uint ReportId, IReadOnlyList<uint> VariableIds)> definitions)` | S2F33. Empty list deletes every report **and** every link; an entry with no variables deletes that one. |
 | `LinkEventReports` | `GemLinkReportAcknowledgement LinkEventReports(IReadOnlyList<(uint EventId, IReadOnlyList<uint> ReportIds)> links)` | S2F35. Empty list deletes every link; an entry with no reports deletes that event's. |
 | `SetEventsEnabled` | `GemEnableEventAcknowledgement SetEventsEnabled(IReadOnlyList<uint> eventIds, bool enabled)` | S2F37. Empty list means every event. |
+| `SetEventNotifying` | `GemReportAcknowledgement SetEventNotifying(uint eventId, bool notifying)` | S6F29. One event, because the row carries one `CEID` and not a list - and zero is an identifier here rather than "every event", because nothing says otherwise. An undeclared event gets `Error`, the only refusal `ACKC6` has |
 | `SetAlarmEnabled` | `GemAlarmAcknowledgement SetAlarmEnabled(ulong alarmId, bool enabled)` | S5F3. Zero means every alarm. |
 
 Reads are lock-free: the mutable state is one immutable value, replaced rather than edited, so an
@@ -1363,11 +1365,18 @@ non-zero member already covered the whole range:
 | `GRANT` | 0-3 | 4-63 | `GemGrant.Other` |
 | `RSPACK` | 0 | 1-63 | `GemSpoolResetAcknowledgement.Error` |
 | `STRACK` | 0 | 1-63 | `GemSpoolResetAcknowledgement.Error` |
+| `ACKC6` | 0 | 1-63 | `GemReportAcknowledgement.Error` |
 
-`ACKC7` is read at **seven** sites now, `PPGNT` at **four**, `CMDA` at **four** and `GRANT` at
-**two**, and the counts matter more than the table above: the stream 7 sweep added two `CMDA`
-readers, a control moved the boundary at one of them, and the whole suite stayed green. The same
-hole `ACKC7` had when one of its three sites was driven.
+`ACKC7` is read at **seven** sites now, `PPGNT` at **four**, `CMDA` at **four**, `GRANT` at
+**two** and `ACKC6` at **one**, and the counts matter more than the table above: the stream 7 sweep
+added two `CMDA` readers, a control moved the boundary at one of them, and the whole suite stayed
+green. The same hole `ACKC7` had when one of its three sites was driven.
+
+`ACKC6`'s single site arrived with S6F29 and is the first time this package has **read** that item:
+every other `ACKC6` here writes one, because the host is the end that acknowledges a report. It was
+written with a boundary of 2 - a value the enum has no member for - and corrected to 1 before the
+drive was added, which is the per-site rule paying for itself on a brand new reader rather than on
+an old one.
 
 **The matrix chapter counted them again and found four readers that had never been driven at
 all** - the plain verify, the formatted verify, the availability question and the formatted load
@@ -1471,6 +1480,7 @@ table claiming it.
 | `DeleteAllReportsAsync` | S2F33, empty | `GemDefineReportAcknowledgement`. Worth doing before defining a set, so a host inherits nothing from whoever had the link last |
 | `LinkEventsAsync(links)` | S2F35 | `GemLinkReportAcknowledgement` |
 | `EnableEventsAsync(enable, ceids)` | S2F37 | `GemEnableEventAcknowledgement`. Empty list means every event |
+| `EnableNotificationReportAsync(enable, ceid)` | S6F29 | `GemReportAcknowledgement`. One event per message. The only site in this package that **reads** `ACKC6` - every other one writes it - so its fold boundary is 1, where `Error` is both the single refusal and the whole reserved range |
 | `SendCommandAsync(command, parameters)` | S2F41 | `GemHostCommandAcknowledgement`. **`CompletionLater` (4) is a success** |
 | `SendRemoteCommandAsync(command)` | S2F21 | `GemRemoteCommandAcknowledgement`. The same command table, the same control-state rule, and three codes instead of seven - so "will complete later" arrives as `CannotPerformNow`. A host that needs the distinction sends S2F41 with an empty parameter list |
 | `InquireServiceProgramAsync(spid, length)` | S2F1 | `GemGrant`. **Not optional before a send**: S2F3 carries no `SPID`, so this is where the identifier comes from. The grant is consumed by one send |

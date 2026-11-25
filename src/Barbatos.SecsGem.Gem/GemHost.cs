@@ -984,6 +984,46 @@ public sealed class GemHost : IAsyncDisposable
         return (GemEnableEventAcknowledgement)ReadNamedCode(reply, 2, "ERACK");
     }
 
+    /// <summary>Enables or disables the notification form of one event - S6F29.</summary>
+    /// <param name="enable">NRED: whether the equipment may announce it with S6F25.</param>
+    /// <param name="ceid">The CEID. One per message, because the row carries one and not a list.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>ACKC6.</returns>
+    /// <remarks>
+    /// <para>
+    /// A different switch from <see cref="EnableEventsAsync"/>. S2F37 decides whether an event
+    /// reports at all; this decides whether the equipment may announce it as a <em>notification</em>
+    /// report rather than as S6F3 or S6F11. Both have to be on before an S6F25 arrives, and every
+    /// declared event starts notifying, so a host that never sends this sees exactly what it saw
+    /// before the row was served.
+    /// </para>
+    /// <para>
+    /// <strong>`ACKC6` has one refusal code</strong>, so a <see cref="GemReportAcknowledgement.Error"/>
+    /// does not say whether the CEID was unknown or the body unreadable. Four rows of this stream
+    /// answer with that item and it has named nothing but accepted since the reference was written,
+    /// which is the item's limit rather than a choice made here.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<GemReportAcknowledgement> EnableNotificationReportAsync(
+        bool enable,
+        ulong ceid,
+        CancellationToken cancellationToken = default)
+    {
+        using var reply = await RequestAsync(
+            new SecsMessage(6, 29, replyExpected: true)
+            {
+                Name = "EnableDisableNotificationReportSend",
+                Item = SecsItem.L(SecsItem.Boolean(enable).Named("NRED"), GemItems.IdItem(ceid).Named("CEID")),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        // ACKC6 names zero and reserves 1 to 63, so the fold boundary is 1 - which is where
+        // GemReportAcknowledgement.Error sits. A 2 here would return a value the enum has no
+        // member for, and this is the first site in the repository that READS this item: every
+        // other ACKC6 in this package writes one.
+        return (GemReportAcknowledgement)ReadNamedCode(reply, 1, "ACKC6");
+    }
+
     /// <summary>Sends a remote command - S2F41.</summary>
     /// <param name="command">RCMD.</param>
     /// <param name="parameters">The CPNAME and CPVAL pairs, which may be empty.</param>

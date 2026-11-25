@@ -132,6 +132,10 @@ public class GemHostTests
         // older calls share the exposure and are left alone - bounding all of them would be churn,
         // and what this chapter can honestly say is that its own three rows report properly.
         await GemPair.SentAsync(host.RequestNotificationReportsAsync(1_000, token));
+
+        // Enabling rather than disabling, so the completeness sweep does not quietly switch off a
+        // form the tests below send: this method's own behaviour is driven in GemStream6Tests.
+        await host.EnableNotificationReportAsync(true, 1_000, token);
         await host.RequestSpooledDataAsync(GemSpooledDataRequest.Purge, token);
         await host.InquireProcessProgramAsync("RECIPE-1", 3, token);
         await host.SendProcessProgramAsync("RECIPE-1", new byte[] { 1, 2, 3 }, token);
@@ -199,6 +203,14 @@ public class GemHostTests
         }
 
         Assert.Equal(declared.Count, declared.Distinct().Count());
+
+        // And the core list's own size, pinned because it was not. The API reference called it
+        // twenty-four for nine rows' worth of chapters - nothing asserted the number, so nothing
+        // noticed it drifting - and the chapter that added S6F29 found it while adding the
+        // thirty-fourth. A figure in a document and no figure in a test is a figure that goes
+        // stale, which this repository knows about its reference data and had not applied to its
+        // own.
+        Assert.Equal(34, GemEquipment.HandledMessages.Count);
     }
 
     // ----------------------------------------------------------------- establishing
