@@ -130,6 +130,16 @@ public class GemAcknowledgementsAgreeWithTheReferenceTests
         Assert.Equal("Denied", tiaack.MeaningOf("1"));
         Assert.DoesNotContain(tiaack.Codes, code => code.Value.Contains('-', StringComparison.Ordinal));
 
+        // And an audit of all 524 rows put a floor under which of the two readings is better,
+        // because the reference says - in a note on this very entry - that it inferred TIAACK's
+        // meaning from the item's name, and the name it guessed is "Track-In Acknowledge". Not a
+        // trace at all. Its own data contradicts the gloss: Streams reads [2] just above, and a
+        // track-in acknowledgement would be stream 16's business. So the two-code table is not a
+        // competing reading of E5; it is a placeholder written where the source could not place
+        // the item, which makes E30's six codes the better reading rather than merely the house
+        // one. None of that is carried as data, and the Catalog README says why: a per-item
+        // confidence flag would make the entries the source happens not to hedge look verified.
+
         // Which has a consequence worth stating, because it is the interoperability half: a
         // machine built to the dictionary answers 1 for *every* denial, and this package would
         // report that as TooManyVariables. The six names are only trustworthy from a machine built

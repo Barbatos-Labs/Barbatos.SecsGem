@@ -667,6 +667,32 @@ byte, three names, and a green suite. So when a package says which item it is re
 own item has no table, say which sibling the codes are grounded on - `ACKC6`, here, four rows of
 the same stream with an identical table, which is why the correction moved a name and not a byte.
 
+**Read that item's own note too, which is the finding of the audit the next paragraph is about.**
+The reference hedges itself in prose the data file cannot carry: 151 of its 375 entries carry a note
+saying the type, the table or the meaning is best-effort or unconfirmed, and 33 of those give a full
+table of values anyway. The hedge is deliberately not imported - a per-item flag would make the
+other 224 entries look verified - so the rule is to read the note at the source wherever a decision
+rests on one entry. `TIAACK` is the case that paid for it. Its two codes were read here as a rival
+reading of E5 that `Barbatos.SecsGem.Gem` overrules with E30's six; the note says the meaning was
+*inferred from the item's name*, and inferred as "Track-In Acknowledge", where S2F24 is Trace
+Initialize Acknowledge and the item's own `Streams` reads `[2]`. A placeholder, not a rival - which
+makes the six codes the better reading rather than the local one, and is one more stated reason that
+was right about the bytes and wrong about why.
+
+**A whole-table audit earns its chapter even when it finds nothing, because what it leaves behind is
+the check it had to do by hand.** All 524 rows and all 375 dictionary entries were compared against
+the reference they came from - whether the row exists, which way it travels, primary or secondary,
+which function answers which, the item list, and every type, length and coded value down to the
+wording of each meaning. 520 rows and the whole dictionary agree, and the four that do not are the
+S6F11 fault that was already corrected and pinned - for which the audit found a second witness that
+does not depend on this repository's code: the reference's own dictionary puts `SMPLN` and `STIME`
+in S6F1, so the reversed reading leaves two tabled definitions named by no row. The data being
+right is what made the rest of it worth keeping: three of the ten invariants the audit computed were
+guarded nowhere, the sharpest being that **a reply travels the opposite way from its primary**,
+across all 250 pairs, where every direction assertion in the suite had named its own rows. Reversing
+one reply fails exactly one test of 213 now and failed none at all before `SecsCatalogPairTests`. So
+an invariant that holds over every row is not tested by assertions about some of them.
+
 **Where a package states a vocabulary the reference also states, make them meet** - against the
 reference's own table, never against another package's enum, because that is what makes the
 agreement transitive when three packages serve one item. All six of the tabled items served from

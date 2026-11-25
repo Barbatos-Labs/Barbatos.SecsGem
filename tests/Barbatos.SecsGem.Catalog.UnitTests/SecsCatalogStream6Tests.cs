@@ -228,6 +228,13 @@ public class SecsCatalogStream6Tests
         // RSDA and RSDC are what E30 calls these two fields and what this package puts on the
         // wire. Both are defined and neither is named by any of the reference's rows, which is the
         // companion measure: a capability being specified does not mean anything carries it.
+        //
+        // The audit of all 524 rows added why the usage is empty, which is sharper than the
+        // measure: the reference's note on each of these two says it *inferred* the item as a
+        // stream 12 wafer-map field - RSDC a row-data count, RSDA by analogy with BINLT and RSINF
+        // - with the row "not confirmed". So this is the source saying it could not place them,
+        // not a capability waiting for a row, and the catalogue cannot carry that because the note
+        // is prose. The Catalog README has it.
         foreach (var name in new[] { "RSDA", "RSDC" })
         {
             Assert.True(SecsCatalog.TryGetDataItem(name, out var item), name);

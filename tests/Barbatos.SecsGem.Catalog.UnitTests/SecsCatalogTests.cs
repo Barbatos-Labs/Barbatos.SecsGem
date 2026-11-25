@@ -293,9 +293,18 @@ public class SecsCatalogTests
         Assert.True(SecsCatalog.TryGetMessage(6, 12, out var acknowledge));
 
         // The reference has this pair reversed, naming S6F11 an "Event Report Request" travelling
-        // H->E. It is the one place it disagreed with code that is tested and running, and the code
-        // is right: GEM equipment sends S6F11 and the host answers S6F12 with ACKC6. This test is
-        // what stops a refresh of the data putting the error back.
+        // H->E. Two witnesses say it is the other way round, and they do not depend on each other.
+        //
+        // The first is this stack: GEM equipment sends S6F11 and the host answers S6F12 with
+        // ACKC6, which is what the Gem package does, under test and over a socket in the sample.
+        // The second came out of an audit of all 524 rows and does not rest on our code being
+        // right at all - the reference's own item dictionary places SMPLN and STIME in S6F1 and
+        // ACKC6 in S6F12, and its message table gives two rows the name "Event Report Request"
+        // and two more "Event Report Data". So the source disagrees with itself, and this
+        // catalogue sides with its dictionary. SecsCatalogPairTests carries that half, where it
+        // can be checked against data rather than read.
+        //
+        // This test is what stops a refresh of the data putting the error back.
         Assert.Equal("Event Report Send", send!.Name);
         Assert.Equal(SecsMessageDirection.EquipmentToHost, send.Direction);
         Assert.Contains("CEID", send.DataItems);

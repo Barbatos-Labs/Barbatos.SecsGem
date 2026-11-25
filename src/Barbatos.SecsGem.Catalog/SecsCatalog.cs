@@ -25,10 +25,13 @@ namespace Barbatos.SecsGem.Catalog;
 /// <para>
 /// <strong>On provenance.</strong> The table was built from a public SECS-II reference, not from
 /// SEMI E5 itself, and that reference marks 405 of the 524 entries as a representative subset -
-/// a flag carried through as <see cref="SecsMessageInfo.IsRepresentative"/>. Of the 39 messages
-/// this repository implements, 38 matched it exactly; the one that did not, the S6F11 and S6F12
-/// pair, was corrected from the implementation and is covered by a test that fails if the two ever
-/// disagree again. Treat this as a good index into E5, not as a substitute for it.
+/// a flag carried through as <see cref="SecsMessageInfo.IsRepresentative"/>. All 524 rows and all
+/// 375 dictionary entries have since been compared against that reference one by one, and 520 rows
+/// and the whole dictionary agree; the four that do not are the S6F11 and S6F12 pair the reference
+/// had reversed, and the S6F1 and S6F2 rows it displaced. That pair is corrected here and covered
+/// by tests that fail if it is ever put back. Treat this as a good index into E5, not as a
+/// substitute for it - the limit is not transcription but that the reference hedges 151 of its own
+/// item entries, which the package README works through.
 /// </para>
 /// <para>
 /// <see cref="SecsStreamInfo.Provenance"/> asks that question per stream, which is the form it

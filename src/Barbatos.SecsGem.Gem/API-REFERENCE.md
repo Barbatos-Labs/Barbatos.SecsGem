@@ -706,9 +706,11 @@ When the S6F24 cannot be sent (the link went away under it) nothing is queued an
 held for the host's next S6F23.
 
 RSDC is read in any numeric format. `Barbatos.SecsGem.Catalog` flags S6F23 as a representative
-subset and gives its body as `DATAID` with RSDC as `U2`, while E30 says `U1` - so being strict about
-the width would mean failing against a host built from the other reading. RSDA is written as `B`,
-like every other acknowledgement code in this layer.
+subset and gives its body as `DATAID` with RSDC as `U2`, while E30 says `U1`. An audit of the whole
+reference found that the `U2` is not a rival reading of this field: the note on that entry says RSDC
+was *inferred* as a wafer-map row-data count in stream 12, and no row of the reference names it. The
+width stays loose anyway, because a host may have been built from that entry. RSDA is written as
+`B`, like every other acknowledgement code in this layer.
 
 ### `GemSpooledMessage`
 
@@ -1396,8 +1398,11 @@ across would read a machine's reserved 3 as a refusal it never made.
 **Two acknowledgements are read without that fold, and deliberately.** `COMMACK` names both its
 codes and reserves nothing. S2F24's `TIAACK` names two, accepted and denied, and reserves nothing
 either - so `GemTraceAcknowledgement`'s six members are a **disagreement** with the dictionary
-rather than a gap in it, taken from E30's prose, and there is no reserved range to fold. A machine
-built to the dictionary answers 1 for every denial, which this package would report as
+rather than a gap in it, taken from E30's prose, and there is no reserved range to fold. The audit
+of the whole reference showed which side of that disagreement is better founded: the note on the
+`TIAACK` entry says its meaning was *inferred from the item's name*, and inferred as "Track-In
+Acknowledge", where S2F24 is Trace Initialize Acknowledge. A placeholder, not a rival reading.
+A machine built to the dictionary answers 1 for every denial, which this package would report as
 `TooManyVariables`: the six names are trustworthy only from a machine built to E30, and what is
 safe either way is that non-zero means denied.
 

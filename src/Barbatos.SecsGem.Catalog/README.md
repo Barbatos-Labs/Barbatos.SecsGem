@@ -64,7 +64,9 @@ every build, to produce a table that is read at most once per process.
 standard - buy it if you are implementing against it. Provenance is in
 [ThirdPartyNotices.txt](../../ThirdPartyNotices.txt).
 
-Five things follow, and all five are visible in the API rather than buried here.
+Five things follow, and all five are visible in the API rather than buried here. A sixth - the
+source's own hedge on its entries - is deliberately not in the API, and the section below named for
+it says why.
 
 ### 405 of the 524 entries are a representative subset
 
@@ -175,17 +177,38 @@ here. In stream 4 it at least sits beside an `ERRCODE` and an `ERRTEXT`. In S17F
 
 ### One entry was wrong, and is corrected
 
-Of the 39 messages this repository implements, 38 matched the reference exactly. The exception was
-S6F11 and S6F12, which it had reversed - naming S6F11 an "Event Report Request" travelling host to
-equipment.
+The first comparison covered the 39 messages this repository implemented at the time, and 38 of them
+matched the reference exactly. The exception was S6F11 and S6F12, which it had reversed - naming
+S6F11 an "Event Report Request" travelling host to equipment.
 
 It is the other way round: GEM equipment **sends** S6F11 and the host acknowledges with S6F12
 carrying ACKC6. The GEM layer in this repository does exactly that, under test, and the sample does
 it over a socket. So the catalogue carries the corrected pair, and a test pins it so that
 refreshing the data cannot quietly put the error back.
 
-That ratio is the useful number to carry away: on the part that could be checked against working
-code, the source was 97% right. Good enough to index E5 with; not good enough to implement from.
+That 38-of-39 ratio was the number to carry away for several chapters, and an audit of the whole
+table has replaced it with a better one. All 524 rows were compared against the reference row by row
+- whether the row exists, which way it travels, primary or secondary, which function answers which,
+and the item list - and so were all 375 dictionary entries, down to every type, every length, every
+coded value and the wording of each value's meaning. **520 rows and all 375 entries agree.** The
+four that do not are this S6F11 fault and the S6F1 and S6F2 rows it displaced, which is one mistake
+and not four.
+
+So the transcription is better than 97%: 99.2% of the rows and the whole of the dictionary. The
+conclusion is unchanged, because the limit was never transcription - it is the section after next.
+
+The audit also found a **second witness** for this correction, and it is the better of the two
+because it does not rest on this repository's code being right. The reference's own item dictionary
+places `SMPLN` and `STIME` in S6F1 and `ACKC6` in S6F12, and its message table hands out the name
+"Event Report Request" twice and "Event Report Data" twice. Under the reversed reading two tabled
+definitions would be named by no row at all. The source disagrees with itself here, and the
+catalogue sides with its dictionary.
+
+And finding nothing else wrong is what made the method worth keeping. `SecsCatalogPairTests` pins
+the three invariants the audit had to compute by hand, the sharpest being that a reply travels the
+opposite way from its primary, across all 250 pairs - which was guarded nowhere, because every
+direction assertion in the suite had named its own rows. A control that reverses one reply now fails
+exactly one test of 213, and failed none at all before that file existed.
 
 ### One entry disagrees and is left alone
 
@@ -194,11 +217,43 @@ gives S6F23's body as `DATAID`, with `RSDC` listed as `U2`. E30 has S6F23 carry 
 transmit the spooled data, 1 to purge it - and `RSDA` comes back in S6F24.
 
 `Barbatos.SecsGem.Gem` implements the E30 reading, and the catalogue still says what the reference
-says. The difference from the S6F11 case is evidence: there, the whole GEM flow working end to end
-against a host proved the direction, and the correction rests on something. Here there is only my
-reading of E30 against theirs, and silently rewriting their data on that basis would make the
-catalogue look more authoritative than it is. The GEM layer reads RSDC in any numeric format for
-the same reason.
+says. The reason used to be that there was only my reading of E30 against theirs, and rewriting
+their data on that basis would make the catalogue look more authoritative than it is. The audit
+retired half of that: **the reference has no reading of these two items to be against.** Its own
+notes say both were *inferred* - `RSDC` as a wafer-map row-data count, `RSDA` by analogy with
+`BINLT` and `RSINF`, both "exact SxFy not confirmed" - and no row in the reference names either, so
+both sit among the 213 definitions below. A reading against an admitted blank is not reading
+against reading.
+
+What keeps the row as it is, is narrower and it is about the row: S6F23's body is a claim in the
+**message table**, where the item notes have nothing to say, and the audit found no second witness
+there either way - the S6F11 correction had two. So the catalogue carries the reference's row, the
+GEM layer reads RSDC in any numeric format, and the item's own type binds nothing.
+
+### The source hedges 151 of its own entries, and the hedge is not carried
+
+151 of the 375 dictionary entries carry a note on the entry itself saying that the type, the code
+table or the meaning is *best-effort*, *inferred*, or *not confirmed against official SEMI E5*. 33
+of those 151 carry a full table of values anyway. None of it is in the data file, and that is a
+decision rather than an oversight.
+
+`IsRepresentative` is carried because it is the source reporting what **E5** says about a row - that
+the body shown is a subset - which changes what you may conclude from the row. A per-item confidence
+flag would report what the source says about **itself**, and carrying it would make the other 224
+entries look verified, which is a stronger claim than this package can make about any of them. The
+blanket statement that opens *Where the data came from* is the honest version, and it covers all
+375 without pretending to know which of them is which.
+
+So read the note at the source, in the one place it matters: where a decision rests on a single
+entry. The chapter that paid for that rule is `TIAACK`. The dictionary gives it two codes, accepted
+and denied, while `Barbatos.SecsGem.Gem` implements E30's six - which reads like this library
+overruling the reference, until the note on the entry turns out to say the meaning was inferred from
+the item's name, and inferred as *Track-In Acknowledge*. S2F24 is Trace Initialize Acknowledge, and
+the reference's own `Streams` for the item reads `[2]`, where a track-in acknowledgement would be
+stream 16's business. The source contradicts its own gloss, so the six codes are the better reading
+and not the local one - and the interoperability caveat still holds, because a machine built from
+that entry answers 1 for every denial. `GemAcknowledgementsAgreeWithTheReferenceTests` says all of
+this at the assertion.
 
 ### 74 names appear in bodies with no dictionary entry
 
