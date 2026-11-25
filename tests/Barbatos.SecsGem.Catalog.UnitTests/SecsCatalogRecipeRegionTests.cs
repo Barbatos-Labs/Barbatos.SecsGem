@@ -270,8 +270,11 @@ public class SecsCatalogRecipeRegionTests
         //
         // Which turned out not to stop either of them. S15F19 is served: both readings of
         // RCPIDNEW are an A[n], so the rivalry puts no byte in doubt. S20F15 is readable for the
-        // same reason and stays out for what declaring its stream would claim - the reasons are
-        // in the two tests above.
+        // same reason and stays out because what its single transaction adds over a copy and a
+        // delete is atomicity, and RMACK has one refusal code - so a host told Rejected cannot
+        // learn whether the source survived. It is the only row in the repository refused on that,
+        // and it replaced a reading about what declaring its stream would claim, which
+        // SecsCatalogRefusalPartitionTests retired.
         Assert.False(IsDefined("RCPIDNEW"));
         Assert.False(IsDefined("NEWRCPID"));
 

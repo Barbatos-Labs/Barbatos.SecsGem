@@ -416,14 +416,15 @@ the record**, and there is nothing left that nobody has argued about.
 **And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 215 of the reference's 274
 primaries are declared and the other **fifty-nine are a partition** - each appears exactly once,
 under the one measure that decides it, and a row with two reasons is filed under the one that would
-still refuse it if the other were answered. The seven measures and their counts: the field the row
-turns on (9), producer and reader (9), two readings that differ (4), a shape (2), a name with no
-second instance (1), what declaring the stream claims (24), the addressing is missing (10). Eleven
-streams hold them and the other nine are served whole. **Twenty-five of the fifty-nine carry no
-field this library cannot read**, so what is left is two kinds of claim and not a backlog - and the
-gap-free five among those are S17F9, S17F13, S20F17, S20F33 and S20F15. Re-read a refusal by
-starting from its row in that table, and if the table is what turns out to be wrong, that is the
-chapter.
+still refuse it if the other were answered. The **eight** measures and their counts: the field the
+row turns on (13), producer and reader (11), two readings that differ (7), a shape (3), a name with
+no second instance (1), a firmer row does the job (8), the addition is unobservable (1), the
+addressing is missing (15). Eleven streams hold them and the other nine are served whole. **Five of
+the fifty-nine are gap-free** - S7F21, S17F9, S17F13, S20F17 and S20F33 - and four of those five
+are refused because a firmer row does their job, so no gap-free row here is refused on a field or on
+a shape. Re-read a refusal by starting from its row in that table, and if the table is what turns
+out to be wrong, that is the chapter - which is how it came to have eight measures instead of the
+seven it shipped with, and why the figure above reads five where it read twenty-five.
 
 What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned
@@ -541,20 +542,40 @@ reference wrote the row anyway. Being flagged representative is no veto, and thi
 that too: S7F33 was left out for exactly that reason, and the paragraph saying so sat in
 `IGemFormattedProcessProgramStore`'s remarks for chapters after the row was served.
 
-**A routing table is a claim about the stream, not about the row.** This is what keeps the last
-serveable rows out of streams 17 and 20 once the item measures have run out of objections. S17F13
-would add something real - a trace reset that can say why it refused, where `TIAACK` has two codes
-and nowhere to put a reason - and it is still refused, because declaring it answers S9F5 for stream
-17's other six primaries and tells a host to keep asking for rows this repository documents as
-somebody else's invention. Silence answers S9F3 and is true. The S1F19 row shows the other side of
-the same rule: the same "it can say why" argument let that one in, because it is one row of a stream
-served almost entirely. So weigh the row against what declaring its stream would claim.
+**"A routing table is a claim about the stream, not about the row" has been retired, and it held
+twenty-four of the fifty-nine refusals** - every primary of streams 17 and 20 - on the ground that
+declaring any one of them answers S9F5 for the rest and invites a host to keep asking. Reading those
+twenty-four one at a time dissolved it, and two things killed it. It was true of every partially
+served stream here: stream 15 answers S9F5 for thirteen of its twenty-seven pairs and nobody calls
+that a claim. And it could not be stated without a ratio - one row of a stream served almost
+entirely against one pair of seven - where **a refusal states a name**. Every one of the twenty-four
+has a name now: five of stream 17's turn on `CJID`, undefined and addressing every control-job
+transaction exactly as `RCPNS` addresses stream 19; eight have their job done already by a
+better-documented row here, six of them item for item under stream 15's numbers; the rest turn on a
+name an item measure already decided. **Twenty of
+the twenty-four carry an undefined name**, which the sentence "every field of these rows reads" had
+asserted of all of them without once looking at an item. So before refusing a row for what its
+stream would claim, ask whether the claim is also true of a stream you already serve.
+
+**The row that measure was really carrying is S17F13, and its name is the acknowledgement.** The
+S1F19 precedent is the same "it can say why" argument and it did let that row in - because S14F2,
+the row S1F19 duplicates, carries **no acknowledgement item at all**, so `ERRCODE` and `ERRTEXT`
+were the difference between silence and an answer. S2F24 carries one, and in the reading this
+repository puts on a wire it carries six codes with five distinguishable refusals, not the two of a
+dictionary entry the reference says it inferred from the item's name. The addition is therefore free
+text over five named refusals. And the single row left on nothing else, S20F15, is refused because
+what it adds - atomicity for a rename that also moves - cannot be seen on a wire at all, `RMACK`
+having one refusal code. Two new boxes in the partition, both names: a firmer row does the job, and
+the addition is unobservable.
 
 **And where two rows do one job, the firmer source wins.** S17F9 carries S2F23's five items in
 S2F23's order, and S2F23 is one of the reference's definitions where S17F9 is one of its
 illustrations - the same tie-break that gave E39's half of stream 2 priority over stream 18's
 re-addressed rows. "It duplicates something we serve" is not the end of the argument; which of the
-two the reference documents better is.
+two the reference documents better is. This was a rule here for chapters before the partition had a
+box for it, which is how twenty-four rows ended up filed under a stream instead: **eight** of them
+were this, and a measure the working agreement states and the record cannot file is a measure that
+will be re-derived.
 
 **Three streams here are called Recipe Management and one concept can be spelled three ways.** The
 rename is `RCPIDNEW` in stream 15, `NEWRCPID` in stream 20 and `RCPNEWID` in the definition neither

@@ -138,26 +138,30 @@ public class SecsCatalogMeasureLimitTests
     }
 
     [Fact]
-    public void Every_refusal_left_in_four_streams_is_one_the_item_measures_are_silent_on()
+    public void Every_refusal_left_in_three_streams_is_one_the_item_measures_are_silent_on()
     {
         // The other end of the sweep: these rows have no undefined item at all, so nothing the
-        // dictionary can say will decide them. Each is refused on a shape, a name, or what a
-        // routing table claims - and those are the only three kinds of reason left anywhere in
-        // the repository:
+        // dictionary can say will decide them. There are five, in three streams, and after the
+        // chapter that retired the stream-level measure each is refused on a name or on a firmer
+        // row - both of which are about the row itself:
         //
         //   S7F21                a name whose OBJECT has no second instance anywhere - two of the
         //                        reference's 524 rows say Reference and they are this pair - and a
         //                        reply that is nothing but an acknowledgement, so serving it would
         //                        answer "done" to an instruction nobody defined
+        //   S17F9, S17F13        the trace request and the trace reset, both of which S2F23 does -
+        //                        the reference's definition where these are its illustrations, and
+        //                        S2F24 answers with six codes where S17F14 would add free text
+        //   S20F17, S20F33       the delete and the namespace create this repository already serves
+        //                        at S15F13 and S15F15, item for item
         //
-        // Two of the ten were refused on a SHAPE and both have since been served, so that kind of
-        // reason is gone from the repository: S6F25 by asking why its sibling's body exceeds its
-        // record, and S7F35 by asking which item its own row names where its siblings' do not.
-        //   S17F9, S17F13        a routing table is a claim about the stream, and four of this
-        //                        stream's seven primaries are somebody's extrapolation
-        //   S20F17, S20F33       rows this repository already serves under stream 15's numbers -
-        //                        and S20F15 beside them, which is not gap-free and is readable
-        //                        anyway, and which stays out for what declaring its stream claims
+        // S20F15 sits beside them, readable without being gap-free, and is the one row anywhere
+        // here refused because what it adds cannot be seen on a wire: its rename and move in one
+        // transaction buys atomicity that RMACK's single refusal code cannot report.
+        //
+        // Two earlier rows were refused on a SHAPE and both have since been served, so that kind
+        // of reason is gone from the gap-free rows: S6F25 by asking why its sibling's body exceeds
+        // its record, and S7F35 by asking which item its own row names where its siblings' do not.
         //
         // Stream 7 is the extreme case and the reason the rule exists: ALL TWENTY-TWO of its
         // pairs are gap-free, so "every item in this row is defined" was true of all six of its
@@ -170,8 +174,9 @@ public class SecsCatalogMeasureLimitTests
         // the dictionary says could separate them and the shape had to decide.
         Assert.Equal<byte[]>([1, 3, 5, 15, 19, 25, 27], [.. CleanPairs(6)]);
 
-        // Streams 17 and 20 have two each and all four are refused, on the two stream-level
-        // reasons rather than on anything about the rows.
+        // Streams 17 and 20 have two each and all four are refused because a row this repository
+        // already answers does the same job - which is about these rows and not about their
+        // streams, and is what replaced the routing-table reading.
         Assert.Equal<byte[]>([9, 13], [.. CleanPairs(17)]);
         Assert.Equal<byte[]>([17, 33], [.. CleanPairs(20)]);
 

@@ -108,18 +108,31 @@ public class SecsCatalogStream17Tests
         Assert.True(SecsCatalog.TryGetDataItem("ACKA", out var acka));
         Assert.Equal(2, acka!.Codes.Count);
 
-        // Which S2F24 cannot do: TIAACK names two codes and has nowhere to put a reason.
+        // Which the dictionary's TIAACK cannot do: two codes, and nowhere to put a reason.
         Assert.True(SecsCatalog.TryGetDataItem("TIAACK", out var tiaack));
         Assert.Equal(2, tiaack!.Codes.Count);
         Assert.DoesNotContain("ERRTEXT", Row(2, 24).DataItems);
 
         // That is the S1F19 argument, and it did let that row in - the only attribute get in the
-        // reference that can say why it failed. The difference is what declaring the stream costs.
-        // S1F19 is one row of a stream this repository serves almost entirely; this would be one
-        // pair of seven in a stream whose other four primaries the catalogue's own README argues
-        // are somebody else's extrapolation. A routing table is a claim about the stream, so a
-        // host reading S9F5 for S17F1 would be told to keep asking for a row nothing here believes
-        // in - where silence answers S9F3 and is true.
+        // reference that can say why it failed. For four chapters the difference was stated as a
+        // ratio: S1F19 is one row of a stream served almost entirely, where this would be one pair
+        // of seven in a stream whose other four primaries are somebody else's extrapolation. A
+        // refusal here states a name and not a figure, so that reading has been replaced.
+        //
+        // The name is the acknowledgement. S14F2, the row S1F19 duplicates, carries no
+        // acknowledgement item at all - a failed get there had nothing whatever to say, and ERRCODE
+        // with ERRTEXT was the difference between silence and an answer. S2F24 does carry one, and
+        // what this repository puts on a wire for it is E30's six codes with five distinguishable
+        // refusals - not the two of a dictionary entry the reference itself says it inferred from
+        // the item's name. So S17F13 would add free text over five named refusals, which is a
+        // smaller thing than the row it is being compared with.
+        //
+        // SecsCatalogRefusalPartitionTests files this row under a firmer row for that reason, and
+        // the routing-table measure is retired there.
+        Assert.True(SecsCatalog.TryGetMessage(14, 2, out var getAttributeData));
+        Assert.DoesNotContain("ERRCODE", getAttributeData!.DataItems);
+        Assert.Contains("ERRCODE", Row(1, 20).DataItems);
+
         Assert.True(SecsCatalog.TryGetStream(17, out var seventeen));
         Assert.Equal(7, seventeen!.Messages.Count(message => message.Function % 2 == 1));
 

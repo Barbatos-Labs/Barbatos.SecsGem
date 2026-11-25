@@ -160,14 +160,26 @@ every item is defined, so the argument above does not reach them and a re-read w
 | --- | --- |
 | S17F7/F8 | `DCID` is its whole body, undefined, and named by stream 17 alone - the row's address, the way `RCPNS` is stream 19's |
 | S17F9/F10 | the same five items as **S2F23**, in the same order. One capability, two stream numbers, so serve one or the other - and S2F23 is one of the reference's **definitions** where S17F9 is one of its illustrations |
-| S17F13/F14 | stopping a trace is S2F23 asking for no samples, which `GemHost.StopTraceAsync` sends. What this would add is a *reason* - `ACKA` with `ERRCODE` and `ERRTEXT`, where `TIAACK` has two codes and nowhere to put one |
+| S17F13/F14 | stopping a trace is S2F23 asking for no samples, which `GemHost.StopTraceAsync` sends. What this would add is a *reason* - `ACKA` with `ERRCODE` and `ERRTEXT`, where the dictionary gives `TIAACK` two codes and nowhere to put one |
 
 That last one is the S1F19 argument, and it did let that row in: the only attribute get in the
-reference that can say why it failed. What differs is the cost of declaring the stream. S1F19 is one
-row of a stream this library serves almost entirely; this would be one pair of seven in the stream
-argued above. **A routing table is a claim about the stream**, so declaring it would answer S9F5 for
-S17F1 - "I do stream 17, but not that function" - and tell a host to keep asking for rows nothing
-here believes in. Silence answers S9F3, and that is true.
+reference that can say why it failed. For four chapters what differed was stated as a **ratio** -
+S1F19 is one row of a stream this library serves almost entirely, where this would be one pair of
+seven - and a refusal here states a name, not a figure. So the ratio has been replaced.
+
+The name is the **acknowledgement**. S14F2, the row S1F19 duplicates, carries no acknowledgement
+item at all: a failed get there had nothing whatever to say, and `ERRCODE` with `ERRTEXT` was the
+difference between silence and an answer. S2F24 does carry one, and what this library puts on a wire
+for it is E30's **six** codes with five distinguishable refusals - not the two of a dictionary entry
+the reference itself says it inferred from the item's name. So S17F13 would add free text over five
+named refusals, which is a smaller thing than the row it is being compared with.
+
+The **routing table** reading that used to stand here - that declaring the stream turns an honest
+S9F3 into an S9F5 for the rest, inviting a host to keep asking - is retired, and the reason it had
+to go is that it was true of every partially served stream in the repository. Stream 15 answers S9F5
+for thirteen of its twenty-seven pairs and nobody calls that a claim.
+`SecsCatalogRefusalPartitionTests` records what replaced it, row by row, for all twenty-four rows it
+used to hold.
 
 `TRACK`, S17F10's acknowledgement, is also the last loose end of the `TIAACK` correction two
 chapters earlier: GEM documents its trace acknowledgement under that name, S2F24 carries `TIAACK`,
@@ -533,19 +545,24 @@ every one of those the weaker reason was doing the work.
 
 | the measure | rows | and what it says |
 | --- | --- | --- |
-| the field the row turns on | 9 | The undefined name is what the message is *for* - `RSTC`, `CELLNAME`, `NRED`, `ENABLE`, `AUTOSEL` - so carrying it untouched would leave a library unable to tell apart the two things its row distinguishes |
-| producer and reader | 9 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, and a checksum the receiver has to compute and compare |
-| two readings, different bytes | 4 | A rival or a twin gives the name a second reading and the two disagree - an `A[n]` against E39's list for a recipe attribute, an anagram whose table belongs to another row |
-| a shape | 2 | The body is a list of entries and no served row settles its nesting. **A flat body of two items has one reading; a list has as many as there are nestings** |
+| the field the row turns on | 13 | The undefined name is what the message is *for* - `RSTC`, `CELLNAME`, `NRED`, `ENABLE`, `AUTOSEL`, and stream 20's `RCPLOCK`, `NOTIFYENABLE` and `CHANGETYPE` - so carrying it untouched would leave a library unable to tell apart the two things its row distinguishes |
+| producer and reader | 11 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, a checksum the receiver has to compute and compare, and an `OWNERID` the host mints |
+| two readings, different bytes | 7 | A rival or a twin gives the name a second reading and the two disagree - an `A[n]` against E39's list for a recipe attribute, an anagram whose table belongs to another row. Stream 20's attribute rows are stream 15's and carry the same twin |
+| a shape | 3 | The body is a list of entries and no served row settles its nesting. **A flat body of two items has one reading; a list has as many as there are nestings** |
 | a name with no second instance | 1 | S7F21: its object, *Reference*, appears in two of 524 row names - this row and its own acknowledgement - and its reply is only an acknowledgement |
-| what declaring the stream claims | 24 | Streams 17 and 20, whole. **Every field of these rows reads**; what keeps them out is that declaring one turns an honest S9F3 for the stream into an S9F5 for the rest, which invites a host to keep asking |
-| the addressing is missing | 10 | Stream 19, whole: `RCPNS` is undefined, has no rival anywhere, and addresses every transaction in the stream |
+| a firmer row does the job | 8 | S17F9 and S17F13 against **S2F23**, and six of stream 20's against the stream 15 rows this repository serves - the delete, the namespace create, the download grant, the download send, the upload and the unlock. Where two rows do one job, the better-documented source wins |
+| the addition is unobservable | 1 | S20F15 renames **and** moves in one transaction, where stream 15 needs a copy and a delete. What the single transaction buys is atomicity, and `RMACK` has one refusal code, so a host told *Rejected* cannot learn whether the source survived |
+| the addressing is missing | 15 | Stream 19 whole, on `RCPNS` - undefined, no rival anywhere, addressing every transaction in the stream - and stream 17's control-job four on `CJID` plus its data collection plan on `DCID`, which do the same for a capability |
 
-**Twenty-five of the fifty-nine carry no field this library cannot read** - the twenty-four stream
-claims and the one name - so the frontier is not "rows nobody has got to". It is two kinds of claim,
-and neither is about effort. Four of the five rows refused on a stream claim whose every field is
-defined are S17F9, S17F13, S20F17 and S20F33, and the fifth, S20F15, is readable without being
-gap-free.
+**Five of the fifty-nine are gap-free**, and the figure is measured rather than asserted: S7F21,
+S17F9, S17F13, S20F17 and S20F33. Four of those five are refused because a firmer row does their
+job and the fifth for a name, so no gap-free row anywhere here is refused on a field or on a shape.
+S20F15 sits beside them, readable without being gap-free.
+
+That paragraph used to read **twenty-five**, counting the rows filed under the retired stream
+measure as rows whose every field reads. It had never been checked against an item: twenty of
+those twenty-four carry an undefined name. Re-reading them one at a time is what retired the
+measure, and it is why the table above has eight rows where it had seven.
 
 The eleven streams that hold them are 2, 6, 7, 8, 13, 14, 15, 17, 19, 20 and 21; the other nine are
 served whole. `SecsCatalogRefusalPartitionTests` holds the table and the arithmetic, and each
@@ -564,6 +581,9 @@ hold across the 524:
 | A Stream 9 report has no reply | no violations |
 | Every message belongs to a stream the catalogue knows | no violations |
 | Every data item carries a parseable E5 format token | no violations |
+| Both halves of a pair travel in opposite directions, across all 250 pairs | no violations |
+| A row answered by nothing is a primary - 24 of them, in streams 4, 9, 10 and 12 | no violations |
+| No message names one item twice | no violations |
 
 There is no stream 11, because E5 does not define one. A test asserts that too, so the gap reads as
 the standard's rather than the parser's.

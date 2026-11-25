@@ -160,16 +160,20 @@ refused primary appears exactly once, under the one measure that decides it.
 
 | the measure | rows |
 | --- | --- |
-| the field the row turns on is undefined | 9 |
-| the undefined field is written by one end and must be understood by the other | 9 |
-| a rival spelling gives it a second reading, and the two put different bytes out | 4 |
-| the body is a list of entries whose nesting no served row settles | 2 |
+| the field the row turns on is undefined | 13 |
+| the undefined field is written by one end and must be understood by the other | 11 |
+| a rival spelling gives it a second reading, and the two put different bytes out | 7 |
+| the body is a list of entries whose nesting no served row settles | 3 |
 | the name's object appears nowhere else, and the reply is only an acknowledgement | 1 |
-| every field reads, and what keeps it out is what declaring its stream would claim | 24 |
-| one undefined name addresses every transaction of the stream | 10 |
+| a row this repository already serves does the same job, from a firmer source | 8 |
+| every field reads and the job is new, but what it adds cannot be seen on the wire | 1 |
+| one undefined name addresses every transaction of the stream, or of the capability | 15 |
 
-Twenty-five of the fifty-nine carry no field this library cannot read, so the frontier is two kinds
-of claim rather than a backlog. Eleven of the reference's twenty streams hold them; the other nine
+Five of the fifty-nine are gap-free, and four of those five are refused because a firmer row does
+their job - so the frontier is rows whose fields cannot honestly go on a wire, and rows that would
+say a second time what this repository already says. An eighth measure and a ninth arrived when a
+chapter re-read the twenty-four rows a stream-level reading used to hold and found a name for every
+one of them. Eleven of the reference's twenty streams hold the fifty-nine; the other nine
 are served whole. The table, the arithmetic and the per-row reasons are in
 [`Barbatos.SecsGem.Catalog`](src/Barbatos.SecsGem.Catalog/README.md#what-this-repository-does-not-serve-and-which-measure-decides-it).
 
