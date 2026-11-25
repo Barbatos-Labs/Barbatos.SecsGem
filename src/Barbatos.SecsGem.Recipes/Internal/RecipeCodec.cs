@@ -62,17 +62,25 @@ namespace Barbatos.SecsGem.Recipes;
 /// <para>
 /// <c>RCPLOCKID</c> is a third case again - no base, no anagram, no stem anywhere - so it is
 /// carried as the item it arrived in. See <see cref="RecipeLockToken"/> for why that loses nothing
-/// at a lock and would at S15F49's owner.
+/// at a lock; it loses nothing at S15F49's owner either, which is a sentence this paragraph used
+/// to end the other way round.
 /// </para>
 /// <para>
-/// <strong>What keeps the other fourteen pairs out</strong> is one of four things, and the
-/// package README gives them row by row: a name whose two readings are <em>different</em> formats
-/// (<c>RCPATTRVAL</c> against the unused <c>RCPATTRDATA</c>, <c>RCPOWNER</c> against
-/// <c>RCPOWCODE</c>); an undefined name that <em>is</em> the message, so carrying it untouched
-/// leaves the row uninterpretable (<c>RCPEXIST</c>, <c>AUTOSEL</c>, <c>RCPSTATE</c>,
-/// <c>VFACK</c>, <c>CMPRESULT</c>); a reply whose nesting no served sibling settles; and
-/// <c>CHECKSUM</c>, which the reference never defines under any spelling in any of the three
-/// streams that ask for it.
+/// <strong>What keeps the other eight pairs out</strong> is one of two things now, and the
+/// package README gives them row by row: an undefined name that <em>is</em> the message, so
+/// carrying it untouched leaves the row uninterpretable (<c>RCPEXIST</c>, <c>AUTOSEL</c>,
+/// <c>RCPSTATE</c>, <c>VALACK</c>, <c>CMPRESULT</c>); or a value the machine must mint for a host
+/// to act on, which is <c>CHECKSUM</c> - never defined under any spelling in any of the three
+/// streams that ask for it, and a computation rather than a field, since the machine has to
+/// reproduce what the host produced - <c>SPACEAVAIL</c>, a quantity with no unit, and S15F48's
+/// third column, a value with no name beside it.
+/// </para>
+/// <para>
+/// <strong>A name whose two readings are different formats is no longer one of them.</strong> That
+/// measure held <c>RCPATTRVAL</c> against the unused <c>RCPATTRDATA</c> and <c>RCPOWNER</c>
+/// against <c>RCPOWCODE</c> - text against a list, a name against a flag - and it decides nothing
+/// wherever nothing has to choose, because a SECS-II item carries its own format. The attribute
+/// pair went in on that, then the namespace attribute and the owner.
 /// </para>
 /// <para>
 /// <strong>Nesting is the one thing a flat item list cannot pin down</strong>, so the readers are
@@ -621,6 +629,99 @@ internal static class RecipeCodec
             SecsItem.A(attributeName).Named("RCPATTRNAME"),
             (value is null ? SecsItem.L() : SecsItem.Decode(value.ToByteArray())).Named("RCPATTRVAL"));
 
+    // -------------------------------------------------------------------- the owner
+
+    /// <summary>S15F49 - <c>L,3 { RCPSPEC, RCPID, RCPOWNER }</c>.</summary>
+    /// <remarks>
+    /// <para>
+    /// The owner goes on the wire as the item it was given, which is the whole reason this row is
+    /// served and the reason it was refused for seven chapters. <c>RCPOWNER</c> is undefined and
+    /// <em>does</em> have a rival the measure can see - <c>RCPOWCODE</c>, a defined
+    /// <c>BOOLEAN[1]</c> that no row names - so the two readings differ as sharply as any pair in
+    /// the reference: a name against a flag. They decide nothing here, because
+    /// <strong>nothing in this library ever has to choose</strong>. A host that sends text stores
+    /// text and a host that sends a boolean stores a boolean.
+    /// </para>
+    /// <para>
+    /// What had been said about this row is that an owner travels host to machine, so the machine
+    /// must parse what the host chose. Read against the stream it is in, it does not: <strong>no
+    /// row anywhere in the reference reads a recipe owner back</strong>, and nothing in E5 says
+    /// what owning a recipe prevents. So the store keeps the item and the application decides what
+    /// ownership means - which is less invention than the recipe lock this package already ships,
+    /// where E5 defines the transaction and never says what it blocks either.
+    /// </para>
+    /// </remarks>
+    internal static SecsItem OwnerSetBody(string recipeNamespace, string recipeId, SecsItem owner)
+        => SecsItem.L(
+            SecsItem.A(recipeNamespace).Named("RCPSPEC"),
+            SecsItem.A(recipeId).Named("RCPID"),
+            owner.Named("RCPOWNER"));
+
+    /// <summary>Reads S15F49.</summary>
+    /// <returns>Whether all three items were there.</returns>
+    /// <remarks>
+    /// The owner is copied out of the arriving item for the reason
+    /// <see cref="TryReadAttributeSet"/> copies a value: a store keeps what it is given, and a
+    /// payload of <see cref="SecsCodecOptions.PooledPayloadThreshold"/> bytes or more borrows a
+    /// buffer the codec hands back when the message is disposed.
+    /// </remarks>
+    internal static bool TryReadOwnerSet(
+        SecsItem? body,
+        out string recipeNamespace,
+        out string recipeId,
+        out SecsItem owner)
+    {
+        owner = SecsItem.L();
+
+        if (!TryReadRecipeName(body, out recipeNamespace, out recipeId) || body!.Count < 3)
+        {
+            return false;
+        }
+
+        owner = SecsItem.Decode(body.Items[2].ToByteArray());
+
+        return true;
+    }
+
+    // ------------------------------------------------------ the namespace attribute
+
+    /// <summary>S15F51 - <c>L,2 { RCPSPEC, RCPATTRNAME }</c>.</summary>
+    /// <remarks>
+    /// S15F27 with the recipe taken out, which is what the row is: the same two undefined names
+    /// read the same two ways - <c>RCPATTRNAME</c> off the dictionary's own <c>RCPATTRID</c>, and
+    /// <c>RCPATTRVAL</c> off nothing, because a SECS-II item carries its own format. The reply is
+    /// <see cref="AttributeBody"/>, shared with S15F28 so the two rows cannot disagree.
+    /// </remarks>
+    internal static SecsItem NamespaceAttributeGetBody(string recipeNamespace, string attributeName)
+        => SecsItem.L(
+            SecsItem.A(recipeNamespace).Named("RCPSPEC"),
+            SecsItem.A(attributeName).Named("RCPATTRNAME"));
+
+    /// <summary>Reads S15F51.</summary>
+    /// <returns>Whether both items were there.</returns>
+    internal static bool TryReadNamespaceAttributeGet(
+        SecsItem? body,
+        out string recipeNamespace,
+        out string attributeName)
+    {
+        recipeNamespace = string.Empty;
+        attributeName = string.Empty;
+
+        if (body is null || !body.IsList || body.Count < 2)
+        {
+            return false;
+        }
+
+        // The namespace may be empty here for the reason it may be empty in a recipe body: a
+        // machine with one unnamed namespace is what S15F1 reports as a single blank
+        // specification. TryReadNamespace is no use for this row - it descends into a list of
+        // ONE, which is what S15F15 and S15F17 carry.
+        recipeNamespace = Word(body.Items[0]);
+        attributeName = Word(body.Items[1]);
+
+        return attributeName.Length > 0;
+    }
+
     // --------------------------------------------------------------------- the directory
 
     /// <summary>
@@ -862,7 +963,7 @@ internal static class RecipeCodec
 
     /// <summary>Reads an unsigned field in whatever numeric format arrived.</summary>
     /// <remarks>
-    /// The only number in the thirteen rows this package implements is a length, so a value
+    /// The only number in the nineteen rows this package implements is a length, so a value
     /// too large for its field is clamped rather than refused - the same rule the other E5
     /// packages here keep.
     /// </remarks>

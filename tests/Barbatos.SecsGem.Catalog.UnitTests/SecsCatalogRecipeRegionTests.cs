@@ -210,9 +210,10 @@ public class SecsCatalogRecipeRegionTests
 
         // So it is still one capability under two stream numbers - serve one or the other, as
         // Barbatos.SecsGem.Subsystems says of stream 18 - and stream 15's is the firmer because it
-        // is whole: fourteen pairs there against three of seventeen here. Declaring three rows of
-        // stream 20 would turn an honest S9F3 for the stream into an S9F5 for fourteen functions,
-        // which invites a host to keep asking.
+        // is whole: nineteen of stream 15's twenty-seven pairs are served here against three
+        // readable rows of stream 20's seventeen. Declaring those three would turn an honest S9F3
+        // for the stream into an S9F5 for the other fourteen functions, which invites a host to
+        // keep asking.
         Assert.Equal(17, twenty.Messages.Count(message => message.Function % 2 == 1));
     }
 

@@ -21,13 +21,33 @@ namespace Barbatos.SecsGem.Recipes;
 /// a machine's recipes changed.
 /// </para>
 /// <para>
-/// <strong>Thirteen of the stream's twenty-seven pairs.</strong> Nine are every pair whose primary
-/// and reply are made entirely of defined items. Four more carry exactly one undefined name
-/// each - the rename, the copy, the lock and the unlock - and they are here because of
-/// <em>where</em> that name sits: in the rename and the copy it extends a defined name two
-/// positions earlier in the same body, and in the lock it is a token this end mints and this end
-/// reads back. See <c>RecipeCodec</c> and <see cref="RecipeLockToken"/> for the measurement, and
-/// the package README for the fourteen pairs still out, row by row.
+/// <strong>Nineteen of the stream's twenty-seven pairs.</strong> Nine are every pair whose primary
+/// and reply are made entirely of defined items. The other ten each carry a name the reference
+/// never defines, and each is here for <em>where</em> that name sits - which is the measurement
+/// this package is made of:
+/// </para>
+/// <list type="bullet">
+/// <item><description>
+/// <c>RCPIDNEW</c>, <c>RCPSPECDST</c> and <c>RCPIDDST</c> extend a defined name standing two
+/// positions earlier in the same body, so the format is read off the row - the rename and the copy.
+/// </description></item>
+/// <item><description>
+/// <c>RCPLOCKID</c> is a token this end mints and this end reads back, so nothing in between has
+/// to know what it is - the lock and the unlock.
+/// </description></item>
+/// <item><description>
+/// <c>RCPATTRVAL</c> and <c>RCPOWNER</c> are values a SECS-II item carries the format of, so
+/// neither of their two rival readings is ever chosen - the attribute pair, the namespace
+/// attribute and the owner.
+/// </description></item>
+/// <item><description>
+/// <c>RCPVER</c> is a label a host prints, carried untouched - the current recipe and the
+/// directory, which also reads its nesting off S7F36.
+/// </description></item>
+/// </list>
+/// <para>
+/// See <c>RecipeCodec</c> and <see cref="RecipeLockToken"/> for each measurement at its row, and
+/// the package README for the eight pairs still out, row by row.
 /// </para>
 /// </remarks>
 public sealed class RecipeEquipment
@@ -47,11 +67,12 @@ public sealed class RecipeEquipment
 
     /// <summary>Every primary this end answers.</summary>
     /// <remarks>
-    /// Seventeen of stream 15's twenty-seven pairs. <strong>Eight of the seventeen</strong> - the
-    /// copy, the lock, the unlock, the two attribute rows, the select, the current recipe and the
-    /// operation abort - lie outside the function range stream 19 reaches at all, since stream 19
-    /// stops at F20; it was two of nine before the rename and the copy went in. Worth knowing when reading a tool's manual: see the package
-    /// README on the name clash.
+    /// Nineteen of stream 15's twenty-seven pairs. <strong>Ten of the nineteen</strong> - the copy,
+    /// the lock, the unlock, the two attribute rows, the select, the current recipe, the owner, the
+    /// namespace attribute and the operation abort - lie outside the function range stream 19
+    /// reaches at all, since stream 19 stops at F20; it was two of nine before the rename and the
+    /// copy went in. Worth knowing when reading a tool's manual: see the package README on the name
+    /// clash.
     /// </remarks>
     public static IReadOnlyList<(byte Stream, byte Function)> HandledMessages { get; } =
     [
@@ -71,6 +92,8 @@ public sealed class RecipeEquipment
         (15, 29),   // Recipe Attribute Set Request
         (15, 31),   // Recipe Select Request
         (15, 35),   // Current Recipe Request
+        (15, 49),   // Recipe Owner Set Request
+        (15, 51),   // Recipe Namespace Attribute Request
         (15, 53),   // Recipe Operation Abort Request
     ];
 
@@ -128,6 +151,8 @@ public sealed class RecipeEquipment
             29 => await OnAttributeSetAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             31 => await OnSelectAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             35 => await OnCurrentAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            49 => await OnOwnerSetAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            51 => await OnNamespaceAttributeAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             53 => await OnAbortAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             _ => null,
         };
@@ -313,6 +338,39 @@ public sealed class RecipeEquipment
             .ConfigureAwait(false);
 
         return Reply(30, "RecipeAttributeSetAcknowledge", RecipeCodec.CodeItem(acknowledgement));
+    }
+
+    private async ValueTask<SecsMessage> OnOwnerSetAsync(SecsMessage message, CancellationToken cancellationToken)
+    {
+        if (!RecipeCodec.TryReadOwnerSet(message.Item, out var recipeNamespace, out var recipeId, out var owner))
+        {
+            return Refuse(50, "RecipeOwnerSetAcknowledge", "S15F49");
+        }
+
+        var acknowledgement = await _store
+            .SetOwnerAsync(recipeNamespace, recipeId, owner, cancellationToken)
+            .ConfigureAwait(false);
+
+        return Reply(50, "RecipeOwnerSetAcknowledge", RecipeCodec.CodeItem(acknowledgement));
+    }
+
+    private async ValueTask<SecsMessage> OnNamespaceAttributeAsync(
+        SecsMessage message,
+        CancellationToken cancellationToken)
+    {
+        if (!RecipeCodec.TryReadNamespaceAttributeGet(message.Item, out var recipeNamespace, out var name))
+        {
+            // S15F52 is S15F28's body and answers the same way: it has no acknowledgement item, so
+            // a body this reader cannot use comes back as the attribute it asked for with nothing
+            // in it, and an empty name where the name could not be read.
+            return Reply(52, "RecipeNamespaceAttributeData", RecipeCodec.AttributeBody(string.Empty, null));
+        }
+
+        var value = await _store
+            .GetNamespaceAttributeAsync(recipeNamespace, name, cancellationToken)
+            .ConfigureAwait(false);
+
+        return Reply(52, "RecipeNamespaceAttributeData", RecipeCodec.AttributeBody(name, value));
     }
 
     private async ValueTask<SecsMessage> OnLockAsync(SecsMessage message, CancellationToken cancellationToken)

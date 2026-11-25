@@ -57,7 +57,7 @@ public class RecipeHostingTests
             Assert.NotNull(handler);
         }
 
-        Assert.Equal(17, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(19, RecipeEquipment.HandledMessages.Count);
     }
 
     [Fact(Timeout = 15_000)]
@@ -75,20 +75,22 @@ public class RecipeHostingTests
     }
 
     [Fact(Timeout = 15_000)]
-    public async Task The_ten_pairs_this_package_leaves_out_are_not_claimed()
+    public async Task The_eight_pairs_this_package_leaves_out_are_not_claimed()
     {
         await using var provider = BuildEquipment();
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
-        // Every primary stream 15 has that is not one of the seventeen. It was eighteen until the
+        // Every primary stream 15 has that is not one of the nineteen. It was eighteen until the
         // rename, the copy, the lock and the unlock went in, fourteen until the current recipe did,
-        // thirteen until the attribute pair and eleven until the directory - and each of those
-        // left for a reason that had never been stated right. The current recipe was a shape; the
-        // attributes were two readings that differ, which decide nothing because a SECS-II item
-        // carries its own format; the directory was a shape again, settled by S7F36. What keeps
-        // these ten out is measured in SecsCatalogStream15Tests.
-        foreach (byte function in (byte[])[11, 33, 37, 39, 41, 43, 45, 47, 49, 51])
+        // thirteen until the attribute pair, eleven until the directory and ten until the owner and
+        // the namespace attribute - and each of those left for a reason that had never been stated
+        // right. The current recipe was a shape; the attributes were two readings that differ,
+        // which decide nothing because a SECS-II item carries its own format; the directory was a
+        // shape again, settled by S7F36; and the last two were producer and reader, which does not
+        // reach a field nothing has to read. What keeps these eight out is measured in
+        // SecsCatalogStream15Tests.
+        foreach (byte function in (byte[])[11, 33, 37, 39, 41, 43, 45, 47])
         {
             Assert.False(
                 router.TryGetHandler(15, function, out _),

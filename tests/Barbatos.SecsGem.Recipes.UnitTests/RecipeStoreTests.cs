@@ -12,9 +12,10 @@ namespace Barbatos.SecsGem.Recipes.UnitTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// These are this class's choices, not E5's: thirteen of the seventeen replies this package sends carry
-/// one <c>RMACK</c> and no way to say why, so every refusal below is indistinguishable on the wire
-/// from every other. A test against the store is the only place the <em>reason</em> can be pinned.
+/// These are this class's choices, not E5's: fourteen of the nineteen replies this package sends
+/// carry an <c>RMACK</c> and no way to say why, so every refusal below is indistinguishable on the
+/// wire from every other. A test against the store is the only place the <em>reason</em> can be
+/// pinned.
 /// </para>
 /// <para>
 /// The two-level space is what makes this store different from the other three transfer stores

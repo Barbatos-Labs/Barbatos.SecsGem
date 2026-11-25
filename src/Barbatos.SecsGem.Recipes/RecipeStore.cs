@@ -13,14 +13,14 @@ namespace Barbatos.SecsGem.Recipes;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Thirteen methods, one per pair this package implements. Each is awaited inside the transaction
+/// Nineteen methods, one per pair this package implements. Each is awaited inside the transaction
 /// the host is waiting on, so none should be slow - writing a recipe to flash while a host holds
 /// its T3 open is how a download times out.
 /// </para>
 /// <para>
-/// <strong>Nine of the thirteen have no body and four do</strong>, and the line between them is
-/// when they arrived rather than what they do. The nine shipped with this interface; the rename,
-/// the copy, the lock and the unlock came later, so they are
+/// <strong>Nine of the nineteen have no body and ten do</strong>, and the line between them is
+/// when they arrived rather than what they do. The nine shipped with this interface; everything
+/// from the rename onwards came later, so they are
 /// <see href="https://learn.microsoft.com/dotnet/csharp/language-reference/proposals/csharp-8.0/default-interface-methods">default
 /// implementations</see> that refuse, and a store written against the nine still compiles. The
 /// default is <see cref="RecipeAcknowledgement.Rejected"/>, which is also the honest answer: a
@@ -297,9 +297,9 @@ public interface IRecipeStore
     /// </para>
     /// <para>
     /// <c>RCPVER</c> is undefined and is carried untouched - see <see cref="RecipeVersion"/> for why
-    /// that loses nothing here where S15F49's owner could not be carried at all. A store that keeps
-    /// no versions answers with a null one and the row sends a zero-length item, which is a
-    /// different fact from nothing being selected and arrives as a different body.
+    /// a label needs no format. A store that keeps no versions answers with a null one and the row
+    /// sends a zero-length item, which is a different fact from nothing being selected and arrives
+    /// as a different body.
     /// </para>
     /// </remarks>
     ValueTask<(string RecipeId, RecipeVersion? Version)?> CurrentAsync(
@@ -330,10 +330,11 @@ public interface IRecipeStore
     /// that wrote it. That is <c>DSDATA</c>'s answer, <c>ITEMDATA</c>'s and the recipe lock token's.
     /// </para>
     /// <para>
-    /// Which is why the two rows that only <em>report</em> an attribute are still refused - S15F51
-    /// and S20F1 ask for a <em>namespace</em> attribute and the reference gives that no set, so the
-    /// machine would be minting a value a host has to parse. Two readings differ there and it
-    /// matters.
+    /// The same reading serves S15F51, the namespace attribute, which was refused beside this pair
+    /// for one chapter on the ground that a namespace attribute has no set row - so the machine
+    /// would be minting a value a host must parse. It mints nothing: the value comes from the
+    /// application as an item, exactly as stream 21's item attributes do, and stream 21 has no set
+    /// row either. <see cref="GetNamespaceAttributeAsync"/> is that row.
     /// </para>
     /// </remarks>
     ValueTask<SecsItem?> GetAttributeAsync(
@@ -372,6 +373,70 @@ public interface IRecipeStore
         SecsItem value,
         CancellationToken cancellationToken)
         => ValueTask.FromResult(RecipeAcknowledgement.Rejected);
+
+    /// <summary>Records who owns a recipe - S15F49, answered by S15F50.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="recipeId">Which recipe - <c>RCPID</c>.</param>
+    /// <param name="owner">Who - <c>RCPOWNER</c>. <strong>The store's</strong> from here on, as a value set at S15F29 is.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it was recorded. The default refuses.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The owner is a <see cref="SecsItem"/> and not a string, which is what let this row
+    /// in.</strong> <c>RCPOWNER</c> is undefined and has a rival the measure can see -
+    /// <c>RCPOWCODE</c>, a defined <c>BOOLEAN[1]</c> named by no row - so its two readings differ
+    /// about every byte: a name against a flag. Neither is chosen. A host that sends text sets
+    /// text, a host that sends a boolean sets a boolean, and the item it arrived as is what comes
+    /// back out of <see cref="RecipeInMemoryStore.Owner"/>.
+    /// </para>
+    /// <para>
+    /// <strong>No row reads an owner back</strong>, which is this pair's one real peculiarity and
+    /// not a reason to refuse it: stream 21's attributes have no row that <em>sets</em> one and
+    /// <c>Barbatos.SecsGem.ItemTransfer</c> serves the get, stream 8 has no row that names a
+    /// control program and serves the rest. A capability whose other half is the store's API is
+    /// this repository's normal shape, and so is one with no read-back at all - stream 10's
+    /// terminal has had one method since it was written.
+    /// </para>
+    /// <para>
+    /// What the ownership <em>means</em> is the application's, because E5 says nothing about it.
+    /// That is the recipe lock's position exactly: the standard defines the transaction and never
+    /// says what it prevents, and this store's answer is to record the fact and block nothing.
+    /// </para>
+    /// </remarks>
+    ValueTask<RecipeAcknowledgement> SetOwnerAsync(
+        string recipeNamespace,
+        string recipeId,
+        SecsItem owner,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult(RecipeAcknowledgement.Rejected);
+
+    /// <summary>Reads one attribute of a namespace - S15F51, answered by S15F52.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The value, or <see langword="null"/> when there is none. The default has none.</returns>
+    /// <remarks>
+    /// <para>
+    /// S15F27 with the recipe taken out, and refused for chapters because the reference gives a
+    /// namespace attribute <strong>no set row anywhere</strong> - so the machine, it was said,
+    /// would be minting a value a host has to parse. <strong>The machine does not mint it and this
+    /// library never could</strong>: the value arrives from the application as a
+    /// <see cref="SecsItem"/> through <see cref="RecipeInMemoryStore.SetNamespaceAttribute"/>, and
+    /// an item carries its own format. S21F3 is the same row with the same missing half, served by
+    /// <c>Barbatos.SecsGem.ItemTransfer</c> through the same kind of door.
+    /// </para>
+    /// <para>
+    /// It is a <em>namespace</em> attribute, so a store that keeps none answers
+    /// <see langword="null"/> and S15F52 goes out with a zero-length value - the way five served
+    /// rows in three packages say no without an acknowledgement item. There is no code to tell
+    /// "no such namespace" from "no such attribute", and the row has no item for one.
+    /// </para>
+    /// </remarks>
+    ValueTask<SecsItem?> GetNamespaceAttributeAsync(
+        string recipeNamespace,
+        string attributeName,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult<SecsItem?>(null);
 }
 
 /// <summary>
@@ -394,7 +459,7 @@ public interface IRecipeStore
 /// <item><description>A namespace must exist before a recipe goes into it.</description></item>
 /// <item><description>A namespace that still holds recipes is not deleted.</description></item>
 /// <item><description>A name that is taken is not written over - not by a rename, not by a copy, not by a namespace create.</description></item>
-/// <item><description>A locked recipe is not changed: not sent over, not deleted, not renamed.</description></item>
+/// <item><description>A locked recipe is not changed: not sent over, not deleted, not renamed, and its owner is not set.</description></item>
 /// <item><description>A lock is released only by the token it was taken with.</description></item>
 /// </list>
 /// <para>
@@ -418,6 +483,15 @@ public sealed class RecipeInMemoryStore : IRecipeStore
     // by name and S15F29 sets one. The value is the item that arrived: see IRecipeStore for why
     // nothing here re-encodes it.
     private readonly ConcurrentDictionary<(string Namespace, string Id, string Attribute), SecsItem> _attributes = new();
+
+    // The owner of a recipe - S15F49 - and the attributes of a NAMESPACE - S15F51. Two
+    // dictionaries rather than one, because they are keyed differently and because only one of
+    // them is ever written by a host: an owner is what a host told the machine, where a namespace
+    // attribute has no set row anywhere in the reference and reaches this store through
+    // SetNamespaceAttribute. RecipeFileStore writes the first down and not the second, and says
+    // why.
+    private readonly ConcurrentDictionary<(string Namespace, string Id), SecsItem> _owners = new();
+    private readonly ConcurrentDictionary<(string Namespace, string Attribute), SecsItem> _namespaceAttributes = new();
 
     private long _minted;
 
@@ -627,6 +701,17 @@ public sealed class RecipeInMemoryStore : IRecipeStore
         }
 
         _namespaces.TryRemove(recipeNamespace, out _);
+
+        // And its attributes go with it, which is the delete-and-rename rule one level up: a
+        // namespace created again under the same name would otherwise answer S15F51 with what the
+        // last one had.
+        foreach (var key in _namespaceAttributes.Keys)
+        {
+            if (string.Equals(key.Namespace, recipeNamespace, StringComparison.Ordinal))
+            {
+                _namespaceAttributes.TryRemove(key, out _);
+            }
+        }
 
         return ValueTask.FromResult(RecipeAcknowledgement.Accepted);
     }
@@ -929,6 +1014,14 @@ public sealed class RecipeInMemoryStore : IRecipeStore
                 _attributes[(toSpace, toId, key.Attribute)] = value;
             }
         }
+
+        // The owner travels with the attributes, for the reason they travel together: it is the
+        // same kind of fact about the same recipe, and a rename that left one behind would answer
+        // S15F49's own question wrong afterwards.
+        if (_owners.TryRemove((fromSpace, fromId), out var owner) && toSpace is not null && toId is not null)
+        {
+            _owners[(toSpace, toId)] = owner;
+        }
     }
 
     private void CopyAttributes(string fromSpace, string fromId, string toSpace, string toId)
@@ -941,6 +1034,11 @@ public sealed class RecipeInMemoryStore : IRecipeStore
             {
                 _attributes[(toSpace, toId, key.Attribute)] = value;
             }
+        }
+
+        if (_owners.TryGetValue((fromSpace, fromId), out var owner))
+        {
+            _owners[(toSpace, toId)] = owner;
         }
     }
 
@@ -1097,5 +1195,94 @@ public sealed class RecipeInMemoryStore : IRecipeStore
 
         _attributes[(recipeNamespace, recipeId, attributeName)] = value;
         return ValueTask.FromResult(RecipeAcknowledgement.Accepted);
+    }
+
+    /// <summary>Gets who owns a recipe, or <see langword="null"/> when nobody has said.</summary>
+    /// <param name="recipeNamespace">Which namespace.</param>
+    /// <param name="recipeId">Which recipe.</param>
+    /// <returns>The item a host set at S15F49, or <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <strong>The read-back the stream does not have.</strong> Nothing in the reference asks who
+    /// owns a recipe, so this is the only way to find out what a host set - which makes it the
+    /// mirror of the transfer stores' <c>AddAsync</c>, where the wire has the read and not the
+    /// write. The item is the store's: copy it before keeping it past the next set.
+    /// </remarks>
+    public SecsItem? Owner(string recipeNamespace, string recipeId)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+
+        return _owners.TryGetValue((recipeNamespace, recipeId), out var owner) ? owner : null;
+    }
+
+    /// <summary>Sets an attribute of a namespace - the only door there is.</summary>
+    /// <param name="recipeNamespace">Which namespace. Created if it is not there.</param>
+    /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
+    /// <param name="value">The value - <c>RCPATTRVAL</c>, as the item it should go on the wire as.</param>
+    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// Unlike <see cref="SetAttribute"/> this is <strong>not a convenience</strong>: S15F51 asks
+    /// for a namespace attribute and no row in the reference sets one, so without this method a
+    /// store could answer only with nothing. That is <c>ItemStore.Add</c>'s position in stream 21
+    /// and <c>ControlProgramStore.Add</c>'s in stream 8 - the half of a capability the standard
+    /// leaves to the machine.
+    /// </para>
+    /// <para>
+    /// The namespace is created if it is not there, because a namespace is a name this store keeps
+    /// a list of and an attribute is a fact about one; refusing here would make the order of two
+    /// configuration calls matter.
+    /// </para>
+    /// </remarks>
+    public void SetNamespaceAttribute(string recipeNamespace, string attributeName, SecsItem value)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        ArgumentNullException.ThrowIfNull(value);
+
+        _namespaces[recipeNamespace] = true;
+        _namespaceAttributes[(recipeNamespace, attributeName)] = value;
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<RecipeAcknowledgement> SetOwnerAsync(
+        string recipeNamespace,
+        string recipeId,
+        SecsItem owner,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(owner);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Locked like every other mutation here, and for the same invented reason: S15F50 carries
+        // one refusal code, so a host told no learns nothing, and a lock that stopped a rename but
+        // not an owner change would be a lock with a hole in it.
+        if (!_recipes.ContainsKey((recipeNamespace, recipeId)) || IsLocked(recipeNamespace, recipeId))
+        {
+            return ValueTask.FromResult(RecipeAcknowledgement.Rejected);
+        }
+
+        _owners[(recipeNamespace, recipeId)] = owner;
+        return ValueTask.FromResult(RecipeAcknowledgement.Accepted);
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<SecsItem?> GetNamespaceAttributeAsync(
+        string recipeNamespace,
+        string attributeName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // A namespace nobody created and an attribute nobody set are two different facts and
+        // S15F52 has one body for both, which is the row's own doing: it carries a name and a
+        // value and no acknowledgement.
+        return ValueTask.FromResult(
+            _namespaceAttributes.TryGetValue((recipeNamespace, attributeName), out var value) ? value : null);
     }
 }

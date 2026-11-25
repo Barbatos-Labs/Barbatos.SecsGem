@@ -713,6 +713,14 @@ internal static class Program
         recipeStore.Add("PROD", "ETCH-7", Encoding.ASCII.GetBytes("STEP 1: pump down\nSTEP 2: etch 40s\n"));
         recipeStore.AddNamespace("DEV");
 
+        // What a namespace IS, which S15F51 reports and no row in the reference sets - so this is
+        // the store's own door and the only one there is, the way stream 21 has no row that sets an
+        // item attribute and Barbatos.SecsGem.ItemTransfer serves S21F3 off its store anyway.
+        recipeStore.SetNamespaceAttribute(
+            "PROD",
+            "DESCRIPTION",
+            SecsItem.A("the recipes this tool runs in production"));
+
         // Neither end of stream 15 is disposable, and the equipment end takes no connection at all.
         var recipeEquipment = new RecipeEquipment(recipeStore);
         var recipeHost = new RecipeHost(hostLink);
@@ -2715,6 +2723,56 @@ internal static class Program
 
             ok &= attributes.Count == 2 && attributes[0].Name == "LIMITS" && attributes[1].Name == "OWNER";
             ok &= attributes.Count == 2 && attributes[1].Value.GetString() == "night shift";
+
+            // S15F49, the owner - and the demonstration is that the SAME row takes either reading.
+            // RCPOWNER is undefined and its only rival, RCPOWCODE, is a defined BOOLEAN, so the
+            // reference can be read as wanting a name or a flag; nothing here picks one, and
+            // nothing in the reference reads an owner back at all, which is why the row could be
+            // served and why there is no S15F-anything to confirm it with.
+            using (var byName = SecsItem.A("mes-7"))
+            {
+                Console.WriteLine(
+                    $"   S15F49 -> RMACK={await recipes.Host.SetOwnerAsync("PROD", "ETCH-7", byName, cancellationToken)}"
+                    + " for an owner sent as a name");
+            }
+
+            using (var byFlag = SecsItem.Boolean(true))
+            {
+                ok &= await recipes.Host.SetOwnerAsync("DEV", "ETCH-8", byFlag, cancellationToken)
+                    == RecipeAcknowledgement.Accepted;
+            }
+
+            if (recipes.Store is { } owners)
+            {
+                var held = owners.Owner("PROD", "ETCH-7");
+                var flag = owners.Owner("DEV", "ETCH-8");
+
+                Console.WriteLine(
+                    $"   and the machine kept them as sent: PROD/ETCH-7 as {held?.Format.ToString() ?? "nothing"}"
+                    + $" \"{held?.GetString()}\", DEV/ETCH-8 as {flag?.Format.ToString() ?? "nothing"}");
+
+                ok &= held?.GetString() == "mes-7" && flag?.Format == SecsFormat.Boolean;
+            }
+
+            // S15F51, a NAMESPACE attribute. No row in the reference sets one, so the machine's
+            // half is the store's own door - which is stream 21's position for an item attribute,
+            // where S21F3 asks and no row writes either.
+            using (var description = await recipes.Host.RequestNamespaceAttributeAsync(
+                "PROD",
+                "DESCRIPTION",
+                cancellationToken))
+            using (var unsetSpace = await recipes.Host.RequestNamespaceAttributeAsync(
+                "PROD",
+                "NOBODY-SET-THIS",
+                cancellationToken))
+            {
+                Console.WriteLine(
+                    $"   S15F51 -> PROD/DESCRIPTION is \"{description?.GetString() ?? "nothing"}\", "
+                    + $"and one nobody set reads back as {unsetSpace?.ToString() ?? "nothing"}");
+
+                ok &= description?.GetString() == "the recipes this tool runs in production";
+                ok &= unsetSpace is null;
+            }
 
             // The guard that matters most: S15F17 names no recipe, so deleting a namespace that
             // still holds one would take a whole directory with a single message. The in-memory

@@ -115,6 +115,141 @@ public class RecipeFileStoreTests
     }
 
     [Fact(Timeout = 15_000)]
+    public async Task An_owner_a_host_set_comes_back_and_a_namespace_attribute_deliberately_does_not()
+    {
+        using var temporary = new TempDirectory();
+
+        var store = new RecipeFileStore(temporary.Path);
+
+        await SeedAsync(store, "PROD", "ETCH-7", Body);
+
+        // One of these is what a host told the machine and the other is the application's own
+        // wiring, which is the whole of why only one is on the disk. S15F49 is a message a host
+        // sends; a namespace attribute has no row anywhere that sets one, so it reaches a store
+        // the way a logger and a directory path do - on every start. The service program store
+        // leaves its Run delegate out for the identical reason.
+        Assert.Equal(
+            RecipeAcknowledgement.Accepted,
+            await store.SetOwnerAsync("PROD", "ETCH-7", SecsItem.A("mes-7"), Token));
+
+        store.SetNamespaceAttribute("PROD", "DESCRIPTION", SecsItem.A("production recipes"));
+
+        Assert.Equal("mes-7", store.Owner("PROD", "ETCH-7")!.GetString());
+        Assert.Equal(
+            "production recipes",
+            (await store.GetNamespaceAttributeAsync("PROD", "DESCRIPTION", Token))!.GetString());
+
+        var reopened = new RecipeFileStore(temporary.Path);
+
+        Assert.Equal("mes-7", reopened.Owner("PROD", "ETCH-7")!.GetString());
+        Assert.Null(await reopened.GetNamespaceAttributeAsync("PROD", "DESCRIPTION", Token));
+
+        // The owner comes back as the ITEM it arrived as, not as text: the encoded item is what
+        // was written down, because RCPOWNER is undefined and its rival RCPOWCODE is a BOOLEAN, so
+        // a store that wrote the characters would have picked one of the two readings.
+        Assert.Equal(
+            RecipeAcknowledgement.Accepted,
+            await reopened.SetOwnerAsync("PROD", "ETCH-7", SecsItem.Boolean(true), Token));
+
+        var third = new RecipeFileStore(temporary.Path);
+        var flag = third.Owner("PROD", "ETCH-7");
+
+        Assert.Equal(SecsFormat.Boolean, flag!.Format);
+        Assert.True(flag.GetSpan<bool>()[0]);
+    }
+
+    [Fact(Timeout = 20_000)]
+    public async Task An_owner_follows_its_recipe_across_a_restart_and_is_dropped_when_the_recipe_goes()
+    {
+        using var temporary = new TempDirectory();
+
+        var store = new RecipeFileStore(temporary.Path);
+
+        await SeedAsync(store, "PROD", "ETCH-7", Body);
+        await SeedAsync(store, "DEV", "KEEP", Other);
+
+        await store.SetOwnerAsync("PROD", "ETCH-7", SecsItem.A("mes-7"), Token);
+        await store.SetOwnerAsync("DEV", "KEEP", SecsItem.A("mes-9"), Token);
+
+        Assert.Equal(RecipeAcknowledgement.Accepted, await store.RenameAsync("PROD", "ETCH-7", "ETCH-8", Token));
+
+        // The owner is in a side file and the attributes are in the record, so the rename has to
+        // keep two things in step rather than one - which is the cost of leaving the record's
+        // field count even, and the reason this is asserted after a restart and not before it.
+        var renamed = new RecipeFileStore(temporary.Path);
+
+        Assert.Null(renamed.Owner("PROD", "ETCH-7"));
+        Assert.Equal("mes-7", renamed.Owner("PROD", "ETCH-8")!.GetString());
+
+        Assert.Equal(RecipeAcknowledgement.Accepted, await renamed.CopyAsync("PROD", "ETCH-8", "DEV", "ETCH-8", Token));
+        Assert.Equal(RecipeAcknowledgement.Accepted, await renamed.DeleteAsync("PROD", "ETCH-8", Token));
+
+        var last = new RecipeFileStore(temporary.Path);
+
+        Assert.Null(last.Owner("PROD", "ETCH-8"));
+        Assert.Equal("mes-7", last.Owner("DEV", "ETCH-8")!.GetString());
+        Assert.Equal("mes-9", last.Owner("DEV", "KEEP")!.GetString());
+    }
+
+    [Fact(Timeout = 20_000)]
+    public async Task An_owner_naming_a_recipe_that_is_no_longer_there_is_dropped_on_adoption()
+    {
+        using var temporary = new TempDirectory();
+
+        var store = new RecipeFileStore(temporary.Path);
+
+        await SeedAsync(store, "PROD", "ETCH-7", Body);
+        await store.SetOwnerAsync("PROD", "ETCH-7", SecsItem.A("mes-7"), Token);
+
+        // Somebody takes the recipe's record away and leaves the owners file behind, which is what
+        // a half-restored backup looks like. The locks and the selection are read the same way:
+        // the record is faithful and the judgement is in the reading, so an owner with no recipe
+        // is dropped rather than adopted into a store that has nothing to attach it to.
+        foreach (var record in Directory.GetFiles(temporary.Path, "*" + RecipeFileStore.RecordExtension))
+        {
+            File.Delete(record);
+        }
+
+        var reopened = new RecipeFileStore(temporary.Path);
+
+        Assert.Null(reopened.Owner("PROD", "ETCH-7"));
+
+        // And the file is still there until something rewrites it, which is why the index is what
+        // answers rather than the disk.
+        Assert.True(File.Exists(Path.Combine(temporary.Path, RecipeFileStore.OwnersFile)));
+    }
+
+    [Fact(Timeout = 20_000)]
+    public async Task A_locked_recipe_refuses_an_owner_in_the_file_store_too()
+    {
+        using var temporary = new TempDirectory();
+
+        var store = new RecipeFileStore(temporary.Path);
+
+        await SeedAsync(store, "PROD", "ETCH-7", Body);
+
+        var (code, token) = await store.LockAsync("PROD", "ETCH-7", Token);
+
+        Assert.Equal(RecipeAcknowledgement.Accepted, code);
+        Assert.Equal(
+            RecipeAcknowledgement.Rejected,
+            await store.SetOwnerAsync("PROD", "ETCH-7", SecsItem.A("mes-7"), Token));
+
+        // The in-memory store refuses this and so does this one, which is the rule both keep: a
+        // lock whose consequences are the store's invention is worth nothing with a hole in it.
+        Assert.Null(store.Owner("PROD", "ETCH-7"));
+        Assert.Equal(
+            RecipeAcknowledgement.Rejected,
+            await store.SetOwnerAsync("PROD", "NOT-THERE", SecsItem.A("mes-7"), Token));
+
+        await store.UnlockAsync("PROD", "ETCH-7", token!, Token);
+
+        Assert.Equal(
+            RecipeAcknowledgement.Accepted,
+            await store.SetOwnerAsync("PROD", "ETCH-7", SecsItem.A("mes-7"), Token));
+    }
+
+    [Fact(Timeout = 20_000)]
     public async Task A_directory_comes_out_of_the_index_and_survives_a_restart()
     {
         using var temporary = new TempDirectory();
@@ -801,7 +936,7 @@ public class RecipeFileStoreTests
                 $"S{stream}F{function} should have a handler.");
         }
 
-        Assert.Equal(17, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(19, RecipeEquipment.HandledMessages.Count);
     }
 
     private sealed class TempDirectory : IDisposable

@@ -42,7 +42,7 @@ Core  <-  Hsms  <-  Gem
                                capability, serve one or the other - and declaring two rows of
                                seventeen would answer S9F5 for the other fifteen functions where
                                leaving the stream alone answers S9F3.
-                               Seventeen of twenty-seven pairs. Nine have a primary and a reply made
+                               Nineteen of twenty-seven pairs. Nine have a primary and a reply made
                                entirely of defined items - which is what overturned chapter 42's
                                sweep of this stream into stream 19's refusal, since stream 19 has
                                none and provenance is not a veto. The body is PPBODY, stream 7's
@@ -58,16 +58,24 @@ Core  <-  Hsms  <-  Gem
                                a shape rather than on an item. S15F36 is the current recipe, two
                                items and no acknowledgement, and the sibling a nesting comes from
                                need not be in this package - S7F6 is an identifier and a second
-                               field, flat. Its RCPVER is carried untouched where S15F49's owner
-                               could not be, because a version is a label a host prints and an
-                               owner is a field the far end must parse. The DIRECTORY is the third
+                               field, flat. Its RCPVER is carried untouched, because a version is a
+                               label a host prints - and so is the OWNER now, for a sharper reason
+                               than the one that kept it out: nothing in the reference reads an
+                               owner, RCPOWNER being named by exactly one row. The DIRECTORY is the third
                                and it retired the measure: S15F4 is a list of entries whose last
                                column repeats, which is S7F36 exactly - the formatted process
                                program directory, served here, entry by entry its row's items in
                                order and then a nested list. Every item of S15F4 was already
-                               carried in the package, so the nesting was all that was left. The
-                               ten still out are refused one of three ways and the README gives
-                               them row by row.
+                               carried in the package, so the nesting was all that was left. TWO
+                               more came in when producer and reader was read row by row - the
+                               OWNER above and the NAMESPACE ATTRIBUTE, whose refusal said the
+                               machine would mint a value no row sets, where stream 21's item
+                               attributes have no set row either and the value comes off the store.
+                               The eight still out are refused one of two ways and the README gives
+                               them row by row: five turn on a field nothing defines, and three
+                               need a value only the machine could produce - a checksum it must
+                               RECOMPUTE, a quantity with no unit, and a column with no name beside
+                               it.
                                Only stream here with a TWO-LEVEL space, so the store checks the
                                namespace at the grant AND at the send, and refuses to delete one
                                that still holds recipes - and the only one with a LOCK, whose
@@ -389,12 +397,34 @@ the dictionary instead of read off the row, and all three of stream 15's cases s
 base. A figure can be true of its population and silent about the case in hand.
 
 **An undefined field may be carried opaquely when the end that must read it is the end that produced
-it.** That is what let stream 15's lock in and keeps S15F49's owner out: a lock token is minted by
-the machine in S15F24 and handed back to it in S15F25, so nothing in between needs to know what it
-is - the same shape as `DSDATA` and `ITEMDATA`, which are the sender's own data stored whole. An
-owner travels the other way, so the host would choose a format the machine has to parse, and there
-the two readings differ. Ask which end writes the field and which end reads it before carrying it
-untouched.
+it.** That is what let stream 15's lock in: a lock token is minted by the machine in S15F24 and
+handed back to it in S15F25, so nothing in between needs to know what it is - the same shape as
+`DSDATA` and `ITEMDATA`, which are the sender's own data stored whole.
+
+**And the rule's hard half is "must read", not "crosses" - which is what reading it row by row
+found.** It had been applied as refusing any undefined field that travels from one end to the other,
+and it kept S15F49's owner out on exactly that: the host chooses a format the machine would have to
+parse, and `RCPOWNER`'s two readings differ as sharply as any pair in the reference - a name against
+`RCPOWCODE`, a defined `BOOLEAN` no row names. Both halves are still true and neither is the reason,
+because **`RCPOWNER` is named by exactly one row in the whole reference**. No message asks who owns
+a recipe and E5 never says what owning one prevents, so there is no parser anywhere whose format the
+host's choice could break; the store keeps the item that arrived and the application decides what
+ownership means, which is the recipe lock's own position. The same question served S15F51: a
+namespace attribute has no set row, which had been read as "the machine would mint the value", and
+stream 21's item attributes have no set row either - `Barbatos.SecsGem.ItemTransfer` serves that get
+with the value coming off its store as an item the application put there. **So ask what would have
+to read the field, and whether anything in the reference ever does** - a field nobody reads is the
+sender's own data however it travels. What the measure keeps is the rows where some code must *act*
+on the value: a block number the receiver orders by, a checksum it recomputes, a quantity a host
+does arithmetic with, and a column whose name is not on the wire. Stream 7 is the control - its
+three verify rows send the whole body and compare bytes rather than a checksum, and all three are
+served.
+
+**A capability whose other half is the store's API is this repository's normal shape.** Stream 8 has
+no row that names a control program, stream 21 none that sets an attribute, stream 15 none that
+either sets a namespace attribute or reads an owner back. The first two were already served that
+way; the third pair is two more, and the asymmetry between them is worth keeping in mind: the owner
+has the WRITE on the wire and the read in the store, the namespace attribute the other way round.
 
 `IsEntirelyRepresentative` is true for nine streams and three of them are implemented here, so it
 is not a veto: check the stream against the item dictionary and against its standard's subject
@@ -424,22 +454,26 @@ streams were. Both are finished now - stream 6 served five of its last seven pai
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about.
 
-**And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 219 of the reference's 274
-primaries are declared and the other **fifty-five are a partition** - each appears exactly once,
+**And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 221 of the reference's 274
+primaries are declared and the other **fifty-three are a partition** - each appears exactly once,
 under the one measure that decides it, and a row with two reasons is filed under the one that would
 still refuse it if the other were answered. The **seven** measures and their counts: the field the
-row turns on (12), producer and reader (16), a name with no second instance (1), a firmer row does
-the job (20), the addition is unobservable (1), the standard is contradicted (4), the addressing is
+row turns on (12), producer and reader (12), a name with no second instance (1), a firmer row does
+the job (22), the addition is unobservable (1), the standard is contradicted (4), the addressing is
 missing (1). Eleven streams hold them and the other
-nine are served whole. **Five of the fifty-five are gap-free** - S7F21, S17F9, S17F13, S20F17 and
+nine are served whole. **Five of the fifty-three are gap-free** - S7F21, S17F9, S17F13, S20F17 and
 S20F33 - and four of those five are refused because a firmer row does their job, so no gap-free row
 here is refused on a field; and nothing anywhere is refused on a shape, there being no such measure
 left.
 
 Re-read a refusal by starting from its row in that table, and if the table is what turns out to be
 wrong, that is the chapter - which is how it came to have nine measures at its widest and seven
-now, and why the figure above reads five where it read twenty-five. **Five chapters have
-re-read a measure and all five moved rows out of it.** Two were stream-level verdicts holding
+now, and why the figure above reads five where it read twenty-five. **Six chapters have
+re-read a measure and all six moved rows out of it.** The sixth is the first where the measure
+survived: producer and reader held sixteen, the largest count in the table, and holds twelve. So a
+measure can be right and still be reaching rows it does not decide, and the way to tell is to read
+its own words back - this one says "must read", and two of its rows had nothing that reads the
+field. **The largest measure is now "a firmer row does the job", at twenty-two.** Two were stream-level verdicts holding
 thirty-eight rows between them and both collapsed, which retired the rule they taught: a measure
 that names a stream rather than a row is the one to re-read next, and there is none left. The third
 went at the largest row-level measure with the question those two had sharpened - what stands in the
@@ -906,6 +940,15 @@ unchanged, which is a control passing for the wrong reason. And `ArrayPool` keep
 bucket in the returning thread's own slot where nobody else can rent it, and the thread that
 disposes a message is never the test's, so **one large value hides in that slot and two do not**.
 The test sets two, and ten controls land on it.
+
+**And the item has to come from the CODEC, not from the test's own array** - which is the same
+mistake one layer down, found by the chapter after. `SecsItem.B(someArray)` borrows nothing however
+large it is: only an item the codec decoded owns a pooled buffer. So a test that hands a store
+`SecsItem.B(new byte[4096])` and then proves the reply did not eat it proves nothing, and the
+control passes with every copy removed. `SecsItem.Decode(item.ToByteArray())` is how a test gets a
+pooled one by hand, and it is worth knowing which rows can even reach the hazard: a value that only
+ever arrives from an application - a namespace attribute, since no row in the reference sets one -
+is never pooled unless the application decoded it, where a value a host sends always is.
 
 **Rebuild after a control run before trusting the suite.** A runner restores the *sources* it
 mutated and leaves the build output of its last control behind, and the catalogue's data file is

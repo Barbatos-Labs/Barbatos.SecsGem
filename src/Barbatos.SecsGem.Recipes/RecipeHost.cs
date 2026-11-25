@@ -24,7 +24,7 @@ namespace Barbatos.SecsGem.Recipes;
 /// <c>RMACK</c> is defined, with 0 accepted, 1 rejected and 2 to 63 reserved. After three chapters
 /// of acknowledgements with no table, this one needs no inference; what it still cannot do is say
 /// <em>why</em> a recipe was rejected, because there is one refusal code and the rows that would
-/// have carried a reason are among the fourteen left out.
+/// have carried a reason are among the eight left out.
 /// </para>
 /// </remarks>
 public sealed class RecipeHost
@@ -669,6 +669,98 @@ public sealed class RecipeHost
             ?? throw new SecsException("S15F30 carried no RMACK.");
 
         return Read(code, "S15F30");
+    }
+
+    /// <summary>Records who owns a recipe - S15F49, answered by S15F50.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="recipeId">Which recipe - <c>RCPID</c>.</param>
+    /// <param name="owner">Who - <c>RCPOWNER</c>, sent as the item it is given as.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it was recorded.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no <c>RMACK</c>.</exception>
+    /// <remarks>
+    /// <para>
+    /// The owner is a <see cref="SecsItem"/> and not a string on purpose. <c>RCPOWNER</c> is
+    /// undefined and its only rival is <c>RCPOWCODE</c>, a defined <c>BOOLEAN[1]</c> that no row
+    /// names - so the reference can be read as wanting a name or as wanting a flag, and this
+    /// method takes neither side: send <c>SecsItem.A("mes-7")</c> or
+    /// <c>SecsItem.Boolean(true)</c>, and the machine stores what arrives.
+    /// </para>
+    /// <para>
+    /// <strong>Nothing reads it back.</strong> No row in the reference asks who owns a recipe, so a
+    /// host that wants to confirm one has only S15F50's single acceptance code to go on. That is
+    /// stream 21's attributes the other way round - a read with no write - and it is why
+    /// <c>RecipeInMemoryStore.Owner</c> exists at all.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<RecipeAcknowledgement> SetOwnerAsync(
+        string recipeNamespace,
+        string recipeId,
+        SecsItem owner,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(owner);
+
+        using var reply = await ExchangeAsync(
+            new SecsMessage(15, 49, replyExpected: true)
+            {
+                Name = "RecipeOwnerSetRequest",
+                Item = RecipeCodec.OwnerSetBody(recipeNamespace, recipeId, owner),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        var code = RecipeCodec.ReadCode(reply.Item)
+            ?? throw new SecsException("S15F50 carried no RMACK.");
+
+        return Read(code, "S15F50");
+    }
+
+    /// <summary>Reads one attribute of a namespace - S15F51, answered by S15F52.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The value, or <see langword="null"/> when the machine has none.</returns>
+    /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <see cref="RequestAttributeAsync"/> without the recipe, which is what the row is. There is
+    /// no acknowledgement item in S15F52, so a namespace that is not there and an attribute nobody
+    /// set are one answer - <see langword="null"/>.
+    /// </para>
+    /// <para>
+    /// The item is <strong>the caller's to dispose</strong> and is decoded afresh, for the reason
+    /// <see cref="RequestAttributeAsync"/> gives: a payload of
+    /// <see cref="SecsCodecOptions.PooledPayloadThreshold"/> bytes or more is decoded into a buffer
+    /// that goes back to its pool when the reply is disposed.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<SecsItem?> RequestNamespaceAttributeAsync(
+        string recipeNamespace,
+        string attributeName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(attributeName);
+
+        using var reply = await ExchangeAsync(
+            new SecsMessage(15, 51, replyExpected: true)
+            {
+                Name = "RecipeNamespaceAttributeRequest",
+                Item = RecipeCodec.NamespaceAttributeGetBody(recipeNamespace, attributeName),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (reply.Item is not { IsList: true, Count: 2 } body)
+        {
+            return null;
+        }
+
+        var value = body.Items[1];
+
+        return value is { IsList: true, Count: 0 } ? null : SecsItem.Decode(value.ToByteArray());
     }
 
     /// <summary>Aborts a recipe operation - S15F53, answered by S15F54.</summary>

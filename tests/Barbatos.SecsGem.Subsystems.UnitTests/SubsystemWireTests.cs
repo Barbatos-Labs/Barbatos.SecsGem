@@ -474,6 +474,15 @@ public sealed class SubsystemWireTests
         await pair.HostLink.PostAsync(primary, SubsystemPair.Token);
         await SubsystemPair.WaitUntilAsync(() => pair.AskedEquipment.Count > 0, "the equipment to be asked");
 
+        // And then for the LOG, which is what the assertion reads. The harness records the message
+        // in the route BEFORE calling the end under test, so a wait on that queue is a wait on the
+        // wrong thing - the handler may not have written its line yet. This package was missed by
+        // the sweep that added these second waits elsewhere, and the race showed up once in
+        // twenty-four parallel runs of this project.
+        await SubsystemPair.WaitUntilAsync(
+            () => pair.EquipmentLog.From(LogLevel.Warning).Count > 0,
+            "the equipment to say why");
+
         Assert.Contains(
             pair.EquipmentLog.From(LogLevel.Warning),
             message => message.Contains("S18F17", StringComparison.Ordinal)
@@ -497,6 +506,10 @@ public sealed class SubsystemWireTests
 
         await pair.EquipmentLink.PostAsync(primary, SubsystemPair.Token);
         await SubsystemPair.WaitUntilAsync(() => pair.AskedHost.Count > 0, "the host to be asked");
+
+        await SubsystemPair.WaitUntilAsync(
+            () => pair.HostLog.From(LogLevel.Warning).Count > 0,
+            "the host to say why");
 
         Assert.Contains(
             pair.HostLog.From(LogLevel.Warning),

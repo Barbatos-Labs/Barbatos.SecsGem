@@ -728,18 +728,21 @@ public sealed class RecipeWireTests
         Assert.Equal(1, reply.Item?.Count);
     }
 
-    // -------------------------------------------------------- outside the seventeen
+    // -------------------------------------------------------- outside the nineteen
 
     [Fact(Timeout = 15_000)]
-    public async Task A_function_outside_the_seventeen_is_logged_and_left_alone()
+    public async Task A_function_outside_the_nineteen_is_logged_and_left_alone()
     {
         // Only reachable if an application routes a function the package does not declare, since
         // the router answers S9F5 for anything undeclared - so the harness routes one. S15F11 is
         // the recipe verify, and it is the one refusal here with nothing left to re-read: a
         // recipe checksum is CHECKSUM in stream 15, CKSUM in stream 19 and CHKSUM in stream 21,
         // and the reference defines none of the three, so there is no rival to correct and
-        // nothing to compare against. It used to be the rename, then the directory, and both of
-        // those went in.
+        // nothing to compare against. Nor is it a field that could be carried untouched, which is
+        // what the producer-and-reader re-read confirmed: the machine has to RECOMPUTE a checksum
+        // to answer at all, and stream 7 shows what the alternative looks like - its three verify
+        // rows send the whole body and compare bytes, and all three are served here. It used to be
+        // the rename, then the directory, then the owner, and all three went in.
         await using var pair = RecipePair.Start(alsoRoute: [(15, 11)]);
         await pair.OpenAsync();
 

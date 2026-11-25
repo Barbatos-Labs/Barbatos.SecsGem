@@ -968,8 +968,8 @@ internal static class Program
         var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
 
         Assert(
-            RecipeEquipment.HandledMessages.Count == 17,
-            $"the equipment declares {RecipeEquipment.HandledMessages.Count} message(s), not seventeen");
+            RecipeEquipment.HandledMessages.Count == 19,
+            $"the equipment declares {RecipeEquipment.HandledMessages.Count} message(s), not nineteen");
 
         foreach (var (stream, function) in RecipeEquipment.HandledMessages)
         {
@@ -978,10 +978,10 @@ internal static class Program
                 $"the router has no handler for S{stream}F{function}, so AddRecipeEquipment did not declare it");
         }
 
-        // S15F3 is the newest of the seventeen, and the one whose reply has a NESTING - a list of
-        // entries, each ending in a nested list of the attribute pairs, read off S7F36. A packaging
-        // mistake would show as a route that is simply absent, and a type gone missing from the
-        // package as a compile error on the entry below.
+        // S15F3 is the one whose reply has a NESTING - a list of entries, each ending in a nested
+        // list of the attribute pairs, read off S7F36. A packaging mistake would show as a route
+        // that is simply absent, and a type gone missing from the package as a compile error on the
+        // entry below.
         Assert(
             RecipeEquipment.HandledMessages.Contains(((byte)15, (byte)3)),
             "the packed equipment does not declare S15F3, the recipe directory");
@@ -1002,18 +1002,46 @@ internal static class Program
 
         // The rename, the copy, the lock and the unlock, refused for six chapters and now served:
         // each carries one undefined name, and in three of the four that name extends a defined one
-        // sitting in the same body two positions earlier.
-        foreach (byte function in (byte[])[19, 21, 23, 25])
+        // sitting in the same body two positions earlier. S15F49 and S15F51 are the newest two -
+        // the owner and a namespace attribute - and both went in because nothing in the reference
+        // has to READ the field, which is what producer and reader actually asks.
+        foreach (byte function in (byte[])[19, 21, 23, 25, 49, 51])
         {
             Assert(
                 equipmentRouter.TryGetHandler(15, function, out _),
                 $"the router has no handler for S15F{function}, which this package serves");
         }
 
+        // And the two doors the standard does not give, both public API on the packed store: no row
+        // sets a namespace attribute and no row reads an owner back, so a packaging mistake that
+        // dropped either would leave half of each capability unreachable with every
+        // ProjectReference build green.
+        var packedStore = new RecipeInMemoryStore();
+
+        packedStore.Add("PROD", "ETCH-7", new byte[] { 0x53, 0x54, 0x45, 0x50 });
+        packedStore.SetNamespaceAttribute("PROD", "DESCRIPTION", SecsItem.A("production"));
+
+        Assert(
+            await packedStore
+                .SetOwnerAsync("PROD", "ETCH-7", SecsItem.A("mes-7"), CancellationToken.None)
+                .ConfigureAwait(false) == RecipeAcknowledgement.Accepted,
+            "the packed store refused an owner for a recipe it holds");
+
+        Assert(
+            packedStore.Owner("PROD", "ETCH-7")?.GetString() == "mes-7",
+            "the packed store did not keep the owner it was given");
+
+        Assert(
+            (await packedStore
+                .GetNamespaceAttributeAsync("PROD", "DESCRIPTION", CancellationToken.None)
+                .ConfigureAwait(false))?.GetString() == "production",
+            "the packed store did not keep the namespace attribute it was given");
+
         // And the recipe verify, which is the one refusal in this stream with nothing left to
         // re-read: a recipe checksum is CHECKSUM here, CKSUM in stream 19 and CHKSUM in stream 21,
-        // and the reference defines none of the three. The directory used to be checked beside it
-        // and is served now, its nesting read off S7F36.
+        // the reference defines none of the three, and the machine would have to RECOMPUTE one to
+        // answer at all - where stream 7's three verify rows send the whole body and are served.
+        // The directory used to be checked beside it, then the owner, and all of those are in.
         Assert(
             !equipmentRouter.TryGetHandler(15, 11, out _),
             "the equipment declared the verify, whose checksum the reference never defines");

@@ -91,6 +91,16 @@ public sealed class RecipeFileStore : IRecipeStore
     /// <summary>The file the selection is kept in.</summary>
     public const string SelectedFile = "selected";
 
+    /// <summary>The file the recipe owners are kept in.</summary>
+    /// <remarks>
+    /// A side file and not a field of the record, because the record's fields are two and then a
+    /// name-and-value pair per attribute - an <strong>even</strong> count, which is what lets a
+    /// store read a directory an earlier version of this library wrote. A single extra field would
+    /// break that parity for every record ever written. The locks are kept outside the record for
+    /// the same reason and adopted by the same rule.
+    /// </remarks>
+    public const string OwnersFile = "owners";
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly DurableRecordDirectory _records;
     private readonly ConcurrentDictionary<string, bool> _namespaces = new(StringComparer.Ordinal);
@@ -105,6 +115,17 @@ public sealed class RecipeFileStore : IRecipeStore
     // way: the bytes are what was written down, and decoding fresh per request is what stops one
     // caller's item being handed to another.
     private readonly ConcurrentDictionary<(string Namespace, string Id, string Attribute), byte[]> _attributes = new();
+
+    // The owner a host set at S15F49, encoded, for the reason the attributes are encoded.
+    private readonly ConcurrentDictionary<(string Namespace, string Id), byte[]> _owners = new();
+
+    // And the attributes of a NAMESPACE, which are NOT written down. No row in the reference sets
+    // one, so this is not what a host told the machine: it is the application's own wiring,
+    // supplied on every start like the directory path and the logger - which is exactly why the
+    // service program store does not write its Run delegate down either. An application that sets
+    // these once and expects a restart to remember them is the one case where this store answers
+    // differently from its in-memory sibling, and the README says so.
+    private readonly ConcurrentDictionary<(string Namespace, string Attribute), SecsItem> _namespaceAttributes = new();
 
     private readonly ILogger _logger;
 
@@ -200,6 +221,16 @@ public sealed class RecipeFileStore : IRecipeStore
             if (entry.Length == 3 && _recipes.ContainsKey((Text(entry[0]), Text(entry[1]))))
             {
                 _locks[(Text(entry[0]), Text(entry[1]))] = RecipeLockToken.FromEncoded(entry[2]);
+            }
+        }
+
+        // An owner naming a recipe that is no longer on the disk is dropped, which is the locks'
+        // rule and Restore's: the record is faithful and the judgement is in the reading.
+        foreach (var entry in _records.ReadEntries(OwnersFile).Chunk(3))
+        {
+            if (entry.Length == 3 && _recipes.ContainsKey((Text(entry[0]), Text(entry[1]))))
+            {
+                _owners[(Text(entry[0]), Text(entry[1]))] = entry[2];
             }
         }
 
@@ -441,6 +472,17 @@ public sealed class RecipeFileStore : IRecipeStore
             _namespaces.TryRemove(recipeNamespace, out _);
             await WriteNamespacesAsync(cancellationToken).ConfigureAwait(false);
 
+            // Nothing to write for these: a namespace attribute is the application's wiring and
+            // was never on the disk. Dropped all the same, so a namespace created again under the
+            // same name does not answer S15F51 with what the last one had.
+            foreach (var key in _namespaceAttributes.Keys)
+            {
+                if (string.Equals(key.Namespace, recipeNamespace, StringComparison.Ordinal))
+                {
+                    _namespaceAttributes.TryRemove(key, out _);
+                }
+            }
+
             return RecipeAcknowledgement.Accepted;
         }
         finally
@@ -607,7 +649,11 @@ public sealed class RecipeFileStore : IRecipeStore
             }
 
             _records.Delete(entry.Sequence);
-            MoveAttributes(recipeNamespace, recipeId, null, null);
+
+            if (MoveAttributes(recipeNamespace, recipeId, null, null))
+            {
+                await WriteOwnersAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             // A recipe that was selected and is now gone leaves nothing selected, where a rename
             // moves the selection with it: the in-memory store's two rules. The small file has to
@@ -716,10 +762,15 @@ public sealed class RecipeFileStore : IRecipeStore
             // Before the write and not after, because WriteRecordAsync reads the index to decide
             // what goes in the record: moving them afterwards would write the new name with the old
             // name's attributes still filed under it, and a restart would read none.
-            MoveAttributes(recipeNamespace, recipeId, recipeNamespace, newRecipeId);
+            var moved = MoveAttributes(recipeNamespace, recipeId, recipeNamespace, newRecipeId);
 
             await WriteRecordAsync(entry.Sequence, recipeNamespace, newRecipeId, record.Body, cancellationToken)
                 .ConfigureAwait(false);
+
+            if (moved)
+            {
+                await WriteOwnersAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             // The whole entry moves: a rename does not touch the body, so the length it recorded is
             // still the length.
@@ -775,10 +826,15 @@ public sealed class RecipeFileStore : IRecipeStore
 
             var copy = _next;
 
-            CopyAttributes(sourceNamespace, sourceId, destinationNamespace, destinationId);
+            var copied = CopyAttributes(sourceNamespace, sourceId, destinationNamespace, destinationId);
 
             await WriteRecordAsync(copy, destinationNamespace, destinationId, record.Body, cancellationToken)
                 .ConfigureAwait(false);
+
+            if (copied)
+            {
+                await WriteOwnersAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             _next = copy + 1;
             _recipes[(destinationNamespace, destinationId)] = (copy, entry.Length);
@@ -898,7 +954,7 @@ public sealed class RecipeFileStore : IRecipeStore
 
     private static string Text(byte[] entry) => DurableRecordDirectory.Text(entry);
 
-    /// <summary>Whether a recipe is the selected one, which four of the fourteen methods ask.</summary>
+    /// <summary>Whether a recipe is the selected one, which the delete and the rename ask.</summary>
     private bool IsSelected(string recipeNamespace, string recipeId)
         => _selected is { } selected
             && string.Equals(selected.Namespace, recipeNamespace, StringComparison.Ordinal)
@@ -937,6 +993,25 @@ public sealed class RecipeFileStore : IRecipeStore
         }
 
         return _records.WriteEntriesAsync(LocksFile, flat, cancellationToken);
+    }
+
+    private ValueTask WriteOwnersAsync(CancellationToken cancellationToken)
+    {
+        List<ReadOnlyMemory<byte>> flat = [];
+
+        foreach (var ((space, id), owner) in _owners.OrderBy(pair => pair.Key.Id, StringComparer.Ordinal))
+        {
+            flat.Add(DurableRecordDirectory.Bytes(space));
+            flat.Add(DurableRecordDirectory.Bytes(id));
+
+            // The encoded item and not its text, which is the whole reason the row could be
+            // served: RCPOWNER is undefined and its rival RCPOWCODE is a BOOLEAN, so a store that
+            // wrote the text would have chosen one of the two readings. A host that set a boolean
+            // reads a boolean back.
+            flat.Add(owner);
+        }
+
+        return _records.WriteEntriesAsync(OwnersFile, flat, cancellationToken);
     }
 
     /// <summary>Writes one recipe's record: the namespace and the identifier, then the body.</summary>
@@ -1047,6 +1122,126 @@ public sealed class RecipeFileStore : IRecipeStore
                 : null);
     }
 
+    /// <summary>Gets who owns a recipe, or <see langword="null"/> when nobody has said.</summary>
+    /// <param name="recipeNamespace">Which namespace.</param>
+    /// <param name="recipeId">Which recipe.</param>
+    /// <returns>The item a host set at S15F49, decoded fresh, or <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// The read-back no row in the reference has, and the caller's item to dispose - decoded out
+    /// of what was written down, so two callers never share one, which is
+    /// <see cref="GetAttributeAsync"/>'s rule and the one difference from the in-memory store.
+    /// </remarks>
+    public SecsItem? Owner(string recipeNamespace, string recipeId)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+
+        return _owners.TryGetValue((recipeNamespace, recipeId), out var owner) ? SecsItem.Decode(owner) : null;
+    }
+
+    /// <summary>Sets an attribute of a namespace - the only door there is, and not a durable one.</summary>
+    /// <param name="recipeNamespace">Which namespace. Created if it is not there, and the list is not written.</param>
+    /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
+    /// <param name="value">The value - <c>RCPATTRVAL</c>. The store's from here on.</param>
+    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// S15F51 asks for a namespace attribute and no row in the reference sets one, so this is the
+    /// only way a store can answer with anything - <c>ItemStore.Add</c>'s position in stream 21.
+    /// </para>
+    /// <para>
+    /// <strong>Nothing here is written to the disk, and that is the one place this store answers a
+    /// host differently after a restart.</strong> What a host told the machine comes back; a
+    /// namespace attribute is not that - it is the application's own wiring, like the directory
+    /// this store is pointed at, and the service program store leaves its <c>Run</c> delegate out
+    /// for the identical reason. An application sets these on every start, as it sets everything
+    /// else it configures.
+    /// </para>
+    /// </remarks>
+    public void SetNamespaceAttribute(string recipeNamespace, string attributeName, SecsItem value)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        ArgumentNullException.ThrowIfNull(value);
+
+        _namespaces[recipeNamespace] = true;
+        _namespaceAttributes[(recipeNamespace, attributeName)] = value;
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<RecipeAcknowledgement> SetOwnerAsync(
+        string recipeNamespace,
+        string recipeId,
+        SecsItem owner,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(owner);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            if (!_recipes.ContainsKey((recipeNamespace, recipeId))
+                || _locks.ContainsKey((recipeNamespace, recipeId)))
+            {
+                return RecipeAcknowledgement.Rejected;
+            }
+
+            var previous = _owners.TryGetValue((recipeNamespace, recipeId), out var held) ? held : null;
+
+            _owners[(recipeNamespace, recipeId)] = owner.ToByteArray();
+
+            try
+            {
+                await WriteOwnersAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception) when (RollbackOwner(recipeNamespace, recipeId, previous))
+            {
+                throw;
+            }
+
+            return RecipeAcknowledgement.Accepted;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<SecsItem?> GetNamespaceAttributeAsync(
+        string recipeNamespace,
+        string attributeName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // No gate, like the other questions that only read - and no decode either, because
+        // nothing here came off a disk. These are the application's items and it keeps them.
+        return ValueTask.FromResult(
+            _namespaceAttributes.TryGetValue((recipeNamespace, attributeName), out var value) ? value : null);
+    }
+
+    // Puts an owner back when the write failed, for the reason Rollback does it for an attribute:
+    // the index must never claim something the disk does not hold.
+    private bool RollbackOwner(string recipeNamespace, string recipeId, byte[]? previous)
+    {
+        if (previous is null)
+        {
+            _owners.TryRemove((recipeNamespace, recipeId), out _);
+        }
+        else
+        {
+            _owners[(recipeNamespace, recipeId)] = previous;
+        }
+
+        return false;
+    }
+
     // Puts an attribute back when the write failed, so the index never claims something the disk
     // does not have. Returns false so the filter does not swallow the exception.
     private bool Rollback(string recipeNamespace, string recipeId, string attributeName, byte[]? previous)
@@ -1063,7 +1258,11 @@ public sealed class RecipeFileStore : IRecipeStore
         return false;
     }
 
-    private void MoveAttributes(string fromSpace, string fromId, string? toSpace, string? toId)
+    // Both movers return whether the OWNER moved, and the caller writes the owners file when it
+    // did. The attributes need no such answer because they are inside the record the caller is
+    // about to rewrite; an owner is in a side file, so the two have to be kept in step by hand -
+    // the one cost of keeping the record's field count even.
+    private bool MoveAttributes(string fromSpace, string fromId, string? toSpace, string? toId)
     {
         foreach (var key in _attributes.Keys)
         {
@@ -1079,9 +1278,21 @@ public sealed class RecipeFileStore : IRecipeStore
                 _attributes[(toSpace, toId, key.Attribute)] = value;
             }
         }
+
+        if (!_owners.TryRemove((fromSpace, fromId), out var owner))
+        {
+            return false;
+        }
+
+        if (toSpace is not null && toId is not null)
+        {
+            _owners[(toSpace, toId)] = owner;
+        }
+
+        return true;
     }
 
-    private void CopyAttributes(string fromSpace, string fromId, string toSpace, string toId)
+    private bool CopyAttributes(string fromSpace, string fromId, string toSpace, string toId)
     {
         foreach (var key in _attributes.Keys)
         {
@@ -1092,6 +1303,15 @@ public sealed class RecipeFileStore : IRecipeStore
                 _attributes[(toSpace, toId, key.Attribute)] = value;
             }
         }
+
+        if (!_owners.TryGetValue((fromSpace, fromId), out var owner))
+        {
+            return false;
+        }
+
+        _owners[(toSpace, toId)] = owner;
+
+        return true;
     }
 
     /// <summary>Reads one recipe's record.</summary>

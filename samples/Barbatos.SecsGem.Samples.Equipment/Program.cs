@@ -493,6 +493,20 @@ internal sealed class ChamberRunner(
             await recipes.SaveAsync("PROD", "ETCH-7", seed, stoppingToken);
         }
 
+        // What a NAMESPACE is, which S15F51 reports and no row in the reference sets. So this is
+        // the store's own door and the only one there is - stream 21's position for an item
+        // attribute, where S21F3 asks and nothing writes. Set on every start rather than written
+        // down, because it is this machine's configuration and not anything a host said: the same
+        // reason the service program store does not persist its Run delegate. Unconditional for
+        // that reason too - there is nothing on a disk for it to overwrite.
+        if (recipes is RecipeFileStore configured)
+        {
+            configured.SetNamespaceAttribute(
+                "PROD",
+                "DESCRIPTION",
+                SecsItem.A("the recipes this tool runs in production"));
+        }
+
         // What running a service program means on this machine, set here because it is the one
         // thing about the store that a directory cannot hold: a run is what the machine DOES, and
         // the store keeps the text rather than the behaviour. A real machine would hand the text

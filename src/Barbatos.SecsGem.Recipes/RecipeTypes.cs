@@ -14,7 +14,7 @@ namespace Barbatos.SecsGem.Recipes;
 /// <c>RMACK</c> has a dictionary entry: a <c>B[1]</c> with 0 meaning accepted, 1 meaning rejected,
 /// and 2 to 63 reserved. Streams 13, 8 and 21 all had to read a zero off something else -
 /// <c>ACKC8</c>, <c>ACKC21</c>, <c>ABTACK</c> and <c>DELACK</c> have no tables at all. This one
-/// does, and it covers every one of the thirteen pairs this package implements.
+/// does, and it covers every one of the nineteen pairs this package implements.
 /// </para>
 /// <para>
 /// <strong>So <see cref="Other"/> is honest here where it would not have been there.</strong> The
@@ -26,7 +26,7 @@ namespace Barbatos.SecsGem.Recipes;
 /// <para>
 /// There is still only <em>one</em> refusal, so a rejected recipe comes back with no reason. The
 /// rows that would have carried one - the verify data's <c>VFACK</c>, the validate data's
-/// <c>VALACK</c> - are among the fourteen this package leaves out.
+/// <c>VALACK</c> - are among the eight this package leaves out.
 /// </para>
 /// </remarks>
 public enum RecipeAcknowledgement : byte
@@ -137,13 +137,19 @@ public sealed class RecipeDownloadRequest
 /// <c>Barbatos.SecsGem.ItemTransfer</c> with <c>ITEMDATA</c>.
 /// </para>
 /// <para>
-/// <strong>And carrying it opaquely loses nothing here, which is why the lock went in where
-/// S15F49's owner did not.</strong> A lock identifier is minted by the machine in S15F24 and
-/// handed straight back to it in S15F25: <em>the end that has to read it is the end that wrote
-/// it</em>, so nothing in between needs to know what it is. An owner travels the other way - the
-/// host would choose the format and the machine would have to read it - and the nearest thing the
-/// dictionary has, <c>RCPOWCODE</c>, is a <c>BOOLEAN</c> where an owner's name would be text. Two
-/// readings, different bytes, and the parser is at the far end.
+/// <strong>And carrying it opaquely loses nothing here, which is the plainest case of it in the
+/// package.</strong> A lock identifier is minted by the machine in S15F24 and handed straight back
+/// to it in S15F25: <em>the end that has to read it is the end that wrote it</em>, so nothing in
+/// between needs to know what it is.
+/// </para>
+/// <para>
+/// This used to end "which is why the lock went in where S15F49's owner did not", and the owner is
+/// served now. An owner does travel the other way, and its rival <c>RCPOWCODE</c> is a
+/// <c>BOOLEAN</c> where a name would be text - two readings, different bytes. What that argument
+/// was missing is that <strong>nothing reads an owner</strong>: <c>RCPOWNER</c> is named by exactly
+/// one row in the reference, so there is no message anywhere whose parser the format would have to
+/// satisfy, and the store keeps whichever item arrived. The lock is still the cleaner case, because
+/// the end that reads it is named in the standard rather than absent from it.
 /// </para>
 /// </remarks>
 public sealed class RecipeLockToken
@@ -271,13 +277,18 @@ public sealed class RecipeLockToken
 /// any use for its value.
 /// </para>
 /// <para>
-/// <strong>Carried opaquely although it travels the way an owner does.</strong> The machine writes
-/// this and the host reads it, which is the direction that keeps S15F49's <c>RCPOWNER</c> out - so
-/// the difference is worth stating. An owner is a field the far end must <em>parse</em> to act on,
-/// and the two readings available for it put different bytes out. A version is a label: a host
-/// shows it, or compares it with <see cref="Matches"/> for equality, and neither needs a format.
-/// That is <c>V</c>'s position in stream 6, which <c>Barbatos.SecsGem.Gem</c> carries untouched in
-/// six rows.
+/// <strong>Carried opaquely, which is what a label is for.</strong> The machine writes this and the
+/// host reads it: a host shows it, or compares it with <see cref="Matches"/> for equality, and
+/// neither needs a format. That is <c>V</c>'s position in stream 6, which
+/// <c>Barbatos.SecsGem.Gem</c> carries untouched in six rows.
+/// </para>
+/// <para>
+/// This paragraph used to contrast the version with S15F49's owner, which travels the other way
+/// and was out at the time. Both are carried untouched now, and for one reason rather than two:
+/// <strong>nothing in either direction has to parse the value</strong>. The difference the
+/// contrast was reaching for survives in a different place - a value the machine must MINT needs a
+/// format the far end can read, which is what keeps <c>SPACEAVAIL</c> and S15F48's nameless
+/// column out, and a version is not minted but reported.
 /// </para>
 /// <para>
 /// Which is also why there is no <c>FromText</c> here where the lock has one: a store that mints a

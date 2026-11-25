@@ -400,9 +400,14 @@ public class RecipeTests
         await pair.Host.RequestAttributeAsync("PROD", "ETCH-7", "OWNER", RecipePair.Token);
         await pair.Host.RequestDirectoryAsync("PROD", RecipePair.Token);
 
+        // The two the producer-and-reader re-read let in. Both are sent at a recipe that is gone,
+        // for the reason the four above are: what is asserted here is which function went out.
+        await pair.Host.SetOwnerAsync("PROD", "ETCH-7", SecsItem.A("mes-7"), RecipePair.Token);
+        await pair.Host.RequestNamespaceAttributeAsync("PROD", "DESCRIPTION", RecipePair.Token);
+
         await pair.Host.DeleteNamespaceAsync("PROD", RecipePair.Token);
 
-        // "Every" asserted rather than claimed: seventeen methods, seventeen declared primaries,
+        // "Every" asserted rather than claimed: nineteen methods, nineteen declared primaries,
         // and the host half declares none of its own.
         Assert.Equal(
             [.. RecipeEquipment.HandledMessages.Order()],
@@ -410,19 +415,20 @@ public class RecipeTests
     }
 
     [Fact(Timeout = 15_000)]
-    public void The_equipment_declares_seventeen_of_the_twenty_seven_pairs()
+    public void The_equipment_declares_nineteen_of_the_twenty_seven_pairs()
     {
-        Assert.Equal(17, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(19, RecipeEquipment.HandledMessages.Count);
 
-        // Nine whose primary and reply are made entirely of defined items, four that carry exactly
-        // one undefined name - the rename, the copy, the lock and the unlock - the current recipe,
-        // which carries one undefined name too and went in on a shape rather than on an item, the
-        // attribute pair, which carries TWO and went in on neither, and the directory, which
-        // carries THREE and went in on a shape again: its nesting is S7F36's, and every one of the
-        // three names is carried by one of the rows above it. The figures are measured in
-        // SecsCatalogStream15Tests.
+        // Nine whose primary and reply are made entirely of defined items and ten that each carry
+        // a name the reference never defines - and each of those ten is here for where the name
+        // sits, which is the whole of this package's reasoning. Three extend a defined name two
+        // positions earlier in the same body (the rename and the copy); two are a token this end
+        // mints and reads back (the lock and the unlock); four are values a SECS-II item carries
+        // the format of (the attribute pair, the namespace attribute and the owner); and RCPVER is
+        // a label carried untouched (the current recipe and the directory, whose nesting is
+        // S7F36's). The figures are measured in SecsCatalogStream15Tests.
         Assert.Equal<byte[]>(
-            [1, 3, 5, 7, 9, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 35, 53],
+            [1, 3, 5, 7, 9, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 35, 49, 51, 53],
             [.. RecipeEquipment.HandledMessages.Select(pair => pair.Function)]);
 
         Assert.All(RecipeEquipment.HandledMessages, pair => Assert.Equal(15, pair.Stream));

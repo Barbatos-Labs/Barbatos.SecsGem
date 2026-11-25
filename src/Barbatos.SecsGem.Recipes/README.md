@@ -37,10 +37,10 @@ management", check the stream number before wiring anything up: the hazard is pi
 standard from a document, not an ambiguity in flight - S15F11 and S19F11 are different messages on
 the wire and nothing can confuse them there.
 
-Eight of this package's seventeen pairs - the copy, the lock, the unlock, the two attribute rows,
-the select, the current recipe and the operation abort, F21, F23, F25, F27, F29, F31, F35 and F53 -
-lie outside the range stream 19 reaches at all, because stream 19 stops at F20. It was two of nine
-until the rename and the copy went in.
+Ten of this package's nineteen pairs - the copy, the lock, the unlock, the two attribute rows, the
+select, the current recipe, the owner, the namespace attribute and the operation abort, F21, F23,
+F25, F27, F29, F31, F35, F49, F51 and F53 - lie outside the range stream 19 reaches at all, because
+stream 19 stops at F20. It was two of nine until the rename and the copy went in.
 
 ## Why stream 15 is here when stream 19 was refused
 
@@ -109,16 +109,18 @@ argument `ACKC7`'s missing mismatch code makes about a verify.
 
 So stream 20 is still one capability under a second stream number - the position
 `Barbatos.SecsGem.Subsystems` describes for stream 18, **serve one or the other** - and stream 15's
-is the firmer because it is whole: seventeen pairs here against three of seventeen there.
+is the firmer because it is whole: nineteen pairs served here against three readable rows of stream
+20's seventeen.
 
 That used to be argued from the **routing table** as well: declaring three rows of stream 20 would
 make the connection answer S9F5 for the other fourteen functions where silence answers S9F3. A later
-chapter retired that reading, because it is true of stream 15 too - this package serves seventeen of
-twenty-seven pairs, so a host asking for the other ten gets S9F5 from a machine running this
-very code, and nobody calls that a claim. What is left is per row, and it is enough: **eleven** of
+chapter retired that reading, because it is true of stream 15 too - this package serves nineteen of
+twenty-seven pairs, so a host asking for the other eight gets S9F5 from a machine running this
+very code, and nobody calls that a claim. What is left is per row, and it is enough: **thirteen** of
 stream 20's seventeen rows are stream 15 rows this package already answers - the directory joined
-them when S15F3 went in - four more carry a name that decides them, and S20F15 is the unobservable
-addition above.
+them when S15F3 went in, and the namespace list and the lock when the owner and the namespace
+attribute did - three more carry a name that decides them, and S20F15 is the unobservable addition
+above.
 `RecipeHostingTests.Nothing_in_this_package_claims_stream_19_or_stream_20` is the decision as a
 routing fact, `SecsCatalogRecipeRegionTests` holds the measurement, and
 `SecsCatalogRefusalPartitionTests` files each row under the measure that decides it.
@@ -240,15 +242,24 @@ prefix it shares with any definition in the reference is `RCP` itself, which all
 So nothing is inferred and it travels as the **encoded item that arrived** - stream 13's answer
 rather than stream 8's, through a `RecipeLockToken`.
 
-That loses nothing *here*, and the reason is worth stating because it is what keeps S15F49 out:
+That loses nothing *here*, and the reason is the clearest case of a rule this package leans on
+several times:
 
 > **An opaque field is safe when the end that must read it is the end that produced it.**
 
 A lock identifier is minted by the machine in S15F24 and handed straight back to it in S15F25, so
 nothing in between needs to know what it is - the same shape as `DSDATA` and `ITEMDATA`, which are
-the sender's own data stored whole. An **owner** travels the other way: the host would choose the
-format and the machine would have to read it, and the nearest definition, `RCPOWCODE`, is a
-`BOOLEAN` where an owner's name would be text.
+the sender's own data stored whole.
+
+**This used to end with the owner on the other side of the line, and that was the wrong side.** An
+owner does travel the other way: the host chooses the format and the nearest definition,
+`RCPOWCODE`, is a `BOOLEAN` where a name would be text. What the reading missed is the question the
+rule actually asks - *which end must read it* - because **`RCPOWNER` is named by exactly one row in
+the whole reference**. There is no message that asks who owns a recipe, and E5 never says what
+owning one prevents, so no parser anywhere depends on the format. The store keeps the item that
+arrived and the application decides what ownership means, which is the recipe lock's own position:
+a transaction the standard defines and whose consequences it leaves out. S15F49 is served, and
+`RecipeInMemoryStore.Owner` is the read-back the stream does not have.
 
 The two bodies need no guessing either, because **served siblings give them**: S15F24 is S15F10's
 body item for item - a code and then a payload the dictionary does not define - and S15F25 is
@@ -302,6 +313,28 @@ machine had and then had to be told the recipes' identifiers out of band; S15F3 
 their sizes and their attributes. An **empty** answer covers three things, because S15F4 carries no
 acknowledgement item: a namespace with none, a namespace the machine does not have, and a machine
 whose store serves no directory. The equipment logs which of the three it answered.
+
+A namespace has attributes of its own, and a recipe has an owner:
+
+```csharp
+// S15F51. The value comes back as the item the machine holds - text here, but a U4 or a list if
+// that is what the application set, because a SECS-II item carries its own format.
+using var description = await host.RequestNamespaceAttributeAsync("PROD", "DESCRIPTION", token);
+
+Console.WriteLine(description?.GetString() ?? "(none)");
+
+// S15F49. RCPOWNER has two candidate readings in the reference - a name, or the BOOLEAN its
+// rival RCPOWCODE suggests - and this library picks neither: send whichever the far end expects.
+using var owner = SecsItem.A("mes-7");
+
+await host.SetOwnerAsync("PROD", "ETCH-7", owner, token);
+```
+
+**Both halves of those two are not on the wire.** Nothing in stream 15 sets a namespace attribute,
+so the machine's side of S15F51 is `RecipeInMemoryStore.SetNamespaceAttribute`; and nothing reads an
+owner back, so the host's only confirmation is S15F50's single acceptance code and the machine's own
+`Owner`. Each is half a capability in the standard and whole here, which is stream 21's position for
+item attributes and stream 8's for a named control program.
 
 Sending is two transactions, and this package keeps them two:
 
@@ -416,22 +449,28 @@ Three ways in, one declaration behind them:
 | `AddRecipeFileEquipment(directory)` | `RecipeFileStore` - a recipe survives the restart |
 | `AddRecipeEquipment<MyStore>()` / `AddRecipeEquipment(store)` | yours, by type or already built |
 
-`IRecipeStore` is seventeen methods, one per pair: `ListNamespacesAsync`, `ListRecipesAsync`,
+`IRecipeStore` is nineteen methods, one per pair: `ListNamespacesAsync`, `ListRecipesAsync`,
 `CreateNamespaceAsync`, `DeleteNamespaceAsync`, `RequestDownloadAsync`, `SaveAsync`, `LoadAsync`,
 `DeleteAsync`, `SelectAsync`, `AbortAsync`, `RenameAsync`, `CopyAsync`, `LockAsync`,
-`UnlockAsync`, `CurrentAsync`, `GetAttributeAsync` and `SetAttributeAsync`. Each is awaited
-inside the transaction the host is waiting on, so none should be slow - writing a recipe to flash
-while a host holds its T3 open is how a download times out.
+`UnlockAsync`, `CurrentAsync`, `GetAttributeAsync`, `SetAttributeAsync`, `SetOwnerAsync` and
+`GetNamespaceAttributeAsync`. Each is awaited inside the transaction the host is waiting on, so none
+should be slow - writing a recipe to flash while a host holds its T3 open is how a download times
+out.
 
-**Nine of the seventeen have no body and eight do**, and the line between them is when they arrived
-rather than what they do. The nine shipped with this interface; the rename, the copy, the lock, the
-unlock, the current recipe, the two attribute rows and the directory came later, so they are default
-implementations and **a store written against the nine still compiles**. For five of the eight the
-default is `Rejected`, which is also the honest answer: a machine that will not rename a recipe says
-so with the one refusal code S15F20 has, and E5 has no code for "I do not implement this". The other
-three answer rows that carry no acknowledgement at all, so their defaults are the other shape those
-rows have: `CurrentAsync` says nothing is selected, `GetAttributeAsync` says the attribute is unset,
-and `ListRecipesAsync` says there is no such namespace - one zero-length body each.
+**Nine of the nineteen have no body and ten do**, and the line between them is when they arrived
+rather than what they do. The nine shipped with this interface; everything from the rename onwards
+came later, so they are default implementations and **a store written against the nine still
+compiles**. For six of the ten the default is `Rejected`, which is also the honest answer: a machine
+that will not rename a recipe says so with the one refusal code S15F20 has, and E5 has no code for
+"I do not implement this". The other four answer rows that carry no acknowledgement at all, so their
+defaults are the other shape those rows have: `CurrentAsync` says nothing is selected,
+`GetAttributeAsync` and `GetNamespaceAttributeAsync` say the attribute is unset, and
+`ListRecipesAsync` says there is no such namespace - one zero-length body each.
+
+**Two of the nineteen have their other half in the store's API and not in the stream.** No row sets
+a namespace attribute, so `RecipeInMemoryStore.SetNamespaceAttribute` is the only door there is -
+`ItemStore.Add`'s position in stream 21 and `ControlProgramStore.Add`'s in stream 8. And no row
+*reads* a recipe's owner, so `Owner` is the mirror: the write is on the wire and the read is not.
 
 A recipe read off the wire is **copied** before it reaches the store, because the item it arrived in
 borrows pooled memory and is released with its message.
@@ -450,20 +489,32 @@ chapter:
 - **A reply is built from fresh items.** `RecipeCodec` decodes a new item out of the stored bytes
   for S15F28 and for every entry of S15F4, because an item handed to a `SecsMessage` is disposed
   with it - so a reply carrying a store's own value straight out would destroy it on the way.
-- **`RecipeHost` hands back copies.** `RequestAttributeAsync` and `RequestDirectoryAsync` both
-  decode fresh items, so what they return outlives the reply; those are the caller's to dispose.
+- **`RecipeHost` hands back copies.** `RequestAttributeAsync`, `RequestNamespaceAttributeAsync` and
+  `RequestDirectoryAsync` all decode fresh items, so what they return outlives the reply; those are
+  the caller's to dispose.
 
 Neither mistake could be seen with a text attribute: an `A[n]` decodes into a string, which owns
 nothing. Only an array format above the codec's pooling threshold borrows anything, and
 `RecipeDirectoryTests` drives a 4 KiB `B[n]` for that reason.
 
+And the `B[n]` has to come from the **codec**: `SecsItem.B(someArray)` borrows nothing however large
+it is, so a test that hands a store one of those proves nothing about a reply that disposes it. A
+namespace attribute can only reach a store from an application, there being no row that sets one, so
+`RecipeOwnerTests` decodes its two values by hand to get the pooled kind.
+
+All three answers hold for the **owner** and for a **namespace attribute** as well, because both are
+`SecsItem` values for the same reason an attribute is: `RCPOWNER`'s two readings are a name and a
+`BOOLEAN`, and nothing here picks one. `RecipeOwnerTests` drives two 4 KiB owners rather than one,
+because `ArrayPool` keeps a single buffer per bucket in the returning thread's own slot and the
+thread that disposes a message is never the test's.
+
 ### Seven rules `RecipeInMemoryStore` makes up
 
-Eleven of the seventeen replies carry one `RMACK` and nothing else, and two more carry one beside a
-payload - so every refusal looks like every other on the wire. The remaining four carry no
-acknowledgement at all: S15F2 is a list of namespaces, S15F4 a directory, S15F28 an attribute and
-S15F36 the current recipe. Each of these is therefore tested against the store, where the *reason*
-can be pinned:
+Twelve of the nineteen replies carry one `RMACK` and nothing else, and two more carry one beside a
+payload - so every refusal looks like every other on the wire. The remaining five carry no
+acknowledgement at all: S15F2 is a list of namespaces, S15F4 a directory, S15F28 a recipe's
+attribute, S15F52 a namespace's and S15F36 the current recipe. Each of these is therefore tested
+against the store, where the *reason* can be pinned:
 
 - **A download must be granted before it is sent**, and the grant is keyed on the namespace *and*
   the identifier - a recipe granted for `DEV` must not land in `PROD`.
@@ -476,9 +527,9 @@ can be pinned:
   could otherwise take a whole directory with it. The host has to delete the recipes first.
 - **A name that is taken is not written over** - not by a rename, not by a copy, not by a namespace
   create. A host that got an acceptance would believe both recipes still existed.
-- **A locked recipe is not changed:** not sent over, not deleted, not renamed. The download is
-  refused at the **grant** and again at the send, for the same reason the namespace is checked
-  twice.
+- **A locked recipe is not changed:** not sent over, not deleted, not renamed, and its owner is
+  not set. The download is refused at the **grant** and again at the send, for the same reason the
+  namespace is checked twice.
 - **A lock is released only by the token it was taken with**, compared byte for byte - there is no
   canonical form to compare, because `RCPLOCKID` has no defined format.
 
@@ -589,17 +640,18 @@ and goes to the log.
 
 What the acknowledgement still cannot do is say **why**. There is one refusal code, and the rows
 that would have carried a reason - the verify data's `VFACK`, the validate data's `VALACK` - are
-among the ten left out.
+among the eight left out.
 
 An `RMACK` item carrying **no value** throws rather than falling through to a zero. Zero means
 accepted, so a machine that sent `B,0` said nothing, and nothing is not yes.
 
-## The ten pairs that are not here, row by row
+## The eight pairs that are not here, row by row
 
-**Three** reasons now, and each row is refused by one of them - it was four until the attribute pair
-retired one of them and the directory retired another. **Not one of the ten is refused for being
-undefined**, which was the shape of the old list and was never the argument: three packages here
-carry an undefined field untouched, and eight rows of this one now do.
+**Two** reasons now - **five** rows turn on a field nothing defines and **three** need a value only
+the machine could produce - and it was four reasons until the attribute pair retired one and the
+directory retired another, then three until the owner and the namespace attribute went in. **Not one
+of the eight is refused for being undefined**, which was the shape of the old list and was never the
+argument: three packages here carry an undefined field untouched, and ten rows of this one now do.
 
 It was thirteen until the attribute pair went in, and that one is worth its own paragraph because
 the measure it was refused on is **retired**. S15F27 and S15F29 carry `RCPATTRVAL`, which has two
@@ -610,10 +662,8 @@ item it was sent as, so nothing here chooses, and the host that reads one is the
 That is `DSDATA`'s answer in stream 13, `ITEMDATA`'s in stream 21 and this package's own lock
 token's. `RCPATTRNAME` beside it read off `RCPATTRID`, a defined `A[n]` the messages never name.
 
-What the measure was right about is the two rows that only **report** an attribute. S15F51 asks for
-a *namespace* attribute and the reference gives that no set anywhere, so the machine would be
-minting a value the host must parse - and there the two readings have to be chosen between. That row
-is refused on producer and reader now, which is `RCPOWNER`'s position at S15F49 the other way round.
+That paragraph used to end by naming two rows the measure **was** right about - S15F51, the
+namespace attribute, and S15F49, the owner - and both are served now, which is the next section.
 
 It was fourteen until the current recipe went in, and that row is worth a paragraph here for what it
 was refused over. **A shape needs a size.** S15F36 is two items and no acknowledgement, and the
@@ -636,18 +686,42 @@ So **nothing here is refused for its shape any more**, and the revision history,
 row on that measure, keeps a reason about a field instead: S15F48 is three flat items and the third
 of them is a value with no name beside it, which no row of the stream ever sets.
 
+It was ten until the **owner** and the **namespace attribute** went in, and those two are where
+*producer and reader* was read one row at a time. The rule is right and had been applied past its
+edge:
+
+> **An opaque field is safe when the end that must read it is the end that produced it.**
+
+Both rows cross from one end to the other, so both looked refused. But the rule asks *which end
+must read it*, and for these two the answer is **neither**:
+
+- **`RCPOWNER` is named by exactly one row in the whole reference.** Nothing asks who owns a recipe
+  and E5 never says what owning one prevents, so no parser depends on the format and the store
+  keeps whichever item arrived - a name or the `BOOLEAN` its rival `RCPOWCODE` suggests. What
+  ownership *means* is the application's, which is the lock's own position in this stream.
+- **A namespace attribute has no set row, and that is stream 21's position exactly.** The refusal
+  had been that the machine would therefore be minting the value; stream 21's item attributes have
+  no set row either - `ATTRDATA` appears in one row of the stream and that row is the reply - and
+  `Barbatos.SecsGem.ItemTransfer` serves the get with the value coming off its store as an item the
+  application put there. The machine mints nothing; the application hands it over.
+
+What survives the re-read is the three rows where some code must *act* on the value rather than
+carry it: `CHECKSUM`, which the machine has to **recompute** to answer at all; `SPACEAVAIL`, two
+numbers a host does arithmetic with in a unit nobody states; and S15F48's third column, a value with
+**no name beside it**, where both served attribute replies carry the pair. Stream 7 shows what the
+alternative to a checksum looks like - its three verify rows send the whole body and compare bytes,
+and all three are served in `Barbatos.SecsGem.Gem`.
+
 | | the reason | and what it is |
 | --- | --- | --- |
-| **S15F11/F12** verify | nothing to read | `CHECKSUM` is defined nowhere under any spelling - see the line below |
-| **S15F51/F52** namespace attribute | **nobody sets it** | A *recipe* attribute is set at S15F29 and read at S15F27, both served: the value is the host's own data stored whole, and a SECS-II item carries its own format, so the two readings `RCPATTRVAL` has - an `A[n]` from the unused `RCPATTRDATA`, a list from E39's `ATTRDATA` - never have to be chosen between. A **namespace** attribute has no set anywhere in the reference, so the machine would be minting a value the host must parse, and there they do. `RCPOWNER`'s position at S15F49, the other way round |
+| **S15F11/F12** verify | **nobody defines the computation** | `CHECKSUM` is defined nowhere under any spelling - see the line below - and it is not a field that could be carried untouched either, because the machine has to **recompute** it over the body it holds to answer at all. Stream 7's three verify rows send the whole body instead and are served |
 | **S15F33/F34** execution status | **the field is the message** | `RCPSTATE` is the whole reply, and its only twin `RCPSTAT` is a `U1[1]` **with no code table**, so even taking the spelling as a misprint there are no states to report |
 | **S15F37/F38** existence | **the field is the message** | `RCPEXIST` is the whole answer, so carrying it untouched leaves the library unable to tell yes from no |
 | **S15F39/F40** namespace space | **nobody sets the unit** | `SPACEAVAIL` and `SPACETOTAL` are the whole reply. A format they have, off the unused `RMSPACE`, a `U4`; a **unit** nothing anywhere gives them, and the machine would be minting two numbers a host does arithmetic with - it compares the space left against the size of what it means to send. Where stream 21's `LENGTH` survived the same gap, a store reports a count it was handed |
 | **S15F41/F42** auto-select | **the field is the message** | `AUTOSEL` is the flag the row turns on - `ENABLE`'s position in S14F23, which stream 14 refuses for the same reason |
 | **S15F43/F44** validate | **the field is the message** | `VALACK` is the verdict and nothing defines it. Its anagram `VLAACK` has a real table and a real row - **S2F46**, which `Barbatos.SecsGem.Gem` serves - so the definition belongs to a variable limit acknowledgement and reading it here would import another row's vocabulary. A code with no values is a number whatever its format, which is the one kind of gap a self-describing item cannot rescue |
-| **S15F45/F46** revision compare | **twin is shared** | `RCPVER` and `RCPVER2` both reach for the one `RCPVERS`, and there is only one of it; `CMPRESULT` is the verdict and has no table |
-| **S15F47/F48** revision history | **nobody sets it** | Not a shape: S15F48 is three flat items, which is `S1F12`'s shape and `S2F30`'s. `RCPVER` is carried untouched at S15F36 and `TIME` is defined - but the third column is an `RCPATTRVAL` with **no `RCPATTRNAME` beside it**, one unnamed value per revision, and no row of stream 15 sets one. The machine would mint it and the host would have to read it: S15F51's position |
-| **S15F49/F50** owner | **twin disagrees** | `RCPOWNER` against the unused `RCPOWCODE`, a `BOOLEAN` where an owner's name would be text - and the **host** builds this primary, so the end that would choose the format is not the end that parses it |
+| **S15F45/F46** revision compare | **the field is the message** | `CMPRESULT` is the verdict and has no table, so a comparison this library ran could not report its answer. `RCPVER` and `RCPVER2` both reach for the one `RCPVERS` too, and there is only one of it - but a version is carried untouched at S15F36, so that half decides nothing |
+| **S15F47/F48** revision history | **nobody names the value** | Not a shape: S15F48 is three flat items, which is `S1F12`'s shape and `S2F30`'s. `RCPVER` is carried untouched at S15F36 and `TIME` is defined - but the third column is an `RCPATTRVAL` with **no `RCPATTRNAME` beside it**, one unnamed value per revision, and no row of stream 15 sets one. Both served attribute replies carry the pair, so a host there knows what it is holding; here the machine would mint a value only it understands |
 
 The nesting of every row here came from a served sibling and never from the catalogue's item list,
 which records the names a row's table mentions and is not a
@@ -669,6 +743,15 @@ what a recipe checksum is - so there is nothing to carry and nothing to compare.
 - A recipe's **revision history**, for the same reason one step further: S15F47 would report a list
   of revisions and nothing in the stream creates one. Its third column is the part that keeps it
   out - see the row-by-row table above.
+- **What a recipe's owner means.** S15F49 records one and no row in the reference reads it back, so
+  this package stores the item and blocks nothing with it. An application that wants ownership
+  enforced reads `Owner` and decides for itself - the same arrangement the lock has, where E5
+  defines the transaction and never says what it prevents.
+- **A namespace attribute that survives a restart.** `RecipeFileStore` writes down everything a
+  host sent it and a namespace attribute is not that: no row sets one, so it reaches the store the
+  way the directory path and the logger do, on every start. The service program store leaves its
+  `Run` delegate out of its records for the identical reason. An application that wants them
+  durable keeps them wherever it keeps the rest of its configuration and sets them at start-up.
 
 ## Documentation
 

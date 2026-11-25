@@ -560,8 +560,8 @@ for bodies that are actually built and parsed.
 
 ## What this repository does not serve, and which measure decides it
 
-Fifty-five of the reference's **274 primaries** are declared by nothing in this repository, and 219
-are. After eight chapters spent re-reading those refusals one group at a time, the list is written
+Fifty-three of the reference's **274 primaries** are declared by nothing in this repository, and 221
+are. After nine chapters spent re-reading those refusals one group at a time, the list is written
 down in one place and asserted as a **partition**: every refused primary appears exactly once, under
 the one measure that decides it. A row with two reasons is filed under the one that would still
 refuse it if the other were answered - which is the lesson of the refusals that fell, because in
@@ -570,14 +570,14 @@ every one of those the weaker reason was doing the work.
 | the measure | rows | and what it says |
 | --- | --- | --- |
 | the field the row turns on | 12 | The undefined name is what the message is *for* - `RSTC`, `CELLNAME`, `NRED`, `ENABLE`, `AUTOSEL`, stream 20's `RCPLOCK`, `NOTIFYENABLE` and `CHANGETYPE`, and the `RCPSTATE` that stream 15, 19 and 20 all report - so carrying it untouched would leave a library unable to tell apart the two things its row distinguishes |
-| producer and reader | 16 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, a checksum the receiver has to compute and compare - `CHECKSUM` in streams 15 and 20, `CKSUM` in stream 19, `CHKSUM` in stream 21, and defined under none of the four names - an `OWNERID` the host mints, and the values a machine would have to invent for a namespace attribute, a recipe's owner and a revision's unnamed column |
+| producer and reader | 12 | Some code at the far end must *act* on the value, not merely carry it: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, where the receiver has to order what arrives; a checksum the receiver has to **recompute** and compare - `CHECKSUM` in streams 15 and 20, `CKSUM` in stream 19, `CHKSUM` in stream 21, and defined under none of the four names; `SPACEAVAIL` and `SPACETOTAL`, which a host does arithmetic with in a unit nobody states; and S15F48's third column, a value with no name beside it where both served attribute replies carry the pair |
 | a name with no second instance | 1 | S7F21: its object, *Reference*, appears in two of 524 row names - this row and its own acknowledgement - and its reply is only an acknowledgement |
-| a firmer row does the job | 20 | S17F9 and S17F13 against **S2F23**, and eleven of stream 20's seventeen against the stream 15 rows this repository serves - the directory, the attribute get and set, the delete, the namespace create, the download grant, the download send, the upload, the unlock and the two event rows. **Seven of stream 19's ten** go the same way, once you see that its undefined `RCPNS` stands where the defined `RCPSPEC` stands in six rows the reference names twice, and that its *parameter* pair is the *attribute* pair under the other of the two spellings the dictionary writes. Where two rows do one job, the better-documented source wins |
+| a firmer row does the job | 22 | The largest measure here now. S17F9 and S17F13 against **S2F23**, and thirteen of stream 20's seventeen against the stream 15 rows this repository serves - the namespace list, the directory, the attribute get and set, the delete, the namespace create, the download grant, the download send, the upload, the lock, the unlock and the two event rows. **Seven of stream 19's ten** go the same way, once you see that its undefined `RCPNS` stands where the defined `RCPSPEC` stands in six rows the reference names twice, and that its *parameter* pair is the *attribute* pair under the other of the two spellings the dictionary writes. Where two rows do one job, the better-documented source wins |
 | the addition is unobservable | 1 | S20F15 renames **and** moves in one transaction, where stream 15 needs a copy and a delete. What the single transaction buys is atomicity, and `RMACK` has one refusal code, so a host told *Rejected* cannot learn whether the source survived |
 | the standard is contradicted | 4 | Stream 17's control-job four. The bodies are stream 16's with `PJ` rewritten to `CJ`, S17F1 builds a control job from a `PJID` where E94 builds one from its material, and the only two control-job items the dictionary defines are named by no row - so a codec for them would be this library inventing a wire and calling it E94 |
 | the addressing is missing | 1 | S17F7 alone. `DCID` is its whole body, undefined, named by stream 17 alone, and - unlike `RCPNS` and `CJID`, which both had a defined item in their slot - with no twin row anywhere to read a format off |
 
-**Five of the fifty-five are gap-free**, and the figure is measured rather than asserted: S7F21,
+**Five of the fifty-three are gap-free**, and the figure is measured rather than asserted: S7F21,
 S17F9, S17F13, S20F17 and S20F33. Four of those five are refused because a firmer row does their
 job and the fifth for a name, so no gap-free row anywhere here is refused on a field - and nothing
 anywhere is refused on a shape, there being no such measure left. S20F15 sits beside them, readable
@@ -603,12 +603,12 @@ the RCP family's own `RCPATTRDATA` is an `A[n]` and E39's `ATTRDATA` an `L[n]` -
 nothing wherever this library never has to choose, because **a SECS-II item carries its own format**.
 The value a host sets at S15F29 comes back at S15F27 as the item it was sent as, so
 [`Barbatos.SecsGem.Recipes`](../Barbatos.SecsGem.Recipes/README.md) serves that pair now; stream
-20's copy of it follows stream 15's to a firmer row. What the measure was right about is the two
+20's copy of it follows stream 15's to a firmer row. What the measure looked right about is the two
 rows that only *report* an attribute - a **namespace** attribute has no set anywhere in the
-reference, so the machine would be minting a value the host must parse, and those two move to
-producer and reader. And S15F43's `VALACK` moves to the field the row turns on, because a code with
-no values is a number whatever its format: that is the one kind of gap self-description cannot
-rescue.
+reference, so the machine would be minting a value the host must parse, and those two moved to
+producer and reader; the chapter that read *that* measure one row at a time served them both. And
+S15F43's `VALACK` moves to the field the row turns on, because a code with no values is a number
+whatever its format: that is the one kind of gap self-description cannot rescue.
 
 So **both measures that named a stream rather than a row have now collapsed**, between them
 thirty-eight of what were then fifty-nine rows. There is no stream-level measure left, and the
@@ -636,6 +636,33 @@ revision history keeps a reason about a field rather than about a nesting, its t
 `RCPATTRVAL` with no `RCPATTRNAME` beside it. So **nothing in this repository is refused for the
 shape of its body**, and all three measures that have been retired outright went the same way: by
 being read one row at a time.
+
+**The fifth measure read that way is the first to survive it, four rows shorter.** *Producer and
+reader* held sixteen - the largest count in the table - and holds twelve. The rule is right and had
+been applied past its edge: it says an undefined field may be carried opaquely when the end that
+must read it is the end that produced it, and it was being read as refusing any undefined field
+that crosses from one end to the other. Those come apart wherever **nothing has to read the field**.
+
+- `RCPOWNER` is named by **exactly one row** in the whole reference, so no message anywhere asks who
+  owns a recipe and E5 never says what owning one prevents. No parser depends on the format: the
+  store keeps whichever item arrived - a name, or the `BOOLEAN` its unused rival `RCPOWCODE`
+  suggests - and the application decides what ownership means, which is the recipe lock's own
+  position. S15F49 is served.
+- A **namespace attribute** was refused because the reference gives it no set row, so the machine
+  would be minting the value. Stream 21's item attributes have no set row either - `ATTRDATA`
+  appears in one row of that stream and it is the *reply* - and
+  [`Barbatos.SecsGem.ItemTransfer`](../Barbatos.SecsGem.ItemTransfer/README.md) serves the get with
+  the value coming off its store as an item the application put there. The machine mints nothing.
+  S15F51 is served.
+- Stream 20's two moved to a firmer row rather than out, which is the other half of reading a
+  measure per row: `OWNERID` *is* read back, at S20F26, so it is not a producer-and-reader field
+  either - but S20F21 is S15F23 with that one item added and S20F26 is refused for the field it
+  turns on, so the addition is real and unreadable here.
+
+What survives is the rows where some code must **act** on the value: a block number the receiver
+orders by, a checksum it recomputes, a quantity a host does arithmetic with, and a column whose name
+is not on the wire. Stream 7 shows what the alternative to a checksum looks like - its three verify
+rows send the whole body and compare bytes, and all three are served.
 
 The eleven streams that hold them are 2, 6, 7, 8, 13, 14, 15, 17, 19, 20 and 21; the other nine are
 served whole. `SecsCatalogRefusalPartitionTests` holds the table and the arithmetic, and each

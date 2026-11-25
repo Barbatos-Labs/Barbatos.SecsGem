@@ -12,7 +12,7 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Fifty-five of the reference's two hundred and seventy-four primaries are not declared anywhere
+/// Fifty-three of the reference's two hundred and seventy-four primaries are not declared anywhere
 /// here. <strong>This file is that list, and it is a partition</strong>: every refused primary
 /// appears exactly once, under the one measure that decides it. A row with two reasons is filed
 /// under the one that would still refuse it if the other were answered - which is the lesson of the
@@ -52,8 +52,9 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// </para>
 /// <para>
 /// Three measures replaced them and the working agreement had already stated all three.
-/// <strong>A firmer row does the job</strong> decides twenty - seven of stream 19's ten pairs and
-/// eleven of stream 20's seventeen, which are stream 15's rows under other numbers, plus S17F9 and
+/// <strong>A firmer row does the job</strong> decides twenty-two and is now the largest measure
+/// here - seven of stream 19's ten pairs and thirteen of stream 20's seventeen, which are stream
+/// 15's rows under other numbers, plus S17F9 and
 /// S17F13 which are S2F23's; <strong>the addition is unobservable</strong> decides S20F15,
 /// whose single transaction buys atomicity that <c>RMACK</c>'s one refusal code cannot report; and
 /// <strong>the standard is contradicted</strong> decides stream 17's control-job four, which build
@@ -87,8 +88,36 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// retired outright were all read the same way - one row at a time.
 /// </para>
 /// <para>
+/// <strong>And the fifth measure read row by row is the first to survive it - at four rows
+/// shorter.</strong> "Producer and reader" held sixteen, the largest count in the table, and holds
+/// twelve. The measure is right and was being applied to rows it does not reach: it says an
+/// undefined field may be carried opaquely when the end that must read it is the end that produced
+/// it, and it had been read as refusing any undefined field that crosses from one end to the other.
+/// Those two come apart wherever <strong>nothing has to read the field at all</strong>.
+/// <c>RCPOWNER</c> is named by exactly one row in the reference, so no message anywhere reads a
+/// recipe's owner back and E5 never says what owning one prevents - the store records it and the
+/// application decides, which is the recipe lock's own position. S15F51's namespace attribute was
+/// refused because the reference gives it no set row, so the machine would be minting the value;
+/// stream 21's item attributes have no set row either, and
+/// <c>Barbatos.SecsGem.ItemTransfer</c> serves the get with the value coming off its store as an
+/// item. The application hands it over and nothing is minted. Stream 20's two moved to the firmer
+/// row instead of out, because <c>OWNERID</c> is read back at S20F26 and that reply is refused for
+/// the field it turns on.
+/// </para>
+/// <para>
+/// So the twelve that stay are the rows where some code must <em>act</em> on the value and not
+/// merely carry it: seven blocked transfers whose receiver has to order what arrives, four recipe
+/// checksums whose reader has to recompute one - under four spellings the reference defines none of
+/// - and a namespace space whose two numbers a host does arithmetic with in a unit nobody wrote
+/// down. Stream 7 shows what the alternative looks like: its three verify rows send the whole body
+/// and compare bytes, and all three are served. What the measure draws a line with now is
+/// S15F47, whose third column is a value with <strong>no name beside it</strong> where both served
+/// attribute replies carry the pair - a value only the machine understands is exactly what it is
+/// about.
+/// </para>
+/// <para>
 /// <strong>What the partition shows at a glance.</strong> Only <strong>five</strong> of the
-/// fifty-five are gap-free, and the figure is measured here rather than asserted: the claim this
+/// fifty-three are gap-free, and the figure is measured here rather than asserted: the claim this
 /// file used to make - twenty-five refused although every field of them reads - counted reason
 /// labels and was never checked against an item. Four of the five gap-free rows are refused because
 /// a better-documented row does their job and the fifth for a name whose object appears nowhere
@@ -177,7 +206,6 @@ public class SecsCatalogRefusalPartitionTests
         new(8, 9, Reason.ProducerAndReader, "BLKNUM"),
         new(13, 9, Reason.ProducerAndReader, "BLKNUM"),
         new(15, 11, Reason.ProducerAndReader, "CHECKSUM"),
-        new(15, 49, Reason.ProducerAndReader, "RCPOWNER"),
         new(21, 9, Reason.ProducerAndReader, "BLKSIZE"),
         new(21, 11, Reason.ProducerAndReader, "BLKNUM"),
         new(21, 13, Reason.ProducerAndReader, "BLKNUM"),
@@ -187,11 +215,6 @@ public class SecsCatalogRefusalPartitionTests
         // refused row inherits that row's verdict, and a duplicate of a served one is filed under
         // FirmerRow - which is what stops the partition saying two things about one body.
         new(20, 19, Reason.ProducerAndReader, "CHECKSUM"),
-
-        // An owner the host mints and the machine must parse, which is RCPOWNER's position at
-        // S15F49 exactly. LOCKID beside it is the machine's own token and carries opaquely, the
-        // way RCPLOCKID does in the pair this repository serves.
-        new(20, 21, Reason.ProducerAndReader, "OWNERID"),
 
         // And the third spelling of the recipe checksum. S15F11 is CHECKSUM, S20F19 is CHECKSUM,
         // S19F9 is CKSUM, S21F19 is CHKSUM; the reference defines none of the four, and all four
@@ -208,22 +231,15 @@ public class SecsCatalogRefusalPartitionTests
         // reader problem with the field defined.
         new(15, 39, Reason.ProducerAndReader, "SPACEAVAIL"),
 
-        // And the two attribute rows that only REPORT, which is where the retired measure had a
-        // point. S15F27 and S15F29 are a matched get and set, so the value is the host's own data
-        // stored whole and handed back - and those two are served now. A NAMESPACE attribute has no
-        // set anywhere in the reference, so the machine would be minting a value the host must
-        // parse, and the two readings RCPATTRVAL has really do have to be chosen between. That is
-        // RCPOWNER's position at S15F49, the other way round.
-        new(15, 51, Reason.ProducerAndReader, "RCPATTRVAL"),
-        new(20, 1, Reason.ProducerAndReader, "RCPATTRVAL"),
-
-        // And the revision history, which came out of the shape measure when the directory went
+        // The revision history, which came out of the shape measure when the directory went
         // in: S15F48 is three flat items with no repeating tail, which is S1F12's shape and
         // S2F30's, so the nesting was never the hard part. What is left is the third column. The
         // other two have somewhere to come from - RCPVER is carried untouched at S15F36 and TIME
         // is defined - but a per-revision RCPATTRVAL with no RCPATTRNAME beside it is set by no
-        // row of the stream, so the machine would mint a value the host has to read. S15F51's
-        // position, and S15F49's.
+        // row of the stream, so the machine would mint a value the host has to read - and read
+        // with NO NAME BESIDE IT, which is the line this measure draws now that S15F51 and S20F1
+        // have crossed it. Every other RCPATTRVAL in the reference travels beside an RCPATTRNAME
+        // and a host therefore knows what it is holding; this column travels alone.
         new(15, 47, Reason.ProducerAndReader, "RCPATTRVAL"),
 
         // ---------------------------------------------------------- two readings, different bytes
@@ -281,6 +297,15 @@ public class SecsCatalogRefusalPartitionTests
         // here could read.
         new(20, 3, Reason.FirmerRow, "S15F3"),
 
+        // Stream 20's namespace list and lock, moved here when the producer-and-reader measure was
+        // read row by row. S20F2 is S15F2's one item plus the two this repository now serves at
+        // S15F52, so the whole of it is answered by two served rows; S20F21 is S15F23 with an
+        // OWNERID added, and that owner is reported by S20F26 alone - a row this table refuses for
+        // the field IT turns on. So the addition is real and unreadable, which is the shape S20F5
+        // has below.
+        new(20, 1, Reason.FirmerRow, "S15F1"),
+        new(20, 21, Reason.FirmerRow, "S15F23"),
+
         // Stream 20's attribute pair. S20F7 is S15F29 item for item, reply included; S20F5 adds an
         // RMACK that S15F28 lacks, and that is not the S1F19 difference - S1F20 could say WHY
         // where S14F2 said nothing at all, where RMACK has one refusal code and says only THAT,
@@ -328,15 +353,15 @@ public class SecsCatalogRefusalPartitionTests
     ];
 
     [Fact]
-    public void Fifty_five_of_the_references_primaries_are_not_served_and_each_is_here_once()
+    public void Fifty_three_of_the_references_primaries_are_not_served_and_each_is_here_once()
     {
         // The arithmetic first, measured off the catalogue rather than carried forward: the
-        // reference has 274 primaries and this repository declares 219 of them.
+        // reference has 274 primaries and this repository declares 221 of them.
         var primaries = SecsCatalog.Messages.Count(message => message.IsPrimary);
 
         Assert.Equal(274, primaries);
-        Assert.Equal(55, Refused.Length);
-        Assert.Equal(219, primaries - Refused.Length);
+        Assert.Equal(53, Refused.Length);
+        Assert.Equal(221, primaries - Refused.Length);
 
         // Exactly once each, which is what makes this a partition rather than a list of notes.
         Assert.Equal(
@@ -358,7 +383,7 @@ public class SecsCatalogRefusalPartitionTests
     }
 
     [Fact]
-    public void The_fifty_five_fall_in_eleven_streams_and_three_of_them_are_refused_whole()
+    public void The_fifty_three_fall_in_eleven_streams_and_three_of_them_are_refused_whole()
     {
         // Per stream, pinned. The three streams nothing here serves at all are 17, 19 and 20 - and
         // 19 and 20 are the two the reference calls Recipe Management beside stream 15.
@@ -374,7 +399,7 @@ public class SecsCatalogRefusalPartitionTests
             (8, [7, 9]),
             (13, [9]),
             (14, [23]),
-            (15, [11, 33, 37, 39, 41, 43, 45, 47, 49, 51]),
+            (15, [11, 33, 37, 39, 41, 43, 45, 47]),
             (17, [1, 3, 5, 7, 9, 11, 13]),
             (19, [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),
             (20, [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33]),
@@ -387,7 +412,7 @@ public class SecsCatalogRefusalPartitionTests
         }
 
         // And the other nine streams of the twenty are served whole, which is the figure worth
-        // keeping beside the fifty-five: the refusals are in eleven streams, not spread thin.
+        // keeping beside the fifty-three: the refusals are in eleven streams, not spread thin.
         Assert.Equal(20, SecsCatalog.Streams.Count);
         Assert.Equal(9, SecsCatalog.Streams.Count(stream => !Refused.Any(r => r.Stream == stream.Number)));
 
@@ -405,23 +430,23 @@ public class SecsCatalogRefusalPartitionTests
         }
 
         // And the counter-example that retired it, which needs no package to see. Stream 15 has
-        // twenty-seven primaries and ten of them are in this table, so a machine serving
-        // stream 15 answers S9F5 for ten pairs - which is exactly what declaring one row of
+        // twenty-seven primaries and eight of them are in this table, so a machine serving
+        // stream 15 answers S9F5 for eight pairs - which is exactly what declaring one row of
         // stream 17 or 20 was said to claim. HsmsConnection chooses S9F5 over S9F3 on the stream
         // being known, so that is the dispatcher's behaviour and not a reading of it: a measure
         // true of a stream this repository serves cannot be what refuses another.
         Assert.True(SecsCatalog.TryGetStream(15, out var fifteen));
         Assert.Equal(27, fifteen!.Messages.Count(message => message.IsPrimary));
-        Assert.Equal(10, Refused.Count(refusal => refusal.Stream == 15));
+        Assert.Equal(8, Refused.Count(refusal => refusal.Stream == 15));
     }
 
     [Fact]
-    public void Five_of_them_are_gap_free_and_the_measures_divide_the_other_fifty()
+    public void Five_of_them_are_gap_free_and_the_measures_divide_the_other_forty_eight()
     {
         // Measured, not labelled. This test used to be called "twenty-five of them carry no field
         // this library cannot read" and counted two reason labels, never looking at an item: of the
         // twenty-four it counted under the retired stream measure, twenty carry an undefined name.
-        // Five of the fifty-five are gap-free and here they are.
+        // Five of the fifty-three are gap-free and here they are.
         var gapFree = Refused
             .Where(refusal =>
                 SecsCatalog.TryGetMessage(refusal.Stream, refusal.Function, out var primary)
@@ -445,9 +470,9 @@ public class SecsCatalogRefusalPartitionTests
         foreach (var (reason, count) in new (Reason Reason, int Count)[]
         {
             (Reason.FieldTheRowTurnsOn, 12),
-            (Reason.ProducerAndReader, 16),
+            (Reason.ProducerAndReader, 12),
             (Reason.NameAlone, 1),
-            (Reason.FirmerRow, 20),
+            (Reason.FirmerRow, 22),
             (Reason.UnobservableAddition, 1),
             (Reason.StandardContradicted, 4),
             (Reason.AddressingMissing, 1),
@@ -647,13 +672,15 @@ public class SecsCatalogRefusalPartitionTests
 
         // What survives is the kind of field self-description cannot rescue. S15F43's VALACK is a
         // code, and a code with no values is a number whatever its format: it is filed on the field
-        // the row turns on. And the two rows that only report an attribute are filed on producer
-        // and reader, because a namespace attribute has no set and the machine would be minting the
-        // value.
+        // the row turns on. The namespace attribute went the other way one chapter later - the
+        // machine does not mint that value either, the application hands it over as an item - so
+        // the one RCPATTRVAL row left is the revision history, whose third column has no name
+        // beside it.
         Assert.Contains(Refused, refusal => refusal is { Stream: 15, Function: 43, Reason: Reason.FieldTheRowTurnsOn });
+        Assert.DoesNotContain(Refused, refusal => refusal is { Stream: 15, Function: 51 });
 
         Assert.Equal<byte[]>(
-            [47, 51],
+            [47],
             [..
                 Refused
                     .Where(refusal => refusal.Stream == 15 && refusal.Decides == "RCPATTRVAL")
@@ -742,6 +769,122 @@ public class SecsCatalogRefusalPartitionTests
         // anywhere here turns on how a body is nested.
         Assert.Equal(7, Enum.GetValues<Reason>().Length);
         Assert.DoesNotContain(Refused, refusal => refusal.Decides.Contains("entries", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Producer_and_reader_asks_who_must_READ_the_field_and_the_library_is_not_always_one_of_them()
+    {
+        // The fifth measure to be read row by row, and the first that survived it - but not
+        // intact. It held sixteen rows, the largest count in the table, and holds twelve. What it
+        // says is that an undefined field may be carried opaquely only when the end that must read
+        // it is the end that produced it; what it had been read as saying is that any field
+        // crossing from one end to the other refuses its row. Those come apart wherever
+        // NOTHING HAS TO READ THE FIELD AT ALL.
+        //
+        // The twelve that stay are three kinds and every one of them is a value some code must
+        // act on, not merely carry. Seven are the blocked transfers, where the receiver has to
+        // ORDER what arrives.
+        foreach (var name in new[] { "BLKNUM", "BLKEND", "BLKSIZE", "BLKACK", "XFRSTAT", "XFRACK" })
+        {
+            Assert.False(SecsCatalog.TryGetDataItem(name, out _), name);
+        }
+
+        // Four are the recipe checksum under its four spellings, where the reader has to
+        // RECOMPUTE - and the reference defines none of the four, so there is not even a format to
+        // read off a slot. Stream 7 shows what the alternative looks like: its three verify rows
+        // send the whole body and compare bytes, and all three are served here.
+        foreach (var name in new[] { "CHECKSUM", "CKSUM", "CHKSUM" })
+        {
+            Assert.False(SecsCatalog.TryGetDataItem(name, out _), name);
+        }
+
+        Assert.Equal<string[]>(["PPID", "PPBODY"], [.. Items("S7F9")]);
+        Assert.Contains(((byte)7, (byte)9), GemEquipment.ProcessProgramMessages);
+
+        // And the twelfth is a quantity the host does arithmetic with, which needs a unit nobody
+        // wrote down.
+        Assert.Contains(Refused, refusal => refusal is { Stream: 15, Function: 39, Decides: "SPACEAVAIL" });
+
+        // ------------------------------------------------------------------ the two that left
+        //
+        // S15F49 sets a recipe's owner, and RCPOWNER is named by EXACTLY ONE ROW in the whole
+        // reference. So nothing reads an owner back, and E5 never says what owning a recipe
+        // prevents - which makes the owner a fact the store records and the application
+        // interprets, the recipe lock's own position. The stated reason had been that the machine
+        // must parse what the host chose; there is nothing in the reference for it to parse it
+        // FOR.
+        Assert.False(SecsCatalog.TryGetDataItem("RCPOWNER", out _));
+        Assert.Single(SecsCatalog.Messages, message => message.DataItems.Contains("RCPOWNER", StringComparer.Ordinal));
+        Assert.Equal<string[]>(["RCPSPEC", "RCPID", "RCPOWNER"], [.. Items("S15F49")]);
+        Assert.Equal<string[]>(["RMACK"], [.. Items("S15F50")]);
+        Assert.DoesNotContain(Refused, refusal => refusal is { Stream: 15, Function: 49 });
+
+        // Its rival is real and it is the sharpest in the reference - RCPOWCODE, a defined BOOLEAN
+        // named by no row, against a name - and it costs nothing, because a SECS-II item carries
+        // its own format. A host that sends a flag stores a flag.
+        Assert.True(SecsCatalog.TryGetDataItem("RCPOWCODE", out var ownerCode));
+        Assert.Equal("BOOLEAN", ownerCode!.FormatToken);
+        Assert.True(ownerCode.IsNamedByNoMessage);
+
+        // S15F51 is the namespace attribute, which is S15F27 with the recipe taken out. It was
+        // refused because the reference gives a namespace attribute no SET row, so the machine
+        // would be minting a value - and that reasoning is contradicted by a package in this
+        // repository: stream 21's item attributes have no set row either. ATTRDATA appears in one
+        // row of stream 21 and it is the REPLY, so S21F3 asks for a value no message can write,
+        // and Barbatos.SecsGem.ItemTransfer serves it with the value coming off the store as an
+        // item. The machine does not mint it; the application hands it over.
+        Assert.Equal<string[]>(["RCPSPEC", "RCPATTRNAME"], [.. Items("S15F51")]);
+        Assert.Equal<string[]>(["RCPSPEC", "RCPID", "RCPATTRNAME"], [.. Items("S15F27")]);
+        Assert.Equal<string[]>(["RCPATTRNAME", "RCPATTRVAL"], [.. Items("S15F52")]);
+        Assert.Equal<string[]>(["RCPATTRNAME", "RCPATTRVAL"], [.. Items("S15F28")]);
+
+        Assert.Equal<string[]>(
+            ["S21F4"],
+            [..
+                SecsCatalog.Messages
+                    .Where(message => message.Stream == 21
+                        && message.DataItems.Contains("ATTRDATA", StringComparer.Ordinal))
+                    .Select(message => $"S{message.Stream}F{message.Function}"),
+            ]);
+
+        Assert.DoesNotContain(Refused, refusal => refusal is { Stream: 15, Function: 51 });
+
+        // ---------------------------------------------------------- where the line falls now
+        //
+        // S15F47's revision history keeps the measure, and the discriminator is one item: its
+        // third column is an RCPATTRVAL with NO RCPATTRNAME beside it, where both served
+        // attribute replies carry the pair. A value whose name is on the wire tells a host what it
+        // is holding; a value whose name is not is one only the machine understands, which is what
+        // this measure is about.
+        Assert.Equal<string[]>(["RCPVER", "TIME", "RCPATTRVAL"], [.. Items("S15F48")]);
+        Assert.DoesNotContain("RCPATTRNAME", Items("S15F48"));
+        Assert.Contains(Refused, refusal => refusal is { Stream: 15, Function: 47, Reason: Reason.ProducerAndReader });
+
+        // And stream 20's two went to the firmer-row measure rather than out, which is the other
+        // half of reading a measure one row at a time: OWNERID is read back at S20F26, so it is
+        // not a producer-and-reader field either - the pairs carrying it are S20F21 and S20F25 - but
+        // S20F21 is S15F23 with that one item added,
+        // and S20F26 is refused for the field IT turns on, so the addition is unreadable here.
+        Assert.Equal<byte[]>(
+            [21, 25],
+            [..
+                SecsCatalog.Messages
+                    .Where(message => message.DataItems.Contains("OWNERID", StringComparer.Ordinal))
+                    .Select(message => message.IsPrimary ? message.Function : (byte)(message.Function - 1))
+                    .Distinct()
+                    .Order(),
+            ]);
+
+        Assert.Subset(
+            new HashSet<string>(Items("S20F21"), StringComparer.Ordinal),
+            new HashSet<string>(Items("S15F23"), StringComparer.Ordinal));
+
+        Assert.Contains(Refused, refusal => refusal is { Stream: 20, Function: 25, Reason: Reason.FieldTheRowTurnsOn });
+
+        // Twelve, measured rather than asserted - and the largest measure is the firmer row now,
+        // which is where the next chapter should look.
+        Assert.Equal(12, Refused.Count(refusal => refusal.Reason == Reason.ProducerAndReader));
+        Assert.Equal(22, Refused.Count(refusal => refusal.Reason == Reason.FirmerRow));
     }
 
     [Fact]
