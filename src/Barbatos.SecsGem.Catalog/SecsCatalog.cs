@@ -177,8 +177,9 @@ public static class SecsCatalog
 
         // And one pass that answers the question in between the other two: which streams name each
         // item. Every chapter of this repository computed this by hand before it was a property -
-        // it is what tells an undefined item with a sibling elsewhere apart from one with nothing
-        // anywhere to read it against.
+        // it is what tells an undefined item another stream also names apart from one only this
+        // stream names - which is not the same as one with nothing to read it against, since a row
+        // elsewhere under the same row name can still put a defined item in the slot.
         var itemStreams = new Dictionary<string, SortedSet<byte>>(StringComparer.Ordinal);
 
         foreach (var message in messages)

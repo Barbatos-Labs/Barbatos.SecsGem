@@ -416,15 +416,18 @@ the record**, and there is nothing left that nobody has argued about.
 **And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 215 of the reference's 274
 primaries are declared and the other **fifty-nine are a partition** - each appears exactly once,
 under the one measure that decides it, and a row with two reasons is filed under the one that would
-still refuse it if the other were answered. The **eight** measures and their counts: the field the
-row turns on (13), producer and reader (11), two readings that differ (7), a shape (3), a name with
-no second instance (1), a firmer row does the job (8), the addition is unobservable (1), the
-addressing is missing (15). Eleven streams hold them and the other nine are served whole. **Five of
+still refuse it if the other were answered. The **nine** measures and their counts: the field the
+row turns on (15), producer and reader (12), two readings that differ (7), a shape (6), a name with
+no second instance (1), a firmer row does the job (12), the addition is unobservable (1), the
+standard is contradicted (4), the addressing is missing (1). Eleven streams hold them and the other nine are served whole. **Five of
 the fifty-nine are gap-free** - S7F21, S17F9, S17F13, S20F17 and S20F33 - and four of those five
 are refused because a firmer row does their job, so no gap-free row here is refused on a field or on
 a shape. Re-read a refusal by starting from its row in that table, and if the table is what turns
-out to be wrong, that is the chapter - which is how it came to have eight measures instead of the
-seven it shipped with, and why the figure above reads five where it read twenty-five.
+out to be wrong, that is the chapter - which is how it came to have nine measures instead of the
+seven it shipped with, and why the figure above reads five where it read twenty-five. Two of the
+nine new or re-read measures were stream-level verdicts holding thirty-eight rows between them, and
+both collapsed when somebody read their rows one at a time: **a measure that names a stream rather
+than a row is the one to re-read next.**
 
 What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned
@@ -457,15 +460,29 @@ Streams 19 and 20 have had that re-read and neither yielded a row, but **both st
 wrong and have been replaced** - which is the normal outcome and still worth the chapter, because a
 refusal argued from the wrong place is the thing that gets re-derived.
 
-**A refusal states a name, not a figure.** Stream 19 was refused as rootless, which was true of it
-and of six other streams. The reason is that `RCPNS` - the recipe namespace - is undefined, has no
-rival spelling anywhere, and addresses every transaction in the stream: nine of its ten primaries
-carry it, and the tenth is the request that asks for the *list* of namespaces, whose reply is a
-list of them. Stream 19 is not a worse-documented stream 15; it is a stream whose addressing is
-missing. Stream 20 was refused on the same figure, and its real reason is that the rows of it this
-repository could read are rows it already serves under other numbers. So when re-reading a refusal,
-ask which name stops it and whether anything here already does the job - and if the answer is a
-count, keep reading.
+**A refusal states a name, not a figure - and then somebody has to check the name.** Stream 19 was
+refused as rootless, which was true of it and of six other streams, so the reason was restated as
+one name: `RCPNS`, the recipe namespace, undefined, with no rival spelling the measure can see, and
+addressing all ten of its pairs. Every word of that is still true and it is **still not the
+reason**. The reference writes **six row names in both stream 15 and stream 19**, and in every one
+of the six `RCPNS` stands exactly where the defined `RCPSPEC` stands - so the format is read off
+the row, which is what stream 8 did for `CPBODY` off `PPBODY`'s slot, and item names never travel
+anyway. What keeps stream 19 out is per row: **four of its ten are rows this repository already
+answers** under stream 15's numbers, and the other six carry a checksum under a third spelling, a
+state their row turns on, or a list whose nesting no served sibling settles. So re-reading a
+refusal has three steps and not two: ask which name stops it, ask whether anything here already
+does the job - and **ask what is in that name's slot in the row next door**.
+
+**The same question emptied the measure's other half.** Stream 17's control-job four were filed on
+`CJID`, undefined and addressing every control-job transaction, and `CTLJOBID` is the dictionary's
+own control-job identifier - a defined `A[n]` that no row names. So the name was not the reason
+there either. What refuses those rows is that they are not E94: the bodies are stream 16's with
+`PJ` rewritten to `CJ`, S17F1 builds a control job from a `PJID` where E94 builds one from its
+material, and the two control-job items the dictionary defines are named by no row at all. That
+argument was in the Catalog README at length and the partition had no box for it, which is the
+second time a stated rule with nowhere to be filed turned into a mis-filed row. `AddressingMissing`
+is down to **one** row, S17F7, whose `DCID` has neither a definition nor a twin row to read a slot
+off - and that is the whole of what the measure now claims.
 
 **Stream 20 has been re-read twice and the second time moved two of its own reasons.** Its readable
 rows are **three** and not two: S20F17 and S20F33 are item for item the delete and the namespace
@@ -549,8 +566,8 @@ twenty-four one at a time dissolved it, and two things killed it. It was true of
 served stream here: stream 15 answers S9F5 for thirteen of its twenty-seven pairs and nobody calls
 that a claim. And it could not be stated without a ratio - one row of a stream served almost
 entirely against one pair of seven - where **a refusal states a name**. Every one of the twenty-four
-has a name now: five of stream 17's turn on `CJID`, undefined and addressing every control-job
-transaction exactly as `RCPNS` addresses stream 19; eight have their job done already by a
+has a name now: five of stream 17's were filed on `CJID` and have since moved again, because that
+name had a definition to be read against too; eight have their job done already by a
 better-documented row here, six of them item for item under stream 15's numbers; the rest turn on a
 name an item measure already decided. **Twenty of
 the twenty-four carry an undefined name**, which the sentence "every field of these rows reads" had

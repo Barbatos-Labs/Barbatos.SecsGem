@@ -92,7 +92,7 @@ exactly.
 | `OwnAnchors` | `IReadOnlyList<string> { get; }` | Defined, and named by this stream alone - its own documented vocabulary. Stream 12 has 27; stream 19 has none. |
 | `BorrowedAnchors` | `IReadOnlyList<string> { get; }` | Defined, and shared - firm ground that is somebody else's. Stream 17 has 14 of these and no own ones, which is what an extrapolation looks like counted. |
 | `SharedGaps` | `IReadOnlyList<string> { get; }` | Undefined, and named by other streams too - the source's habit rather than this stream's hole. All seven block-transfer items are these. |
-| `OwnGaps` | `IReadOnlyList<string> { get; }` | Undefined, and named by this stream alone - nothing anywhere to read them against. `SSID` and `DSDATA` are these. |
+| `OwnGaps` | `IReadOnlyList<string> { get; }` | Undefined, and named by this stream alone. `SSID` and `DSDATA` are these. **Not the same as nothing to read them against** - a row elsewhere with the same row *name* can still put a defined item in the slot, which is what `RCPSPEC` does for stream 19's `RCPNS` in six rows. |
 | `DataItemCount` | `int { get; }` | The four added. Empty names are not counted, and that filter is the one line here no test reaches. |
 | `HasNoOwnVocabulary` | `bool { get; }` | True for six streams: 8, 15, 16, 17, 19, 20. **Evidence, not a verdict** - 8 and 16 are implemented here. |
 | `ToString()` | `override string` | `S19 5 borrowed anchor(s), 0 own, 1 shared gap(s), 5 own`. |

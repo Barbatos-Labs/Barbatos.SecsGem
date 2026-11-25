@@ -114,7 +114,7 @@ public sealed class SecsStreamInfo
 /// </item>
 /// <item>
 /// <term><see cref="OwnGaps"/></term>
-/// <description>undefined, and named by this stream alone - nothing anywhere to read them against</description>
+/// <description>undefined, and named by this stream alone - no other stream, no definition</description>
 /// </item>
 /// </list>
 /// <para>
@@ -126,6 +126,13 @@ public sealed class SecsStreamInfo
 /// stream 19's chapter needed: that stream has <strong>no own anchor at all</strong>, because the
 /// one defined item in its slot - <c>RCPSPEC</c> - belongs to streams 15 and 20, and stream 19
 /// calls it <c>RCPNS</c>, which the dictionary does not define.
+/// </para>
+/// <para>
+/// <strong>Read that last sentence again before refusing anything on it.</strong> "The one defined
+/// item in its slot" is also how a format is read: <c>RCPSPEC</c> standing where <c>RCPNS</c> stands
+/// says what <c>RCPNS</c> is, and the reference puts them in the same slot in six rows it names
+/// twice. Stream 19's refusal rested on this measure for two chapters and should not have, which
+/// is what the next paragraph says in general and nobody applied in particular.
 /// </para>
 /// <para>
 /// <strong>It is evidence and not a verdict</strong>, which is the same caveat the other two carry
@@ -179,8 +186,15 @@ public sealed class SecsStreamAnchoring
 
     /// <summary>Gets the undefined item names only this stream uses, ordered.</summary>
     /// <remarks>
-    /// The ones with nothing anywhere to read them against: no sibling row, no other stream, no
-    /// definition. <c>SSID</c> is one, <c>DSDATA</c> is one, and five of stream 19's six are.
+    /// No other stream names them and no definition carries them. <c>SSID</c> is one, <c>DSDATA</c>
+    /// is one, and five of stream 19's six are.
+    /// <para>
+    /// This used to read "the ones with nothing anywhere to read them against: no sibling row, no
+    /// other stream, no definition", and the first of those three is wrong. <c>RCPNS</c> is an own
+    /// gap with six sibling rows: the reference writes six row names in both stream 15 and stream
+    /// 19, and the defined <c>RCPSPEC</c> stands in <c>RCPNS</c>'s slot in every one of them. An own
+    /// gap says nothing names it elsewhere; it does not say nothing can read it.
+    /// </para>
     /// </remarks>
     public IReadOnlyList<string> OwnGaps { get; }
 

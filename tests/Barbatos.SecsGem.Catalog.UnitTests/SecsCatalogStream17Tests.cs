@@ -136,8 +136,11 @@ public class SecsCatalogStream17Tests
         Assert.True(SecsCatalog.TryGetStream(17, out var seventeen));
         Assert.Equal(7, seventeen!.Messages.Count(message => message.Function % 2 == 1));
 
-        // S17F7 is the third non-control-job row and it is refused on its address, the way stream
-        // 19 is: DCID is its whole body, undefined, and named by stream 17 alone.
+        // S17F7 is the third non-control-job row and it is refused on its address - the one row in
+        // the repository still on that measure, since stream 19's and the control-job rows' left
+        // it. DCID is its whole body, undefined, named by stream 17 alone, and - the part that
+        // separates it from RCPNS - carried by no row anywhere whose name appears twice, so there
+        // is no slot to read it off.
         Assert.Equal<string[]>(["DCID"], [.. Row(17, 7).DataItems]);
         Assert.Equal<byte[]>(
             [17],

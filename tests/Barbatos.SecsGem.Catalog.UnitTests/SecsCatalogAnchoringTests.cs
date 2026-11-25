@@ -88,7 +88,8 @@ public sealed class SecsCatalogAnchoringTests
         {
             // The new measure splits what the old one listed, so the two had better agree - and
             // the split is the useful part: a gap other streams share is the source's habit, and
-            // one this stream has alone has nothing anywhere to read it against.
+            // one this stream has alone has no other stream and no definition behind it - which is
+            // not the same as nothing to read it against, as RCPNS turned out to show.
             Assert.Equal(
                 stream.Provenance.UndefinedDataItems.Order(StringComparer.Ordinal),
                 stream.Anchoring.SharedGaps.Concat(stream.Anchoring.OwnGaps).Order(StringComparer.Ordinal));
@@ -206,8 +207,19 @@ public sealed class SecsCatalogAnchoringTests
     [Fact]
     public void The_same_function_number_is_a_delete_in_one_and_a_verify_in_the_other()
     {
-        // The sharpest reason this repository has found for leaving a stream alone, and the one
-        // line of it that is about harm rather than about tidiness.
+        // This was recorded as the sharpest reason this repository had found for leaving a stream
+        // alone, and the one line of it about harm rather than tidiness. It is still the sharpest
+        // hazard here and it is no longer a reason: the hazard is a router that matches on the
+        // function number alone, which RecipeHostingTests pins shut, and a correct one cannot be
+        // made to do it by anything in the reference - the stream number is in every header.
+        // Stream 19's rows are refused per row in SecsCatalogRefusalPartitionTests, and four of
+        // them because this repository answers the same transaction under stream 15's numbers.
+        //
+        // Which is the other half of the same fact, counted differently: the matches below are
+        // names that fall on the SAME function number in both streams - two primaries and their
+        // replies - and four more primaries share a name across different numbers, the upload, the
+        // verify, the delete and the validate. All six are what gave RCPNS a format, since the
+        // defined RCPSPEC stands in its slot in every one of them.
         Assert.Equal("Recipe Delete Request", SecsCatalog.NameOf(19, 11));
         Assert.Equal("Recipe Verify Request", SecsCatalog.NameOf(15, 11));
 
@@ -253,8 +265,15 @@ public sealed class SecsCatalogAnchoringTests
     public void The_recipe_vocabulary_is_split_between_two_namings_and_the_dictionary_picked_one()
     {
         // Four roles, two sets of names. In the only case where the dictionary commits to a
-        // definition it commits to streams 15 and 20's name - which is why a library that
-        // implemented stream 19 would be choosing the undefined vocabulary over the defined one.
+        // definition it commits to streams 15 and 20's name.
+        //
+        // That used to end "- which is why a library that implemented stream 19 would be choosing
+        // the undefined vocabulary over the defined one", and a later chapter struck the clause.
+        // Item names never travel: a SECS-II body is positional, so the two spellings put the same
+        // bytes on a wire and choosing one mislabels a comment. Worse, the fact read the other way
+        // is what RETIRED stream 19's refusal - RCPSPEC being defined is exactly what gives RCPNS
+        // a format, since the two stand in the same slot in six identically named rows.
+        // SecsCatalogRefusalPartitionTests has that, and this test keeps the four roles.
         Assert.True(SecsCatalog.TryGetDataItem("RCPSPEC", out var specification));
         Assert.Equal<byte[]>([15, 20], [.. specification!.Streams]);
 

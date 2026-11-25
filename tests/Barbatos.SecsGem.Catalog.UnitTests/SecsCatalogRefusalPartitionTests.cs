@@ -19,23 +19,37 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// refusals that fell, because in every one of those the weaker reason was doing the work.
 /// </para>
 /// <para>
-/// <strong>One measure has been retired, and it held twenty-four of these rows.</strong> It was
-/// "what declaring the stream claims": that serving any row of stream 17 or 20 puts the stream in a
-/// routing table, so a host probing the rest gets S9F5 rather than S9F3. Reading its twenty-four
-/// rows one at a time dissolved it. Every one of them has a reason about its own row - five of
-/// stream 17's turn on <c>CJID</c>, which is undefined and addresses every control-job transaction
-/// exactly as <c>RCPNS</c> addresses stream 19; eight have their job done already by a
-/// better-documented row here, six of them item for item under stream 15's numbers; the rest turn
-/// on a name the item measures already decide. The measure
-/// could not be stated without a ratio - one row of a stream served almost entirely against one
-/// pair of seven - and a refusal here states a name, not a figure.
+/// <strong>Two measures have been read as measures rather than as labels, and between them they
+/// held thirty-eight of these rows.</strong> Both shrank to nothing or nearly nothing, and both for
+/// the same reason: they were verdicts about a stream, applied to rows nobody had read one at a
+/// time.
 /// </para>
 /// <para>
-/// So the two measures that replaced it are both names. <strong>A firmer row does the job</strong>
-/// is the one the working agreement had stated for chapters without the partition having a box for
-/// it, and it decides eight rows; <strong>the addition is unobservable</strong> decides the ninth,
-/// S20F15, whose single transaction buys atomicity that <c>RMACK</c>'s one refusal code cannot
-/// report.
+/// The first was <strong>"what declaring the stream claims"</strong> - that serving any row of
+/// stream 17 or 20 puts the stream in a routing table, so a host probing the rest gets S9F5 rather
+/// than S9F3. It held twenty-four rows and is gone. It was true of every partially served stream
+/// here, stream 15 included, and it could not be stated without a ratio where a refusal states a
+/// name.
+/// </para>
+/// <para>
+/// The second was <strong>"the addressing is missing"</strong>, which held fifteen and holds one.
+/// <c>RCPNS</c> is undefined and addresses all ten of stream 19's pairs, and <c>CJID</c> does the
+/// same for stream 17's control-job four - both true, and neither a reason, because each has a
+/// defined item to be read against. The reference writes <strong>six row names in both stream 15
+/// and stream 19</strong>, and in every one of the six <c>RCPNS</c> stands exactly where the
+/// defined <c>RCPSPEC</c> stands; <c>CTLJOBID</c> is the dictionary's own control-job identifier,
+/// a defined <c>A[n]</c> that no row names. Reading a format off a slot is what stream 8 did for
+/// <c>CPBODY</c>, and the working agreement says to check it before inventing anything. Only
+/// <c>DCID</c> has neither a twin row nor a definition, and S17F7 is the one row left on the
+/// measure.
+/// </para>
+/// <para>
+/// Three measures replaced them and the working agreement had already stated all three.
+/// <strong>A firmer row does the job</strong> decides twelve, four of them stream 19 rows that are
+/// stream 15's under other numbers; <strong>the addition is unobservable</strong> decides S20F15,
+/// whose single transaction buys atomicity that <c>RMACK</c>'s one refusal code cannot report; and
+/// <strong>the standard is contradicted</strong> decides stream 17's control-job four, which build
+/// a control job from a <c>PJID</c> where E94 builds one from its material.
 /// </para>
 /// <para>
 /// <strong>What the partition shows at a glance.</strong> Only <strong>five</strong> of the
@@ -73,7 +87,10 @@ public class SecsCatalogRefusalPartitionTests
         /// <summary>Every field reads and the job is new, but what it adds cannot be seen on the wire.</summary>
         UnobservableAddition,
 
-        /// <summary>One undefined name addresses every transaction of the stream, or of the capability.</summary>
+        /// <summary>The row describes a transaction the standard it names does not have.</summary>
+        StandardContradicted,
+
+        /// <summary>One undefined name addresses the capability, and nothing anywhere reads it.</summary>
         AddressingMissing,
     }
 
@@ -116,6 +133,12 @@ public class SecsCatalogRefusalPartitionTests
         // S20F27 is S15F33 under an OBJSPEC, and its twin is filed on this measure for this name.
         new(20, 27, Reason.FieldTheRowTurnsOn, "RCPSTATE"),
 
+        // Stream 19's validate and status rows report the same undefined state. S19F17 is named
+        // identically to S15F43, whose own reason is VALACK - a name S19F18 does not carry - so it
+        // is filed on the name it does carry, which is the one its reply turns on.
+        new(19, 17, Reason.FieldTheRowTurnsOn, "RCPSTATE"),
+        new(19, 19, Reason.FieldTheRowTurnsOn, "RCPSTATE"),
+
         // ---------------------------------------------------------- producer and reader
         new(8, 7, Reason.ProducerAndReader, "BLKNUM"),
         new(8, 9, Reason.ProducerAndReader, "BLKNUM"),
@@ -136,6 +159,11 @@ public class SecsCatalogRefusalPartitionTests
         // S15F49 exactly. LOCKID beside it is the machine's own token and carries opaquely, the
         // way RCPLOCKID does in the pair this repository serves.
         new(20, 21, Reason.ProducerAndReader, "OWNERID"),
+
+        // And the third spelling of the recipe checksum. S15F11 is CHECKSUM, S20F19 is CHECKSUM,
+        // S19F9 is CKSUM, S21F19 is CHKSUM; the reference defines none of the four, and all four
+        // rows are refused for the same reason under four names.
+        new(19, 9, Reason.ProducerAndReader, "CKSUM"),
 
         // ---------------------------------------------------------- two readings, different bytes
         new(15, 27, Reason.ReadingsDiffer, "RCPATTRVAL"),
@@ -159,6 +187,15 @@ public class SecsCatalogRefusalPartitionTests
         // tie goes to the one its twin already carries.
         new(20, 3, Reason.Shape, "a directory is a list of entries"),
 
+        // Stream 19's directory is S15F3's row under S15F3's own name, so it goes where S15F3
+        // goes; and its parameter rows are the same question one noun over. S19F13 names no
+        // parameter in the request, so its reply is every parameter the recipe has, and S19F15
+        // may be one pair or a list of them - neither settled by a served sibling, because the
+        // sibling that plays the same part is S15F27, refused.
+        new(19, 3, Reason.Shape, "a directory is a list of entries"),
+        new(19, 13, Reason.Shape, "parameters are a list of entries"),
+        new(19, 15, Reason.Shape, "parameters are a list of entries"),
+
         // ---------------------------------------------------------- a name with no second instance
         new(7, 21, Reason.NameAlone, "Reference"),
 
@@ -175,31 +212,41 @@ public class SecsCatalogRefusalPartitionTests
         new(20, 23, Reason.FirmerRow, "S15F25"),
         new(20, 33, Reason.FirmerRow, "S15F15"),
 
+        // And four of stream 19's, which is where the addressing measure went. The reference writes
+        // six row names in both stream 15 and stream 19, and in all six RCPNS stands exactly where
+        // the defined RCPSPEC stands - so these are stream 15 rows under other numbers, with the
+        // namespace spelled the way the dictionary declines to.
+        new(19, 1, Reason.FirmerRow, "S15F1"),
+        new(19, 5, Reason.FirmerRow, "S15F9"),
+        new(19, 7, Reason.FirmerRow, "S15F7"),
+        new(19, 11, Reason.FirmerRow, "S15F13"),
+
         // ---------------------------------------------------------- the addition is unobservable
         new(20, 15, Reason.UnobservableAddition, "RMACK has one refusal code"),
 
+        // ---------------------------------------------------------- the standard is contradicted
+        //
+        // Stream 17's control-job half. These were filed on CJID for one chapter and the name was
+        // not the reason: CTLJOBID is a defined A[n] and the dictionary's own control-job
+        // identifier, so a format was there to read. What refuses them is that the rows are not
+        // E94. E94 builds a control job from its material - a carrier input specification - and
+        // S17F1 builds one from a PJID, which is backwards; the rows are stream 16's with PJ
+        // rewritten to CJ; and the only two control-job items the dictionary defines, CTLJOBID and
+        // CTLJOBCMD, are named by no row at all. Barbatos.SecsGem.ControlJobs drives E94 over
+        // stream 14 as object services, which is how E94 says a control job is created, commanded
+        // and read - so a codec for these rows would be this library inventing a wire and calling
+        // it E94.
+        new(17, 1, Reason.StandardContradicted, "E94 builds a control job from material"),
+        new(17, 3, Reason.StandardContradicted, "E94 builds a control job from material"),
+        new(17, 5, Reason.StandardContradicted, "E94 builds a control job from material"),
+        new(17, 11, Reason.StandardContradicted, "E94 builds a control job from material"),
+
         // ---------------------------------------------------------- the addressing is missing
-        new(19, 1, Reason.AddressingMissing, "RCPNS"),
-        new(19, 3, Reason.AddressingMissing, "RCPNS"),
-        new(19, 5, Reason.AddressingMissing, "RCPNS"),
-        new(19, 7, Reason.AddressingMissing, "RCPNS"),
-        new(19, 9, Reason.AddressingMissing, "RCPNS"),
-        new(19, 11, Reason.AddressingMissing, "RCPNS"),
-        new(19, 13, Reason.AddressingMissing, "RCPNS"),
-        new(19, 15, Reason.AddressingMissing, "RCPNS"),
-        new(19, 17, Reason.AddressingMissing, "RCPNS"),
-        new(19, 19, Reason.AddressingMissing, "RCPNS"),
-
-        // Stream 17's control-job half, on the same measure and for the same kind of name. CJID is
-        // undefined and named by seven rows of stream 17 and nothing else, so it addresses every
-        // control-job transaction the way RCPNS addresses stream 19's. The stream is not one thing,
-        // which is why this measure reaches a capability here and a whole stream there.
-        new(17, 1, Reason.AddressingMissing, "CJID"),
-        new(17, 3, Reason.AddressingMissing, "CJID"),
-        new(17, 5, Reason.AddressingMissing, "CJID"),
-        new(17, 11, Reason.AddressingMissing, "CJID"),
-
-        // And the data collection plan, whose address is its whole body.
+        //
+        // One row, and it is the measure's whole remaining claim. DCID is the entire body of
+        // S17F7, the reference never defines it, no other row anywhere names it, and - unlike
+        // RCPNS and CJID, which both turned out to have a defined item in their slot - there is no
+        // data collection plan identifier in the dictionary under any spelling.
         new(17, 7, Reason.AddressingMissing, "DCID"),
     ];
 
@@ -320,20 +367,21 @@ public class SecsCatalogRefusalPartitionTests
 
         foreach (var (reason, count) in new (Reason Reason, int Count)[]
         {
-            (Reason.FieldTheRowTurnsOn, 13),
-            (Reason.ProducerAndReader, 11),
+            (Reason.FieldTheRowTurnsOn, 15),
+            (Reason.ProducerAndReader, 12),
             (Reason.ReadingsDiffer, 7),
-            (Reason.Shape, 3),
+            (Reason.Shape, 6),
             (Reason.NameAlone, 1),
-            (Reason.FirmerRow, 8),
+            (Reason.FirmerRow, 12),
             (Reason.UnobservableAddition, 1),
-            (Reason.AddressingMissing, 15),
+            (Reason.StandardContradicted, 4),
+            (Reason.AddressingMissing, 1),
         })
         {
             Assert.Equal(count, Refused.Count(refusal => refusal.Reason == reason));
         }
 
-        // The eight measures account for every row and nothing is left over.
+        // The nine measures account for every row and nothing is left over.
         Assert.Equal(Refused.Length, Enum.GetValues<Reason>().Sum(reason => Refused.Count(r => r.Reason == reason)));
 
         // And the figure that retired the stream measure, pinned so the paragraph above cannot
@@ -378,15 +426,12 @@ public class SecsCatalogRefusalPartitionTests
     [Fact]
     public void An_addressing_name_is_carried_by_every_row_of_the_capability_it_addresses()
     {
-        // The measure that grew by five, and the assertion that stops it growing by taking anybody's
-        // word. An addressing name has to be named by nothing outside its own stream, and the pairs
-        // it reaches have to be exactly the ones this file files under it - counted by pair rather
-        // than by primary, because S19F1 asks for the list of namespaces and carries RCPNS only in
-        // its reply.
+        // The measure grew to fifteen and is down to one, and this is the assertion that keeps the
+        // one honest. An addressing name has to be named by nothing outside its own stream, and the
+        // pairs it reaches have to be exactly the ones this file files under it - counted by pair
+        // rather than by primary, because a request can carry the name only in its reply.
         foreach (var (name, stream, pairs) in new (string Name, byte Stream, byte[] Pairs)[]
         {
-            ("RCPNS", 19, [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),
-            ("CJID", 17, [1, 3, 5, 11]),
             ("DCID", 17, [7]),
         })
         {
@@ -416,20 +461,124 @@ public class SecsCatalogRefusalPartitionTests
                 ]);
         }
 
-        // Which is where stream 19 and stream 17 differ, and the difference is why this measure
-        // says "of the stream, or of the capability": RCPNS reaches every one of stream 19's ten
-        // pairs, where CJID reaches four of stream 17's seven because the stream is three
-        // capabilities wearing one number.
-        Assert.True(SecsCatalog.TryGetStream(19, out var nineteen));
-        Assert.True(SecsCatalog.TryGetStream(17, out var seventeen));
+        // And the one row left on it is the only one of the three names this measure has held whose
+        // slot has no defined item in it. The other two were read off a definition: RCPNS off
+        // RCPSPEC, which stands in its place in six identically named rows, and CJID off CTLJOBID,
+        // the dictionary's own control-job identifier, defined and named by no row.
+        Assert.True(SecsCatalog.TryGetDataItem("RCPSPEC", out var specification));
+        Assert.Equal("A", specification!.FormatToken);
 
-        Assert.Equal(10, nineteen!.Messages.Count(message => message.IsPrimary));
-        Assert.Equal(7, seventeen!.Messages.Count(message => message.IsPrimary));
+        Assert.True(SecsCatalog.TryGetDataItem("CTLJOBID", out var controlJob));
+        Assert.Equal("A", controlJob!.FormatToken);
+        Assert.True(controlJob.IsNamedByNoMessage);
 
-        // And the tenth of stream 19 is the one that proves the pair reading rather than weakening
-        // it: the request carries nothing and the reply is the list.
-        Assert.True(SecsCatalog.TryGetMessage(19, 1, out var namespaceRequest));
-        Assert.Empty(namespaceRequest!.DataItems);
+        // DCID has neither. It is undefined, no row outside stream 17 names it, and - the part that
+        // separates it from RCPNS - no row anywhere else carries either of its row names, so there
+        // is no twin row to read a slot off the way stream 15's six gave RCPNS one.
+        Assert.False(SecsCatalog.TryGetDataItem("DCID", out _));
+        Assert.Equal<byte[]>([17], [.. StreamsNaming("DCID")]);
+
+        foreach (var designator in new[] { "S17F7", "S17F8" })
+        {
+            var name = NameOf(designator);
+
+            Assert.Equal<byte[]>(
+                [17],
+                [..
+                    SecsCatalog.Messages
+                        .Where(message => string.Equals(message.Name, name, StringComparison.Ordinal))
+                        .Select(message => message.Stream)
+                        .Distinct(),
+                ]);
+        }
+
+        // Which is the whole of what the measure now says: one row, addressed by a name nothing
+        // defines and nothing else writes down in any form.
+        Assert.Equal(1, Refused.Count(refusal => refusal.Reason == Reason.AddressingMissing));
+    }
+
+    [Fact]
+    public void The_reference_writes_six_row_names_twice_and_puts_the_defined_namespace_in_both()
+    {
+        // The finding that emptied the addressing measure, and the one thing in this file that had
+        // been asserted and read the other way round. SecsCatalogAnchoringTests records that the
+        // dictionary defines RCPSPEC and not RCPNS, and concluded from it that stream 19 has no
+        // anchor of its own - which is true, and is a fact about anchoring rather than a reason to
+        // refuse a row.
+        //
+        // Read for a format instead, the same fact says the opposite: the reference writes six row
+        // names in BOTH stream 15 and stream 19, and in every one of the six the undefined RCPNS
+        // stands in exactly the position the defined RCPSPEC stands in. That is how CPBODY's format
+        // was read off PPBODY's slot in stream 8, and the working agreement says to check it before
+        // inventing anything. Nobody had checked it here.
+        foreach (var (nineteen, fifteen) in new (string Nineteen, string Fifteen)[]
+        {
+            ("S19F3", "S15F3"),
+            ("S19F5", "S15F9"),
+            ("S19F7", "S15F7"),
+            ("S19F9", "S15F11"),
+            ("S19F11", "S15F13"),
+            ("S19F17", "S15F43"),
+        })
+        {
+            Assert.Equal(NameOf(nineteen), NameOf(fifteen));
+            Assert.Equal(0, Items(nineteen).ToList().IndexOf("RCPNS"));
+            Assert.Equal(0, Items(fifteen).ToList().IndexOf("RCPSPEC"));
+        }
+
+        // So nothing about the bytes is in doubt: an A[n] either way, in the same slot, and a
+        // SECS-II body is positional - item names never travel, so the spelling mislabels a
+        // comment. What keeps these rows out is therefore which row does the job, not which name
+        // the dictionary happened to define.
+        Assert.True(SecsCatalog.TryGetDataItem("RCPSPEC", out var specification));
+        Assert.Equal("A", specification!.FormatToken);
+        Assert.False(SecsCatalog.TryGetDataItem("RCPNS", out _));
+
+        Assert.Equal<Reason[]>(
+            [Reason.FirmerRow, Reason.Shape, Reason.FirmerRow, Reason.FirmerRow, Reason.ProducerAndReader,
+             Reason.FirmerRow, Reason.Shape, Reason.Shape, Reason.FieldTheRowTurnsOn, Reason.FieldTheRowTurnsOn],
+            [.. Refused.Where(refusal => refusal.Stream == 19).OrderBy(refusal => refusal.Function).Select(refusal => refusal.Reason)]);
+
+        Assert.DoesNotContain(Refused, refusal => refusal.Decides == "RCPNS");
+    }
+
+    [Fact]
+    public void The_control_job_rows_are_refused_for_what_they_are_and_not_for_their_identifier()
+    {
+        // The new measure, and every part of it is in the catalogue rather than in a reading of
+        // E94 - which matters, because a measure nothing can check is a measure that drifts.
+        //
+        // First: the rows are stream 16's with the nouns swapped. Same function numbers, and
+        // S17F1's body is a control job identifier and a PROCESS job identifier, which is E94
+        // backwards - a control job is built from its material, and process jobs are made from a
+        // control job's material rather than the other way round.
+        Assert.Equal<string[]>(["CJID", "PJID"], [.. Items("S17F1")]);
+        Assert.Equal<string[]>(["PJID", "PPID", "MTRLID"], [.. Items("S16F1")]);
+
+        // Second: the only two control-job items the dictionary defines are named by no row at all,
+        // so the half of the reference that writes definitions and the half that writes messages
+        // disagree about this standard's own vocabulary.
+        foreach (var name in new[] { "CTLJOBID", "CTLJOBCMD" })
+        {
+            Assert.True(SecsCatalog.TryGetDataItem(name, out var item), name);
+            Assert.True(item!.IsNamedByNoMessage, name);
+        }
+
+        // And third, the rows this file files under the measure are exactly stream 17's
+        // control-job four - not S17F7, which is a data collection plan, and not the two tracing
+        // rows, which are E5's own.
+        Assert.Equal<byte[]>(
+            [1, 3, 5, 11],
+            [..
+                Refused
+                    .Where(refusal => refusal.Reason == Reason.StandardContradicted)
+                    .Select(refusal => refusal.Function)
+                    .Order(),
+            ]);
+
+        Assert.All(
+            Refused.Where(refusal => refusal.Reason == Reason.StandardContradicted),
+            refusal => Assert.Equal(17, refusal.Stream));
     }
 
     [Fact]
@@ -483,18 +632,27 @@ public class SecsCatalogRefusalPartitionTests
         Assert.Contains("RCPLOCKID", Items("S15F25"));
         Assert.Contains("LOCKID", Items("S20F23"));
 
-        static IReadOnlyList<string> Items(string designator)
+        // And stream 19's four, where the containment only holds once the namespace is spelled the
+        // way stream 19 spells it - which is the finding, made mechanical. S15F1 and S19F1 are both
+        // empty requests, so the relation there is between their replies.
+        foreach (var (refused, firmer) in new (string Refused, string Firmer)[]
         {
-            var span = designator.AsSpan(1);
-            var split = span.IndexOf('F');
-
-            Assert.True(SecsCatalog.TryGetMessage(
-                byte.Parse(span[..split]),
-                byte.Parse(span[(split + 1)..]),
-                out var row));
-
-            return row!.DataItems;
+            ("S19F5", "S15F9"),
+            ("S19F7", "S15F7"),
+            ("S19F11", "S15F13"),
+        })
+        {
+            Assert.Subset(
+                new HashSet<string>(Items(refused), StringComparer.Ordinal),
+                new HashSet<string>(
+                    Items(firmer).Select(name => name == "RCPSPEC" ? "RCPNS" : name),
+                    StringComparer.Ordinal));
         }
+
+        Assert.Empty(Items("S19F1"));
+        Assert.Empty(Items("S15F1"));
+        Assert.Equal<string[]>(["RCPNS"], [.. Items("S19F2")]);
+        Assert.Equal<string[]>(["RCPSPEC"], [.. Items("S15F2")]);
     }
 
     [Fact]
@@ -566,4 +724,28 @@ public class SecsCatalogRefusalPartitionTests
         // row this repository actually answers.
         Assert.Contains(((byte)2, (byte)23), declared);
     }
+
+    // ----------------------------------------------------------------- reading the table
+
+    private static SecsMessageInfo Row(string designator)
+    {
+        var span = designator.AsSpan(1);
+        var split = span.IndexOf('F');
+
+        Assert.True(
+            SecsCatalog.TryGetMessage(byte.Parse(span[..split]), byte.Parse(span[(split + 1)..]), out var row),
+            designator);
+
+        return row!;
+    }
+
+    private static IReadOnlyList<string> Items(string designator) => Row(designator).DataItems;
+
+    private static string NameOf(string designator) => Row(designator).Name;
+
+    private static IEnumerable<byte> StreamsNaming(string item) =>
+        SecsCatalog.Messages
+            .Where(message => message.DataItems.Contains(item, StringComparer.Ordinal))
+            .Select(message => message.Stream)
+            .Distinct();
 }

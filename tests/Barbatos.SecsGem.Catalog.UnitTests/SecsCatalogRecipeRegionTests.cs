@@ -59,13 +59,15 @@ public class SecsCatalogRecipeRegionTests
     }
 
     [Fact]
-    public void And_the_reason_is_one_name_that_addresses_every_transaction_in_it()
+    public void And_the_one_name_that_addresses_every_transaction_is_not_the_reason()
     {
         var stream = Stream(19);
 
-        // RCPNS addresses every transaction in stream 19, and the reference never defines it. So
-        // the refusal is not about how much of the stream is documented; it is that the field
-        // naming *which namespace* a recipe lives in was never written down.
+        // RCPNS addresses every transaction in stream 19 and the reference never defines it. Both
+        // halves of that are asserted below and both are true; what this test used to conclude from
+        // them - that the field naming which namespace a recipe lives in was never written down, so
+        // the stream cannot be addressed - is what a later chapter retired. It was written down, in
+        // streams 15 and 20, as RCPSPEC.
         Assert.False(IsDefined("RCPNS"));
 
         var primaries = stream.Messages.Where(message => message.Function % 2 == 1).ToArray();
@@ -89,17 +91,43 @@ public class SecsCatalogRecipeRegionTests
             ["RCPNS"],
             [.. Assert.Single(stream.Messages, message => message.Function == 2).DataItems]);
 
-        // Named by stream 19 alone, so there is no other row anywhere to read it against.
+        // Named by stream 19 alone - and the sentence that used to follow was "so there is no other
+        // row anywhere to read it against", which is the error. The NAME is stream 19's alone; the
+        // SLOT is not.
         Assert.Equal<byte[]>(
             [19],
             [.. SecsCatalog.Streams.Where(s => s.Anchoring.OwnGaps.Contains("RCPNS") || s.Anchoring.SharedGaps.Contains("RCPNS")).Select(s => s.Number)]);
 
         // And no rival spelling, which is the follow-up question that changes what a gap means: a
         // gap with a rival is a field the reference wrote down under another name. This one it did
-        // not write down at all, in any spelling.
+        // not write down under a name the rival measure can see - its relations are anagram and
+        // prefix, and RCPNS against RCPSPEC is neither.
         Assert.DoesNotContain(
             SecsCatalog.Provenance.RivalSpellings,
             rival => rival.UsedName is "RCPNS" || rival.DefinedName is "RCPNS");
+
+        // What the measure cannot see, the rows can. Six row names appear in both stream 15 and
+        // stream 19, and in all six the undefined RCPNS sits in the slot the defined RCPSPEC sits
+        // in - so the format is read off the row, as stream 8 read CPBODY off PPBODY's slot, and the
+        // reason these rows stay out is which row does the job rather than which name was defined.
+        var shared = stream.Messages
+            .Where(message => message.IsPrimary)
+            .Where(message => message.DataItems.Contains("RCPNS", StringComparer.Ordinal))
+            .Select(message => (Nineteen: message, Fifteen: SecsCatalog.Messages.SingleOrDefault(other =>
+                other.Stream == 15 && string.Equals(other.Name, message.Name, StringComparison.Ordinal))))
+            .Where(pair => pair.Fifteen is not null)
+            .ToArray();
+
+        Assert.Equal(6, shared.Length);
+
+        foreach (var (nineteen, fifteen) in shared)
+        {
+            Assert.Equal(0, nineteen.DataItems.ToList().IndexOf("RCPNS"));
+            Assert.Equal(0, fifteen!.DataItems.ToList().IndexOf("RCPSPEC"));
+        }
+
+        Assert.True(SecsCatalog.TryGetDataItem("RCPSPEC", out var specification));
+        Assert.Equal("A", specification!.FormatToken);
     }
 
     [Fact]

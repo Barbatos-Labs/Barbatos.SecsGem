@@ -108,23 +108,45 @@ argument `ACKC7`'s missing mismatch code makes about a verify.
 
 So stream 20 is still one capability under a second stream number - the position
 `Barbatos.SecsGem.Subsystems` describes for stream 18, **serve one or the other** - and stream 15's
-is the firmer because it is whole: fourteen pairs here against three of seventeen there. Declaring
-three rows of stream 20 would make the connection answer **S9F5** for the other fourteen functions -
-"I do stream 20, but not that function" - where leaving the stream alone answers **S9F3**, "I do not
-do stream 20". The first invites a host to keep asking; the second is true.
-`RecipeHostingTests.Nothing_in_this_package_claims_stream_19_or_stream_20` is that decision as a
-routing fact, and `SecsCatalogRecipeRegionTests` holds the measurement.
+is the firmer because it is whole: fourteen pairs here against three of seventeen there.
+
+That used to be argued from the **routing table** as well: declaring three rows of stream 20 would
+make the connection answer S9F5 for the other fourteen functions where silence answers S9F3. A later
+chapter retired that reading, because it is true of stream 15 too - this package serves fourteen of
+twenty-seven pairs, so a host asking for the other thirteen gets S9F5 from a machine running this
+very code, and nobody calls that a claim. What is left is per row, and it is enough: six of stream
+20's rows are stream 15 rows this package already answers, four more carry a name that decides
+them, and S20F15 is the unobservable addition above.
+`RecipeHostingTests.Nothing_in_this_package_claims_stream_19_or_stream_20` is the decision as a
+routing fact, `SecsCatalogRecipeRegionTests` holds the measurement, and
+`SecsCatalogRefusalPartitionTests` files each row under the measure that decides it.
 
 ### Stream 19's refusal, restated
 
-Refused as *rootless*, which was true and was not the reason. The reason is one name:
-**`RCPNS`, the recipe namespace, which the reference never defines and which nothing else in the
-reference names.** Nine of stream 19's ten primaries carry it; the tenth is S19F1, which has no
-body because it is the request that asks for the *list* of namespaces, and its reply is a list of
-`RCPNS`. So every transaction in the stream is addressed by a field nobody wrote down, in any
-spelling - it has no rival, which is the follow-up question that would otherwise change the answer.
+Refused twice on the wrong ground, and the second time was this package's own.
 
-Stream 19 is not a worse-documented stream 15. It is a stream whose addressing is missing.
+It was refused as *rootless* first, which was true of it and of six other streams. Then the reason
+was restated as one name - **`RCPNS`, the recipe namespace, which the reference never defines and
+which nothing else in the reference names** - addressing all ten of its pairs, nine in the request
+and the tenth, S19F1, in the reply that lists the namespaces. Every word of that is still true. It
+is still not the reason.
+
+**The reference writes six row names in both stream 15 and stream 19, and in every one of the six
+`RCPNS` stands exactly where the defined `RCPSPEC` stands.** Recipe Directory Request, Recipe Upload
+Request, Recipe Download Send, Recipe Verify Request, Recipe Delete Request, Recipe Validate
+Request: the same name twice, the namespace in slot zero both times, an `A[n]` on the defined side.
+That is how stream 8 read `CPBODY`'s format off `PPBODY`'s slot, and the working agreement says to
+check it before inventing anything. Nobody had checked. And a SECS-II body is positional - item
+names never travel - so the spelling the dictionary declines to define mislabels a comment and
+puts no byte in doubt.
+
+So stream 19 is a worse-*named* stream 15 and not a worse-documented one, and what keeps its rows
+out is per row. **Four of the ten are rows this package already answers**: S19F1 lists namespaces
+where S15F1 does, S19F5 uploads where S15F9 does, S19F7 downloads where S15F7 does, and S19F11
+deletes where S15F13 does. Of the other six, S19F9 carries the recipe checksum under its third
+spelling, `CKSUM`, which the reference defines under none of them; S19F17 and S19F19 report
+`RCPSTATE`, the state their rows turn on, exactly as the refused S15F33 does; and S19F3, S19F13 and
+S19F15 are lists of entries whose nesting no served sibling settles.
 
 ### The recipe body needs no inference at all
 

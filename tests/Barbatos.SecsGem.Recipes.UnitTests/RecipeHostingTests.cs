@@ -119,11 +119,16 @@ public class RecipeHostingTests
         await using var equipment = BuildEquipment();
         await using var host = BuildHost();
 
-        // The clash chapter 42 refused stream 19 for, turned into a routing fact. Three streams
+        // The clash chapter 42 refused stream 19 for, turned into a routing fact - and a later
+        // chapter withdrew the clash as the reason, which leaves this test as the thing it always
+        // was: a guard rather than a justification. Stream 19's rows are refused one at a time in
+        // SecsCatalogRefusalPartitionTests, four of them because this package answers the same
+        // transaction under stream 15's numbers. Three streams
         // are called Recipe Management - 15, 19 and 20 - and they use the same function numbers
         // for different transactions: S15F11 verifies, S19F11 deletes, S20F11 sends. A package
         // that served stream 15 and quietly answered either of the others would be the exact
-        // hazard that refusal named.
+        // hazard the clash is - a router matching on the function alone, which nothing in the
+        // reference can make a correct one do.
         foreach (var provider in new[] { equipment, host })
         {
             var router = provider.GetRequiredService<ISecsMessageRouter>();

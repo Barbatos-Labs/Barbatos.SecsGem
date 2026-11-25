@@ -132,7 +132,10 @@ which is `S2F23 Trace Initialize`'s body unchanged, same direction. Nothing in t
 beyond either template.
 
 **Its key items are defined nowhere.** `CJID`, `CJACK`, `CJSTATE` and `DCID` have no dictionary
-entry - so there is no format to encode them as and no code table to read them against.
+entry. That was read for several chapters as "so there is no format to encode them as", and for
+`CJID` it is not true: `CTLJOBID`, two lines below, is the dictionary's own control-job identifier
+and a defined `A[n]`. What the four names really show is the disagreement in the next paragraph, and
+the refusal rests on the subject matter rather than on them.
 
 **And the two control job items the dictionary does define are named by no message at all.**
 `CTLJOBID` is there, and `CTLJOBCMD` is there with E94's six command values - `START`, `STOP`,
@@ -149,6 +152,14 @@ So [`Barbatos.SecsGem.ControlJobs`](../Barbatos.SecsGem.ControlJobs/README.md) d
 stream 14 as object services, which is how E94 says a control job is created, commanded and read -
 and a codec for stream 17 would be this library inventing a wire and calling it E94.
 
+**That argument is a measure now, and it was not one for several chapters.** It sat here at length
+while the partition filed these four rows under `CJID`, their undefined identifier - and `CJID` was
+never the reason, because `CTLJOBID` is the dictionary's own control-job identifier and a defined
+`A[n]`. The measure the partition was missing is this section: **the row describes a transaction the
+standard it names does not have**, and all three of the facts above are in the catalogue rather than
+in a reading of E94, so it can be checked. A rule stated in a README with no row in the record is a
+rule that gets re-derived as something else.
+
 #### And the three rows that are not about control jobs
 
 All of the above is about four of stream 17's seven primaries. The other three are a different
@@ -158,7 +169,7 @@ every item is defined, so the argument above does not reach them and a re-read w
 
 | row | what decides it |
 | --- | --- |
-| S17F7/F8 | `DCID` is its whole body, undefined, and named by stream 17 alone - the row's address, the way `RCPNS` is stream 19's |
+| S17F7/F8 | `DCID` is its whole body, undefined, and named by stream 17 alone - and the one addressing name left in the repository with no twin row and no definition to read a format off, where `RCPNS` and `CJID` both had one |
 | S17F9/F10 | the same five items as **S2F23**, in the same order. One capability, two stream numbers, so serve one or the other - and S2F23 is one of the reference's **definitions** where S17F9 is one of its illustrations |
 | S17F13/F14 | stopping a trace is S2F23 asking for no samples, which `GemHost.StopTraceAsync` sends. What this would add is a *reason* - `ACKA` with `ERRCODE` and `ERRTEXT`, where the dictionary gives `TIAACK` two codes and nowhere to put one |
 
@@ -350,7 +361,7 @@ any other stream name it - make four buckets that partition exactly:
 
 | | defined | undefined |
 | --- | --- | --- |
-| **named by this stream alone** | `OwnAnchors` - its own documented vocabulary | `OwnGaps` - nothing anywhere to read them against |
+| **named by this stream alone** | `OwnAnchors` - its own documented vocabulary | `OwnGaps` - no other stream, no definition. *Not* the same as nothing to read them against |
 | **shared with other streams** | `BorrowedAnchors` - firm ground, somebody else's | `SharedGaps` - the source's habit, not this stream's hole |
 
 **The gap split has already decided two questions.** `BLKNUM` is a shared gap - one of seven
@@ -396,10 +407,23 @@ A shared name is not a fault. What sits underneath this one is:
   or `RCPPNAME`/`RCPPVAL`; the checksum is `CHECKSUM` or `CKSUM`. Of those eight names the
   dictionary defines exactly one - `RCPSPEC`, the one stream 19 does not use.
 
-So a library that implemented stream 19 from this reference would be choosing the undefined
-vocabulary over the defined one, and would answer S19F11 as a delete while a machine built from the
-other half of the same reference means it as a verify. That is a recipe deleted when a host asked
-to check one, which is why streams 19 and 20 are left alone.
+That used to end: so a library implementing stream 19 would be choosing the undefined vocabulary
+over the defined one, and would answer S19F11 as a delete where the other half of the same reference
+means F11 as a verify - a recipe deleted when a host asked to check one. **Both halves of that are
+withdrawn as reasons.** Item names never travel, because a SECS-II body is positional, so a
+vocabulary is a choice of comment and not of bytes. And the function-number shift is between two
+different stream numbers, each carried in its own header: a host cannot send one and be answered by
+the other unless the router matches on the function alone. That is a real hazard and it is an
+**implementation** one - `RecipeHostingTests.Nothing_in_this_package_claims_stream_19_or_stream_20`
+is the test that keeps it from happening, and `SecsStreamNameClash`'s own remarks state it as a
+library that picked one stream and guessed. What it is not is a reason the reference gives for
+leaving these rows out, because the reference does not make a correct router do it. The section's own
+last line had that right all along: the collision is a hazard for whoever reads a tool's manual.
+
+And the vocabulary split turned out to be the opposite of a reason. `RCPSPEC` being the one defined
+name of the eight is what gives `RCPNS` a format, since the reference puts the two in the same slot
+in six rows it names twice; the per-row reasons are in the partition below, and four of stream 19's
+ten are rows [`Barbatos.SecsGem.Recipes`](../Barbatos.SecsGem.Recipes/README.md) already answers.
 
 **Stream 15 is not**, and the difference came out of the measure below rather than out of this
 section. The figure these three streams share - 108 rows, no definitions - is provenance, and
@@ -545,14 +569,15 @@ every one of those the weaker reason was doing the work.
 
 | the measure | rows | and what it says |
 | --- | --- | --- |
-| the field the row turns on | 13 | The undefined name is what the message is *for* - `RSTC`, `CELLNAME`, `NRED`, `ENABLE`, `AUTOSEL`, and stream 20's `RCPLOCK`, `NOTIFYENABLE` and `CHANGETYPE` - so carrying it untouched would leave a library unable to tell apart the two things its row distinguishes |
-| producer and reader | 11 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, a checksum the receiver has to compute and compare, and an `OWNERID` the host mints |
+| the field the row turns on | 15 | The undefined name is what the message is *for* - `RSTC`, `CELLNAME`, `NRED`, `ENABLE`, `AUTOSEL`, stream 20's `RCPLOCK`, `NOTIFYENABLE` and `CHANGETYPE`, and the `RCPSTATE` that stream 15, 19 and 20 all report - so carrying it untouched would leave a library unable to tell apart the two things its row distinguishes |
+| producer and reader | 12 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, a checksum the receiver has to compute and compare - `CHECKSUM` in streams 15 and 20, `CKSUM` in stream 19, `CHKSUM` in stream 21, and defined under none of the four names - and an `OWNERID` the host mints |
 | two readings, different bytes | 7 | A rival or a twin gives the name a second reading and the two disagree - an `A[n]` against E39's list for a recipe attribute, an anagram whose table belongs to another row. Stream 20's attribute rows are stream 15's and carry the same twin |
-| a shape | 3 | The body is a list of entries and no served row settles its nesting. **A flat body of two items has one reading; a list has as many as there are nestings** |
+| a shape | 6 | The body is a list of entries and no served row settles its nesting - two recipe directories, a revision history, and stream 19's parameter rows. **A flat body of two items has one reading; a list has as many as there are nestings** |
 | a name with no second instance | 1 | S7F21: its object, *Reference*, appears in two of 524 row names - this row and its own acknowledgement - and its reply is only an acknowledgement |
-| a firmer row does the job | 8 | S17F9 and S17F13 against **S2F23**, and six of stream 20's against the stream 15 rows this repository serves - the delete, the namespace create, the download grant, the download send, the upload and the unlock. Where two rows do one job, the better-documented source wins |
+| a firmer row does the job | 12 | S17F9 and S17F13 against **S2F23**, and six of stream 20's against the stream 15 rows this repository serves - the delete, the namespace create, the download grant, the download send, the upload and the unlock. Four of stream 19's go the same way, once you see that its undefined `RCPNS` stands where the defined `RCPSPEC` stands in six rows the reference names twice. Where two rows do one job, the better-documented source wins |
 | the addition is unobservable | 1 | S20F15 renames **and** moves in one transaction, where stream 15 needs a copy and a delete. What the single transaction buys is atomicity, and `RMACK` has one refusal code, so a host told *Rejected* cannot learn whether the source survived |
-| the addressing is missing | 15 | Stream 19 whole, on `RCPNS` - undefined, no rival anywhere, addressing every transaction in the stream - and stream 17's control-job four on `CJID` plus its data collection plan on `DCID`, which do the same for a capability |
+| the standard is contradicted | 4 | Stream 17's control-job four. The bodies are stream 16's with `PJ` rewritten to `CJ`, S17F1 builds a control job from a `PJID` where E94 builds one from its material, and the only two control-job items the dictionary defines are named by no row - so a codec for them would be this library inventing a wire and calling it E94 |
+| the addressing is missing | 1 | S17F7 alone. `DCID` is its whole body, undefined, named by stream 17 alone, and - unlike `RCPNS` and `CJID`, which both had a defined item in their slot - with no twin row anywhere to read a format off |
 
 **Five of the fifty-nine are gap-free**, and the figure is measured rather than asserted: S7F21,
 S17F9, S17F13, S20F17 and S20F33. Four of those five are refused because a firmer row does their
@@ -563,6 +588,18 @@ That paragraph used to read **twenty-five**, counting the rows filed under the r
 measure as rows whose every field reads. It had never been checked against an item: twenty of
 those twenty-four carry an undefined name. Re-reading them one at a time is what retired the
 measure, and it is why the table above has eight rows where it had seven.
+
+The table has nine rows now, and the second new one came from re-reading the measure that had just
+grown. **"The addressing is missing" held fifteen rows and holds one.** `RCPNS` addresses all ten of
+stream 19's pairs and `CJID` addresses stream 17's control-job four, both undefined, both true - and
+neither a reason, because each has a defined item to be read against: the reference writes six row
+names in both stream 15 and stream 19 and puts `RCPSPEC` exactly where `RCPNS` goes, and `CTLJOBID`
+is the dictionary's own control-job identifier. Reading a format off a slot is what stream 8 did for
+`CPBODY`, and `SecsStreamAnchoring`'s own remarks said so - *"it is evidence and not a verdict"* -
+with stream 8 as the example. Nobody applied it to stream 19 for two chapters.
+
+So **both measures that named a stream rather than a row have now collapsed**, between them
+thirty-eight of the fifty-nine. That is the thing to re-read next, wherever one is left.
 
 The eleven streams that hold them are 2, 6, 7, 8, 13, 14, 15, 17, 19, 20 and 21; the other nine are
 served whole. `SecsCatalogRefusalPartitionTests` holds the table and the arithmetic, and each
