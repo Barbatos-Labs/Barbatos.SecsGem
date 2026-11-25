@@ -41,6 +41,45 @@ public interface IRecipeStore
     /// </remarks>
     ValueTask<IReadOnlyList<string>> ListNamespacesAsync(CancellationToken cancellationToken);
 
+    /// <summary>Lists the recipes in one namespace - S15F3, answered by S15F4.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>
+    /// One entry per recipe, or <see langword="null"/> when there is no such namespace - which is
+    /// also what the default answers, a store written against an earlier version of this interface
+    /// serving no directory.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The row the shape measure was carrying, and it lost.</strong> Every item of S15F4
+    /// was already carried in this package - <c>RCPID</c> everywhere, <c>RCPVER</c> untouched at
+    /// S15F36, <c>LENGTH</c> read at S15F5, <c>RCPATTRNAME</c> and <c>RCPATTRVAL</c> at S15F27 and
+    /// S15F29 - so the nesting was the whole of what was left, and a nesting here comes from a
+    /// served sibling and never from the catalogue's item list. S7F36 is that sibling: see
+    /// <see cref="RecipeDirectoryEntry"/>, which is where the argument is written down.
+    /// </para>
+    /// <para>
+    /// <strong>A host cannot tell <see langword="null"/> from an empty namespace</strong>, because
+    /// S15F4 carries no acknowledgement item and both go out as a zero-length body - the
+    /// convention S7F6, S7F26, S6F16, S6F20 and S6F28 all use. The distinction is kept here for a
+    /// caller holding the store directly; a host asks S15F1 which namespaces there are.
+    /// </para>
+    /// <para>
+    /// The order is the store's to choose and both stores here sort by identifier, so a host can
+    /// diff two answers - the reason <see cref="ListNamespacesAsync"/> sorts. The attributes of one
+    /// recipe are sorted by name for the same reason.
+    /// </para>
+    /// <para>
+    /// The entries' attribute values are items a store already holds, so they are the store's to
+    /// dispose and not the caller's - the rule <see cref="GetAttributeAsync"/> states. A host
+    /// reading the reply instead gets copies: see <see cref="RecipeHost.RequestDirectoryAsync"/>.
+    /// </para>
+    /// </remarks>
+    ValueTask<IReadOnlyList<RecipeDirectoryEntry>?> ListRecipesAsync(
+        string recipeNamespace,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult<IReadOnlyList<RecipeDirectoryEntry>?>(null);
+
     /// <summary>Creates a namespace - S15F15.</summary>
     /// <param name="recipeNamespace">What to call it.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
@@ -308,14 +347,23 @@ public interface IRecipeStore
     /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
     /// <param name="recipeId">Which recipe - <c>RCPID</c>.</param>
     /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
-    /// <param name="value">The value as it arrived - <c>RCPATTRVAL</c>.</param>
+    /// <param name="value">The value - <c>RCPATTRVAL</c>. **The store's** from here on; see the remarks.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>Whether it was set. The default refuses.</returns>
     /// <remarks>
+    /// <para>
     /// One attribute per message, because the row carries one name and one value. The value is
-    /// handed over as the <see cref="SecsItem"/> that arrived rather than as bytes or as a string:
-    /// a store that re-encoded it would be choosing one of the two readings after all, and a host
-    /// that set a list would read back text.
+    /// handed over as a <see cref="SecsItem"/> rather than as bytes or as a string: a store that
+    /// re-encoded it would be choosing one of the two readings after all, and a host that set a
+    /// list would read back text.
+    /// </para>
+    /// <para>
+    /// <strong>The item becomes the store's, and a store that keeps it must be able to.</strong>
+    /// The equipment copies the value out of the arriving message before calling this - a payload
+    /// of a kilobyte or more borrows a buffer the codec hands back to its pool when the message is
+    /// disposed - so what arrives here outlives the transaction. An application calling this
+    /// directly hands over an item it must not then dispose.
+    /// </para>
     /// </remarks>
     ValueTask<RecipeAcknowledgement> SetAttributeAsync(
         string recipeNamespace,
@@ -403,8 +451,11 @@ public sealed class RecipeInMemoryStore : IRecipeStore
     /// <summary>Gets the recipe most recently selected, or <see langword="null"/> when none has been.</summary>
     /// <remarks>
     /// Observable because selecting is the one operation in this package whose whole effect is a
-    /// change of state rather than a transfer - S15F32 says it happened and nothing in the stream
-    /// asks what is selected, S15F35/F36 needing the undefined <c>RCPVER</c>.
+    /// change of state rather than a transfer: S15F32 says only that it happened. S15F35 does
+    /// report what is selected and is served - this remark used to say nothing in the stream asked,
+    /// which stopped being true when the current recipe went in - but it reports an identifier
+    /// where this property is the recipe, bytes and all, so a test can check which body a rename
+    /// left selected.
     /// </remarks>
     public Recipe? Selected { get; private set; }
 
@@ -425,8 +476,9 @@ public sealed class RecipeInMemoryStore : IRecipeStore
     /// <exception cref="ArgumentNullException"><paramref name="recipeNamespace"/> or <paramref name="recipeId"/> is <see langword="null"/>.</exception>
     /// <remarks>
     /// How a machine offers a recipe a host can go and fetch, which stream 15 has no message for:
-    /// there is no "I have a new recipe" primary, so the host finds out with S15F1 and - for the
-    /// recipes inside a namespace - would need S15F3, whose reply this package does not implement.
+    /// there is no "I have a new recipe" primary. So the host finds out by asking - S15F1 for the
+    /// namespaces and S15F3 for the recipes inside one, both served. That second half was the gap
+    /// this remark used to record.
     /// </remarks>
     public void Add(string recipeNamespace, string recipeId, ReadOnlyMemory<byte> body)
     {
@@ -471,6 +523,68 @@ public sealed class RecipeInMemoryStore : IRecipeStore
         IReadOnlyList<string> listed = [.. _namespaces.Keys.OrderBy(name => name, StringComparer.Ordinal)];
 
         return ValueTask.FromResult(listed);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The length is the body's own byte count, which this store has because it holds the bodies.
+    /// The version is always null: nothing in stream 15 sets one, so there is none to report.
+    /// </remarks>
+    public ValueTask<IReadOnlyList<RecipeDirectoryEntry>?> ListRecipesAsync(
+        string recipeNamespace,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!_namespaces.ContainsKey(recipeNamespace))
+        {
+            return ValueTask.FromResult<IReadOnlyList<RecipeDirectoryEntry>?>(null);
+        }
+
+        List<RecipeDirectoryEntry> entries = [];
+
+        foreach (var key in _recipes.Keys
+            .Where(key => string.Equals(key.Namespace, recipeNamespace, StringComparison.Ordinal))
+            .OrderBy(key => key.Id, StringComparer.Ordinal))
+        {
+            if (!_recipes.TryGetValue(key, out var body))
+            {
+                // Deleted while this answer was being built. A directory is what is there now, so
+                // the recipe is left out rather than reported with a length of nothing.
+                continue;
+            }
+
+            entries.Add(new RecipeDirectoryEntry
+            {
+                Id = key.Id,
+                Length = (uint)body.Length,
+                Attributes = AttributesOf(key.Namespace, key.Id),
+            });
+        }
+
+        return ValueTask.FromResult<IReadOnlyList<RecipeDirectoryEntry>?>(entries);
+    }
+
+    // The attributes of one recipe, sorted by name so two directories can be diffed. The items are
+    // this store's own, which is what IRecipeStore.GetAttributeAsync already says about them.
+    private IReadOnlyList<RecipeAttribute> AttributesOf(string recipeNamespace, string recipeId)
+    {
+        List<RecipeAttribute> attributes = [];
+
+        foreach (var key in _attributes.Keys
+            .Where(key =>
+                string.Equals(key.Namespace, recipeNamespace, StringComparison.Ordinal)
+                && string.Equals(key.Id, recipeId, StringComparison.Ordinal))
+            .OrderBy(key => key.Attribute, StringComparer.Ordinal))
+        {
+            if (_attributes.TryGetValue(key, out var value))
+            {
+                attributes.Add(new RecipeAttribute { Name = key.Attribute, Value = value });
+            }
+        }
+
+        return attributes;
     }
 
     /// <inheritdoc />

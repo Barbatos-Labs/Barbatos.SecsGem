@@ -468,11 +468,11 @@ internal sealed class ChamberRunner(
         }
 
         // One recipe in two namespaces for stream 15. Stream 15 has no message announcing one
-        // either, so a host finds the namespaces with S15F1 and then has to be told the recipe
-        // names some other way - S15F3, the directory of one namespace, is among the pairs that
-        // package leaves out, because its reply needs three names the dictionary does not define.
-        // That is the gap a user of this stream will feel first, and the sample shows it honestly
-        // rather than pretending otherwise.
+        // either, so a host finds the namespaces with S15F1 and then asks S15F3 for the recipes in
+        // each - which this store answers out of its index, with each recipe's byte count and its
+        // attributes. That row used to be the gap a user of this stream felt first: its reply
+        // carries three names the dictionary does not define, and it was refused for its SHAPE
+        // until S7F36 turned out to settle the nesting.
         //
         // Through the transactions rather than through a back door, because the store behind this
         // one is a RecipeFileStore and a durable store has no Add: a recipe gets in by being

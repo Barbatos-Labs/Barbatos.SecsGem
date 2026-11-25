@@ -115,6 +115,74 @@ public class RecipeFileStoreTests
     }
 
     [Fact(Timeout = 15_000)]
+    public async Task A_directory_comes_out_of_the_index_and_survives_a_restart()
+    {
+        using var temporary = new TempDirectory();
+
+        var store = new RecipeFileStore(temporary.Path);
+
+        await SeedAsync(store, "PROD", "ETCH-7", Body);
+        await SeedAsync(store, "PROD", "CLEAN-1", Other);
+
+        Assert.Equal(
+            RecipeAcknowledgement.Accepted,
+            await store.SetAttributeAsync("PROD", "ETCH-7", "OWNER", SecsItem.A("days"), Token));
+
+        // The length is kept beside the sequence number rather than measured off the disk, which is
+        // the point: this store holds no bodies, so a directory that read every file to size it
+        // would undo that. Asserted after a restart as well, because adoption is the other place
+        // the two have to be written down together.
+        var reopened = new RecipeFileStore(temporary.Path);
+
+        foreach (var directory in new[]
+        {
+            await store.ListRecipesAsync("PROD", Token),
+            await reopened.ListRecipesAsync("PROD", Token),
+        })
+        {
+            Assert.NotNull(directory);
+            Assert.Equal<string[]>(["CLEAN-1", "ETCH-7"], [.. directory!.Select(entry => entry.Id)]);
+            Assert.Equal((uint)Other.Length, directory[0].Length);
+            Assert.Equal((uint)Body.Length, directory[1].Length);
+
+            Assert.Empty(directory[0].Attributes);
+            Assert.Equal("days", Assert.Single(directory[1].Attributes).Value.GetString());
+        }
+
+        // And the two answers a host cannot tell apart, which the store can.
+        Assert.NotNull(await reopened.ListRecipesAsync("PROD", Token));
+        Assert.Null(await reopened.ListRecipesAsync("NOBODY", Token));
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_rename_and_a_copy_both_keep_the_length_the_directory_reports()
+    {
+        using var temporary = new TempDirectory();
+
+        var store = new RecipeFileStore(temporary.Path);
+
+        await SeedAsync(store, "PROD", "ETCH-7", Other);
+        Assert.Equal(RecipeAcknowledgement.Accepted, await store.CreateNamespaceAsync("TEST", Token));
+
+        Assert.Equal(RecipeAcknowledgement.Accepted, await store.RenameAsync("PROD", "ETCH-7", "ETCH-8", Token));
+        Assert.Equal(RecipeAcknowledgement.Accepted, await store.CopyAsync("PROD", "ETCH-8", "TEST", "ETCH-8", Token));
+
+        // Neither operation touches the body, so the length the index recorded is still the length -
+        // the reason the sequence number and the length travel as one value rather than as two
+        // dictionaries somebody has to keep in step.
+        foreach (var space in new[] { "PROD", "TEST" })
+        {
+            var directory = await store.ListRecipesAsync(space, Token);
+
+            Assert.Equal((uint)Other.Length, Assert.Single(directory!).Length);
+        }
+
+        var reopened = new RecipeFileStore(temporary.Path);
+
+        Assert.Equal((uint)Other.Length, Assert.Single((await reopened.ListRecipesAsync("TEST", Token))!).Length);
+    }
+
+    [Fact(Timeout = 15_000)]
     public async Task A_record_written_before_attributes_existed_still_reads()
     {
         using var temporary = new TempDirectory();
@@ -733,7 +801,7 @@ public class RecipeFileStoreTests
                 $"S{stream}F{function} should have a handler.");
         }
 
-        Assert.Equal(16, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(17, RecipeEquipment.HandledMessages.Count);
     }
 
     private sealed class TempDirectory : IDisposable

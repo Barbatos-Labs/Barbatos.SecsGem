@@ -12,7 +12,7 @@ namespace Barbatos.SecsGem.Recipes.UnitTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// These are this class's choices, not E5's: eleven of the thirteen replies this package sends carry
+/// These are this class's choices, not E5's: thirteen of the seventeen replies this package sends carry
 /// one <c>RMACK</c> and no way to say why, so every refusal below is indistinguishable on the wire
 /// from every other. A test against the store is the only place the <em>reason</em> can be pinned.
 /// </para>

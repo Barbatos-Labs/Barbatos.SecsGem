@@ -530,12 +530,65 @@ public sealed class RecipeHost
         return (recipeId, version);
     }
 
+    /// <summary>Asks which recipes a namespace holds - S15F3, answered by S15F4.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>One entry per recipe, which is empty when the namespace is unknown or has none.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="recipeNamespace"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <strong>Empty covers three answers</strong>, because S15F4 carries no acknowledgement item:
+    /// a namespace with no recipes, a namespace the machine does not have, and a machine that
+    /// serves no directory at all. <see cref="ListNamespacesAsync"/> is what tells a host which
+    /// namespaces exist, and the equipment logs which of the three it answered.
+    /// </para>
+    /// <para>
+    /// <strong>The entries outlive the reply, and that costs a copy per attribute value.</strong>
+    /// A payload of <see cref="SecsCodecOptions.PooledPayloadThreshold"/> bytes or more is decoded
+    /// into a buffer the codec hands back to its pool when the message is disposed, so an item read
+    /// straight out of a reply is only safe while the reply is. A directory is a thing to hold, so
+    /// every value here is decoded afresh and is the caller's to dispose.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<RecipeDirectoryEntry>> RequestDirectoryAsync(
+        string recipeNamespace,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+
+        using var reply = await ExchangeAsync(
+            new SecsMessage(15, 3, replyExpected: true)
+            {
+                Name = "RecipeDirectoryRequest",
+                Item = RecipeCodec.NamespaceBody(recipeNamespace),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        var entries = RecipeCodec.ReadDirectoryReply(reply.Item);
+
+        if (reply.Item is { IsList: true } body && body.Count != entries.Count)
+        {
+            // Logged rather than thrown, because S15F4 has no acknowledgement item to carry a
+            // complaint back and a directory missing one row is still a directory. S7F36 reports
+            // the same thing the same way.
+            _logger.LogWarning(
+                "S15F4 carried {Count} entries and {Read} of them named a recipe.",
+                body.Count,
+                entries.Count);
+        }
+
+        return entries;
+    }
+
     /// <summary>Reads one attribute of a recipe - S15F27, answered by S15F28.</summary>
     /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
     /// <param name="recipeId">Which recipe - <c>RCPID</c>.</param>
     /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>The value as the item it arrived as, or <see langword="null"/> when there is none.</returns>
+    /// <returns>
+    /// The value as a copy of the item it arrived as, or <see langword="null"/> when there is none.
+    /// The item is the caller's to dispose.
+    /// </returns>
     /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
     /// <remarks>
     /// <para>
@@ -576,7 +629,11 @@ public sealed class RecipeHost
 
         var value = body.Items[1];
 
-        return value is { IsList: true, Count: 0 } ? null : value;
+        // Decoded afresh out of the bytes that arrived, not handed back borrowed: a payload of
+        // SecsCodecOptions.PooledPayloadThreshold bytes or more is decoded into a pooled buffer that
+        // goes back to the pool when this reply is disposed, two lines below. The item is the
+        // caller's to dispose.
+        return value is { IsList: true, Count: 0 } ? null : SecsItem.Decode(value.ToByteArray());
     }
 
     /// <summary>Sets one attribute of a recipe - S15F29, answered by S15F30.</summary>

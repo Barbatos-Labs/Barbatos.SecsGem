@@ -537,17 +537,18 @@ internal static class Program
                 $"S{stream}F{function} is declared and never reached the routing table");
         }
 
-        // S2F19 is the one row of stream 2 that stays out, on RSTC - which is the whole of its
-        // body and a name the reference never defines.
-        Assert(
-            !GemEquipment.HandledMessages.Contains(((byte)2, (byte)19)),
-            "the equipment declares S2F19, which is refused with a reason recorded");
-
-        foreach (var function in new byte[] { 21, 25, 29 })
+        // The two rows of these streams that stay out, each on the field its row turns on: S2F19's
+        // RSTC is the whole of its body, and S6F21's CELLNAME stands in the slot S6F11 gives RPTID,
+        // a U4 - a slot that contradicts the item's own name has told you nothing. Checked against
+        // BOTH ends, because S6F21 travels from the equipment and it is the host that would answer
+        // it; the list this used to check could not see that, and went on passing for two chapters
+        // after S6F25 and S6F29 were served.
+        foreach (var (stream, function) in new (byte Stream, byte Function)[] { (2, 19), (6, 21) })
         {
             Assert(
-                !GemEquipment.HandledMessages.Contains(((byte)6, function)),
-                $"the equipment declares S6F{function}, which is refused with a reason recorded");
+                !GemEquipment.HandledMessages.Contains((stream, function))
+                    && !GemHost.HandledMessages.Contains((stream, function)),
+                $"S{stream}F{function} is declared, and it is refused with a reason recorded");
         }
 
         Assert(
@@ -967,8 +968,8 @@ internal static class Program
         var equipmentRouter = equipmentProvider.GetRequiredService<ISecsMessageRouter>();
 
         Assert(
-            RecipeEquipment.HandledMessages.Count == 14,
-            $"the equipment declares {RecipeEquipment.HandledMessages.Count} message(s), not fourteen");
+            RecipeEquipment.HandledMessages.Count == 17,
+            $"the equipment declares {RecipeEquipment.HandledMessages.Count} message(s), not seventeen");
 
         foreach (var (stream, function) in RecipeEquipment.HandledMessages)
         {
@@ -977,8 +978,18 @@ internal static class Program
                 $"the router has no handler for S{stream}F{function}, so AddRecipeEquipment did not declare it");
         }
 
-        // S15F35 is the newest of the fourteen and the only reply in this package that carries no
-        // acknowledgement, so a packaging mistake would show as a route that is simply absent.
+        // S15F3 is the newest of the seventeen, and the one whose reply has a NESTING - a list of
+        // entries, each ending in a nested list of the attribute pairs, read off S7F36. A packaging
+        // mistake would show as a route that is simply absent, and a type gone missing from the
+        // package as a compile error on the entry below.
+        Assert(
+            RecipeEquipment.HandledMessages.Contains(((byte)15, (byte)3)),
+            "the packed equipment does not declare S15F3, the recipe directory");
+
+        Assert(
+            new RecipeDirectoryEntry { Id = "ETCH-7", Length = 18 }.Attributes.Count == 0,
+            "the packed RecipeDirectoryEntry does not default its attributes to none");
+
         Assert(
             RecipeEquipment.HandledMessages.Contains(((byte)15, (byte)35)),
             "the packed equipment does not declare S15F35, the current recipe");
@@ -999,11 +1010,13 @@ internal static class Program
                 $"the router has no handler for S15F{function}, which this package serves");
         }
 
-        // And the recipe directory, which is still out and is the gap a user feels: its reply needs
-        // RCPATTRNAME and RCPATTRVAL, whose twins in the dictionary disagree about the format.
+        // And the recipe verify, which is the one refusal in this stream with nothing left to
+        // re-read: a recipe checksum is CHECKSUM here, CKSUM in stream 19 and CHKSUM in stream 21,
+        // and the reference defines none of the three. The directory used to be checked beside it
+        // and is served now, its nesting read off S7F36.
         Assert(
-            !equipmentRouter.TryGetHandler(15, 3, out _) && !equipmentRouter.TryGetHandler(15, 11, out _),
-            "the equipment declared the directory or the verify, whose fields the reference does not describe");
+            !equipmentRouter.TryGetHandler(15, 11, out _),
+            "the equipment declared the verify, whose checksum the reference never defines");
 
         // And the other Recipe Management stream, which is a different standard.
         for (byte function = 1; function <= 20; function++)

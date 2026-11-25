@@ -560,8 +560,8 @@ for bodies that are actually built and parsed.
 
 ## What this repository does not serve, and which measure decides it
 
-Fifty-six of the reference's **274 primaries** are declared by nothing in this repository, and 218
-are. After seven chapters spent re-reading those refusals one group at a time, the list is written
+Fifty-five of the reference's **274 primaries** are declared by nothing in this repository, and 219
+are. After eight chapters spent re-reading those refusals one group at a time, the list is written
 down in one place and asserted as a **partition**: every refused primary appears exactly once, under
 the one measure that decides it. A row with two reasons is filed under the one that would still
 refuse it if the other were answered - which is the lesson of the refusals that fell, because in
@@ -570,26 +570,26 @@ every one of those the weaker reason was doing the work.
 | the measure | rows | and what it says |
 | --- | --- | --- |
 | the field the row turns on | 12 | The undefined name is what the message is *for* - `RSTC`, `CELLNAME`, `NRED`, `ENABLE`, `AUTOSEL`, stream 20's `RCPLOCK`, `NOTIFYENABLE` and `CHANGETYPE`, and the `RCPSTATE` that stream 15, 19 and 20 all report - so carrying it untouched would leave a library unable to tell apart the two things its row distinguishes |
-| producer and reader | 15 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, a checksum the receiver has to compute and compare - `CHECKSUM` in streams 15 and 20, `CKSUM` in stream 19, `CHKSUM` in stream 21, and defined under none of the four names - and an `OWNERID` the host mints |
-| a shape | 6 | The body is a list of entries and no served row settles its nesting - two recipe directories, a revision history, and stream 19's parameter rows. **A flat body of two items has one reading; a list has as many as there are nestings** |
+| producer and reader | 16 | The undefined field is written by one end and must be *understood* by the other: `BLKNUM`, `BLKEND`, `BLKSIZE` in every blocked transfer, a checksum the receiver has to compute and compare - `CHECKSUM` in streams 15 and 20, `CKSUM` in stream 19, `CHKSUM` in stream 21, and defined under none of the four names - an `OWNERID` the host mints, and the values a machine would have to invent for a namespace attribute, a recipe's owner and a revision's unnamed column |
 | a name with no second instance | 1 | S7F21: its object, *Reference*, appears in two of 524 row names - this row and its own acknowledgement - and its reply is only an acknowledgement |
-| a firmer row does the job | 16 | S17F9 and S17F13 against **S2F23**, and six of stream 20's against the stream 15 rows this repository serves - the delete, the namespace create, the download grant, the download send, the upload and the unlock. Four of stream 19's go the same way, once you see that its undefined `RCPNS` stands where the defined `RCPSPEC` stands in six rows the reference names twice. Where two rows do one job, the better-documented source wins |
+| a firmer row does the job | 20 | S17F9 and S17F13 against **S2F23**, and eleven of stream 20's seventeen against the stream 15 rows this repository serves - the directory, the attribute get and set, the delete, the namespace create, the download grant, the download send, the upload, the unlock and the two event rows. **Seven of stream 19's ten** go the same way, once you see that its undefined `RCPNS` stands where the defined `RCPSPEC` stands in six rows the reference names twice, and that its *parameter* pair is the *attribute* pair under the other of the two spellings the dictionary writes. Where two rows do one job, the better-documented source wins |
 | the addition is unobservable | 1 | S20F15 renames **and** moves in one transaction, where stream 15 needs a copy and a delete. What the single transaction buys is atomicity, and `RMACK` has one refusal code, so a host told *Rejected* cannot learn whether the source survived |
 | the standard is contradicted | 4 | Stream 17's control-job four. The bodies are stream 16's with `PJ` rewritten to `CJ`, S17F1 builds a control job from a `PJID` where E94 builds one from its material, and the only two control-job items the dictionary defines are named by no row - so a codec for them would be this library inventing a wire and calling it E94 |
 | the addressing is missing | 1 | S17F7 alone. `DCID` is its whole body, undefined, named by stream 17 alone, and - unlike `RCPNS` and `CJID`, which both had a defined item in their slot - with no twin row anywhere to read a format off |
 
-**Five of the fifty-six are gap-free**, and the figure is measured rather than asserted: S7F21,
+**Five of the fifty-five are gap-free**, and the figure is measured rather than asserted: S7F21,
 S17F9, S17F13, S20F17 and S20F33. Four of those five are refused because a firmer row does their
-job and the fifth for a name, so no gap-free row anywhere here is refused on a field or on a shape.
-S20F15 sits beside them, readable without being gap-free.
+job and the fifth for a name, so no gap-free row anywhere here is refused on a field - and nothing
+anywhere is refused on a shape, there being no such measure left. S20F15 sits beside them, readable
+without being gap-free.
 
 That paragraph used to read **twenty-five**, counting the rows filed under the retired stream
 measure as rows whose every field reads. It had never been checked against an item: twenty of
 those twenty-four carry an undefined name. Re-reading them one at a time is what retired the
-measure, and it is why the table above has eight rows where it had seven.
+measure, and it is why the table above grew two rows before it shrank again.
 
-The table has nine rows now, and the second new one came from re-reading the measure that had just
-grown. **"The addressing is missing" held fifteen rows and holds one.** `RCPNS` addresses all ten of
+The table had nine rows at its widest, and the second new one came from re-reading the measure that
+had just grown. **"The addressing is missing" held fifteen rows and holds one.** `RCPNS` addresses all ten of
 stream 19's pairs and `CJID` addresses stream 17's control-job four, both undefined, both true - and
 neither a reason, because each has a defined item to be read against: the reference writes six row
 names in both stream 15 and stream 19 and puts `RCPSPEC` exactly where `RCPNS` goes, and `CTLJOBID`
@@ -621,6 +621,21 @@ not what a name can be: a slot that contradicts the item's own name has told you
 row stays. Two more moved to a firmer row once their flags turned out to be readable, and the
 namespace space moved to producer and reader - `RMSPACE` gives it a format and nothing gives it a
 **unit**, which is fatal where the host does arithmetic with the number.
+
+**And the chapter after that retired the fourth measure, which leaves the table at seven rows:
+"a shape" held six and holds none.** It had lost twice already without anybody going at it on
+purpose - S6F25 and S7F35 were each refused because no served sibling settled a nesting, and each
+is served - so the question was only which served row plays the same part. For a recipe directory
+that row is **S7F36**, the formatted process program directory: a list of entries, one per program,
+each entry being its row's items in order and ending in a nested list of the group that repeats.
+S15F4 is that with a recipe's columns, so `Barbatos.SecsGem.Recipes` serves S15F3 now; S19F3 and
+S20F3 are then duplicates of it; stream 19's *parameter* rows are stream 15's *attribute* rows,
+which the item dictionary writes twice - `RCPATTRID`/`RCPATTRDATA` on one side and
+`RCPPARNM`/`RCPPARVAL` on the other, all four defined and all four named by no message; and the
+revision history keeps a reason about a field rather than about a nesting, its third column being an
+`RCPATTRVAL` with no `RCPATTRNAME` beside it. So **nothing in this repository is refused for the
+shape of its body**, and all three measures that have been retired outright went the same way: by
+being read one row at a time.
 
 The eleven streams that hold them are 2, 6, 7, 8, 13, 14, 15, 17, 19, 20 and 21; the other nine are
 served whole. `SecsCatalogRefusalPartitionTests` holds the table and the arithmetic, and each

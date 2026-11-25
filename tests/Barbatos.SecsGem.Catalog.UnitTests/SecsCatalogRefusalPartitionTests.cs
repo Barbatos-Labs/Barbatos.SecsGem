@@ -12,7 +12,7 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Fifty-six of the reference's two hundred and seventy-four primaries are not declared anywhere
+/// Fifty-five of the reference's two hundred and seventy-four primaries are not declared anywhere
 /// here. <strong>This file is that list, and it is a partition</strong>: every refused primary
 /// appears exactly once, under the one measure that decides it. A row with two reasons is filed
 /// under the one that would still refuse it if the other were answered - which is the lesson of the
@@ -52,8 +52,9 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// </para>
 /// <para>
 /// Three measures replaced them and the working agreement had already stated all three.
-/// <strong>A firmer row does the job</strong> decides twelve, four of them stream 19 rows that are
-/// stream 15's under other numbers; <strong>the addition is unobservable</strong> decides S20F15,
+/// <strong>A firmer row does the job</strong> decides twenty - seven of stream 19's ten pairs and
+/// eleven of stream 20's seventeen, which are stream 15's rows under other numbers, plus S17F9 and
+/// S17F13 which are S2F23's; <strong>the addition is unobservable</strong> decides S20F15,
 /// whose single transaction buys atomicity that <c>RMACK</c>'s one refusal code cannot report; and
 /// <strong>the standard is contradicted</strong> decides stream 17's control-job four, which build
 /// a control job from a <c>PJID</c> where E94 builds one from its material.
@@ -72,8 +73,22 @@ namespace Barbatos.SecsGem.Catalog.UnitTests;
 /// self-description cannot rescue.
 /// </para>
 /// <para>
+/// <strong>And the fourth measure to be re-read goes with them: "a shape".</strong> It held six
+/// rows and holds none. It had already lost twice before anybody went at it on purpose - S6F25 and
+/// S7F35 were both refused for a nesting and both are served - and what emptied it was the
+/// question those two chapters taught: which served row plays the same part in the same kind of
+/// pair. For a recipe directory that row is <strong>S7F36</strong>, the formatted process program
+/// directory: a list of entries, one per program, each entry being its row's items in order and
+/// ending in a nested list of the group that repeats. S15F4 is that with a recipe's columns, so it
+/// is served; S19F3 and S20F3 are then duplicates of it; stream 19's parameter rows are stream
+/// 15's attribute rows under the other of the two spellings the dictionary writes; and the revision
+/// history keeps a reason, but a reason about a field rather than about a nesting. <strong>So no
+/// row here is refused for its shape any more</strong>, and the three measures that have been
+/// retired outright were all read the same way - one row at a time.
+/// </para>
+/// <para>
 /// <strong>What the partition shows at a glance.</strong> Only <strong>five</strong> of the
-/// fifty-nine are gap-free, and the figure is measured here rather than asserted: the claim this
+/// fifty-five are gap-free, and the figure is measured here rather than asserted: the claim this
 /// file used to make - twenty-five refused although every field of them reads - counted reason
 /// labels and was never checked against an item. Four of the five gap-free rows are refused because
 /// a better-documented row does their job and the fifth for a name whose object appears nowhere
@@ -91,9 +106,6 @@ public class SecsCatalogRefusalPartitionTests
 
         /// <summary>The undefined field is written by one end and must be understood by the other.</summary>
         ProducerAndReader,
-
-        /// <summary>The body's nesting is settled by no served sibling - a list of entries, here.</summary>
-        Shape,
 
         /// <summary>The name's object has no second instance anywhere, and the reply is only an acknowledgement.</summary>
         NameAlone,
@@ -205,25 +217,26 @@ public class SecsCatalogRefusalPartitionTests
         new(15, 51, Reason.ProducerAndReader, "RCPATTRVAL"),
         new(20, 1, Reason.ProducerAndReader, "RCPATTRVAL"),
 
+        // And the revision history, which came out of the shape measure when the directory went
+        // in: S15F48 is three flat items with no repeating tail, which is S1F12's shape and
+        // S2F30's, so the nesting was never the hard part. What is left is the third column. The
+        // other two have somewhere to come from - RCPVER is carried untouched at S15F36 and TIME
+        // is defined - but a per-revision RCPATTRVAL with no RCPATTRNAME beside it is set by no
+        // row of the stream, so the machine would mint a value the host has to read. S15F51's
+        // position, and S15F49's.
+        new(15, 47, Reason.ProducerAndReader, "RCPATTRVAL"),
+
         // ---------------------------------------------------------- two readings, different bytes
 
         // ---------------------------------------------------------- a shape
-        new(15, 3, Reason.Shape, "a directory is a list of entries"),
-        new(15, 47, Reason.Shape, "a history is a list of entries"),
-
-        // S20F3 is S15F3's row with a lock column added, so it is the same list of entries and is
-        // filed where its twin is. Both of its reasons survive the other being answered, and the
-        // tie goes to the one its twin already carries.
-        new(20, 3, Reason.Shape, "a directory is a list of entries"),
-
-        // Stream 19's directory is S15F3's row under S15F3's own name, so it goes where S15F3
-        // goes; and its parameter rows are the same question one noun over. S19F13 names no
-        // parameter in the request, so its reply is every parameter the recipe has, and S19F15
-        // may be one pair or a list of them - neither settled by a served sibling, because the
-        // sibling that plays the same part is S15F27, refused.
-        new(19, 3, Reason.Shape, "a directory is a list of entries"),
-        new(19, 13, Reason.Shape, "parameters are a list of entries"),
-        new(19, 15, Reason.Shape, "parameters are a list of entries"),
+        //
+        // Retired, and it held six rows. It had already lost twice - S6F25 and S7F35 were both
+        // refused on a nesting and both are served - and the third reading emptied it: S15F4 is a
+        // directory, and a directory whose entries end in a column that repeats is S7F36, which
+        // this repository serves. So S15F3 went in, the two other directories are duplicates of
+        // it, stream 19's parameter rows are stream 15's attribute rows, and the revision history
+        // keeps a reason that is not a shape. A measure that names a nesting rather than a row was
+        // the last one left after the two stream-level measures went.
 
         // ---------------------------------------------------------- a name with no second instance
         new(7, 21, Reason.NameAlone, "Reference"),
@@ -241,28 +254,47 @@ public class SecsCatalogRefusalPartitionTests
         new(20, 23, Reason.FirmerRow, "S15F25"),
         new(20, 33, Reason.FirmerRow, "S15F15"),
 
-        // And four of stream 19's, which is where the addressing measure went. The reference writes
-        // six row names in both stream 15 and stream 19, and in all six RCPNS stands exactly where
-        // the defined RCPSPEC stands - so these are stream 15 rows under other numbers, with the
-        // namespace spelled the way the dictionary declines to.
+        // And SEVEN of stream 19's ten, which is where the addressing measure went and then the
+        // shape measure. The reference writes six row names in both stream 15 and stream 19, and
+        // in all six RCPNS stands exactly where the defined RCPSPEC stands - so these are stream
+        // 15 rows under other numbers, with the namespace spelled the way the dictionary declines
+        // to. The directory joined them in the chapter that served S15F3.
         new(19, 1, Reason.FirmerRow, "S15F1"),
+        new(19, 3, Reason.FirmerRow, "S15F3"),
         new(19, 5, Reason.FirmerRow, "S15F9"),
         new(19, 7, Reason.FirmerRow, "S15F7"),
         new(19, 11, Reason.FirmerRow, "S15F13"),
 
-        // Two of stream 20's, and the first of them cites a row this repository served in the very
-        // chapter that moved it. S20F29 is a notification enable keyed by a CEID, which is S6F29's
-        // two items with the order swapped; S20F31 is a change report keyed by a CEID, which is an
-        // event report, and S6F11 carries any event with any reports. Both were filed on an
-        // undefined name - NOTIFYENABLE and CHANGETYPE - and both names turned out to be readable:
-        // the first off S2F37's and S6F29's defined BOOLEAN, the second off RMCHGTYPE, the RM
-        // family's own change type, a defined U1 with four code values that names no row.
-        // Stream 20's attribute pair, now that stream 15's is served. S20F7 is S15F29 item for item,
-        // reply included; S20F5 adds an RMACK that S15F28 lacks, and that is not the S1F19
-        // difference - S1F20 could say WHY where S14F2 said nothing at all, where RMACK has one
-        // refusal code and says only THAT, which S15F28 already says with a zero-length value.
+        // Stream 19's parameter rows are stream 15's attribute rows. The Catalog README reads the
+        // two pairs as one concept spelled twice - RCPATTRNAME/RCPATTRVAL against
+        // RCPPNAME/RCPPVAL - and the definitions half agrees from the other side: it writes
+        // RCPPARNM and RCPPARVAL, both A[n], both named by no row, which is the CTLJOBID route.
+        // S19F15 is S15F29 item for item. S19F13 names no parameter, so its reply is every one
+        // the recipe has - which is what S15F4 carries per recipe now that the directory is
+        // served, so the one thing it added over S15F27 is answered too.
+        new(19, 13, Reason.FirmerRow, "S15F3"),
+        new(19, 15, Reason.FirmerRow, "S15F29"),
+
+        // Stream 20's directory, now that stream 15's is served. S20F3 carries S15F3's one item
+        // under S15F3's own name; the lock column its reply adds is RCPLOCK, which this table
+        // already refuses at S20F25 as the field that row turns on - so it is an addition nothing
+        // here could read.
+        new(20, 3, Reason.FirmerRow, "S15F3"),
+
+        // Stream 20's attribute pair. S20F7 is S15F29 item for item, reply included; S20F5 adds an
+        // RMACK that S15F28 lacks, and that is not the S1F19 difference - S1F20 could say WHY
+        // where S14F2 said nothing at all, where RMACK has one refusal code and says only THAT,
+        // which S15F28 already says with a zero-length value.
         new(20, 5, Reason.FirmerRow, "S15F27"),
         new(20, 7, Reason.FirmerRow, "S15F29"),
+
+        // And the two that cite rows this repository served in the very chapter that moved them.
+        // S20F29 is a notification enable keyed by a CEID, which is S6F29's two items with the
+        // order swapped; S20F31 is a change report keyed by a CEID, which is an event report, and
+        // S6F11 carries any event with any reports. Both were filed on an undefined name -
+        // NOTIFYENABLE and CHANGETYPE - and both names turned out to be readable: the first off
+        // S2F37's and S6F29's defined BOOLEAN, the second off RMCHGTYPE, the RM family's own
+        // change type, a defined U1 with four code values that names no row.
         new(20, 29, Reason.FirmerRow, "S6F29"),
         new(20, 31, Reason.FirmerRow, "S6F11"),
 
@@ -296,15 +328,15 @@ public class SecsCatalogRefusalPartitionTests
     ];
 
     [Fact]
-    public void Fifty_nine_of_the_references_primaries_are_not_served_and_each_is_here_once()
+    public void Fifty_five_of_the_references_primaries_are_not_served_and_each_is_here_once()
     {
         // The arithmetic first, measured off the catalogue rather than carried forward: the
-        // reference has 274 primaries and this repository declares 215 of them.
+        // reference has 274 primaries and this repository declares 219 of them.
         var primaries = SecsCatalog.Messages.Count(message => message.IsPrimary);
 
         Assert.Equal(274, primaries);
-        Assert.Equal(56, Refused.Length);
-        Assert.Equal(218, primaries - Refused.Length);
+        Assert.Equal(55, Refused.Length);
+        Assert.Equal(219, primaries - Refused.Length);
 
         // Exactly once each, which is what makes this a partition rather than a list of notes.
         Assert.Equal(
@@ -326,7 +358,7 @@ public class SecsCatalogRefusalPartitionTests
     }
 
     [Fact]
-    public void The_fifty_six_fall_in_eleven_streams_and_three_of_them_are_refused_whole()
+    public void The_fifty_five_fall_in_eleven_streams_and_three_of_them_are_refused_whole()
     {
         // Per stream, pinned. The three streams nothing here serves at all are 17, 19 and 20 - and
         // 19 and 20 are the two the reference calls Recipe Management beside stream 15.
@@ -342,7 +374,7 @@ public class SecsCatalogRefusalPartitionTests
             (8, [7, 9]),
             (13, [9]),
             (14, [23]),
-            (15, [3, 11, 33, 37, 39, 41, 43, 45, 47, 49, 51]),
+            (15, [11, 33, 37, 39, 41, 43, 45, 47, 49, 51]),
             (17, [1, 3, 5, 7, 9, 11, 13]),
             (19, [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),
             (20, [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33]),
@@ -355,7 +387,7 @@ public class SecsCatalogRefusalPartitionTests
         }
 
         // And the other nine streams of the twenty are served whole, which is the figure worth
-        // keeping beside the fifty-nine: the refusals are in eleven streams, not spread thin.
+        // keeping beside the fifty-five: the refusals are in eleven streams, not spread thin.
         Assert.Equal(20, SecsCatalog.Streams.Count);
         Assert.Equal(9, SecsCatalog.Streams.Count(stream => !Refused.Any(r => r.Stream == stream.Number)));
 
@@ -373,23 +405,23 @@ public class SecsCatalogRefusalPartitionTests
         }
 
         // And the counter-example that retired it, which needs no package to see. Stream 15 has
-        // twenty-seven primaries and eleven of them are in this table, so a machine serving
-        // stream 15 answers S9F5 for eleven pairs - which is exactly what declaring one row of
+        // twenty-seven primaries and ten of them are in this table, so a machine serving
+        // stream 15 answers S9F5 for ten pairs - which is exactly what declaring one row of
         // stream 17 or 20 was said to claim. HsmsConnection chooses S9F5 over S9F3 on the stream
         // being known, so that is the dispatcher's behaviour and not a reading of it: a measure
         // true of a stream this repository serves cannot be what refuses another.
         Assert.True(SecsCatalog.TryGetStream(15, out var fifteen));
         Assert.Equal(27, fifteen!.Messages.Count(message => message.IsPrimary));
-        Assert.Equal(11, Refused.Count(refusal => refusal.Stream == 15));
+        Assert.Equal(10, Refused.Count(refusal => refusal.Stream == 15));
     }
 
     [Fact]
-    public void Five_of_them_are_gap_free_and_the_measures_divide_the_other_fifty_four()
+    public void Five_of_them_are_gap_free_and_the_measures_divide_the_other_fifty()
     {
         // Measured, not labelled. This test used to be called "twenty-five of them carry no field
         // this library cannot read" and counted two reason labels, never looking at an item: of the
         // twenty-four it counted under the retired stream measure, twenty carry an undefined name.
-        // Five of the fifty-nine are gap-free and here they are.
+        // Five of the fifty-five are gap-free and here they are.
         var gapFree = Refused
             .Where(refusal =>
                 SecsCatalog.TryGetMessage(refusal.Stream, refusal.Function, out var primary)
@@ -413,10 +445,9 @@ public class SecsCatalogRefusalPartitionTests
         foreach (var (reason, count) in new (Reason Reason, int Count)[]
         {
             (Reason.FieldTheRowTurnsOn, 12),
-            (Reason.ProducerAndReader, 15),
-            (Reason.Shape, 6),
+            (Reason.ProducerAndReader, 16),
             (Reason.NameAlone, 1),
-            (Reason.FirmerRow, 16),
+            (Reason.FirmerRow, 20),
             (Reason.UnobservableAddition, 1),
             (Reason.StandardContradicted, 4),
             (Reason.AddressingMissing, 1),
@@ -425,7 +456,7 @@ public class SecsCatalogRefusalPartitionTests
             Assert.Equal(count, Refused.Count(refusal => refusal.Reason == reason));
         }
 
-        // The eight measures account for every row and nothing is left over.
+        // The seven measures account for every row and nothing is left over.
         Assert.Equal(Refused.Length, Enum.GetValues<Reason>().Sum(reason => Refused.Count(r => r.Reason == reason)));
 
         // And the figure that retired the stream measure, pinned so the paragraph above cannot
@@ -578,8 +609,8 @@ public class SecsCatalogRefusalPartitionTests
         Assert.False(SecsCatalog.TryGetDataItem("RCPNS", out _));
 
         Assert.Equal<Reason[]>(
-            [Reason.FirmerRow, Reason.Shape, Reason.FirmerRow, Reason.FirmerRow, Reason.ProducerAndReader,
-             Reason.FirmerRow, Reason.Shape, Reason.Shape, Reason.FieldTheRowTurnsOn, Reason.FieldTheRowTurnsOn],
+            [Reason.FirmerRow, Reason.FirmerRow, Reason.FirmerRow, Reason.FirmerRow, Reason.ProducerAndReader,
+             Reason.FirmerRow, Reason.FirmerRow, Reason.FirmerRow, Reason.FieldTheRowTurnsOn, Reason.FieldTheRowTurnsOn],
             [.. Refused.Where(refusal => refusal.Stream == 19).OrderBy(refusal => refusal.Function).Select(refusal => refusal.Reason)]);
 
         Assert.DoesNotContain(Refused, refusal => refusal.Decides == "RCPNS");
@@ -622,16 +653,95 @@ public class SecsCatalogRefusalPartitionTests
         Assert.Contains(Refused, refusal => refusal is { Stream: 15, Function: 43, Reason: Reason.FieldTheRowTurnsOn });
 
         Assert.Equal<byte[]>(
-            [51],
+            [47, 51],
             [..
                 Refused
                     .Where(refusal => refusal.Stream == 15 && refusal.Decides == "RCPATTRVAL")
-                    .Select(refusal => refusal.Function),
+                    .Select(refusal => refusal.Function)
+                    .Order(),
             ]);
 
         Assert.All(
             Refused.Where(refusal => refusal.Decides == "RCPATTRVAL"),
             refusal => Assert.Equal(Reason.ProducerAndReader, refusal.Reason));
+    }
+
+    [Fact]
+    public void The_shape_measure_is_retired_because_a_served_directory_settles_a_list_of_entries()
+    {
+        // The fourth measure to be re-read, and the third to go altogether. It held six rows: two
+        // recipe directories, a third under stream 19's numbers, a revision history and stream
+        // 19's two parameter rows.
+        //
+        // It had lost twice already, which is what made it the one to go at: S6F25 and S7F35 were
+        // each refused because no served sibling settled a nesting, and each is served.
+        Assert.DoesNotContain(Refused, refusal => refusal is { Stream: 6, Function: 25 });
+        Assert.DoesNotContain(Refused, refusal => refusal is { Stream: 7, Function: 35 });
+
+        // S15F4 names five items and only two of them are defined - so the shape really was the
+        // whole of what was left, because the other three are each carried by a row this
+        // repository serves. RCPVER goes untouched at S15F36, and both attribute names at S15F28.
+        Assert.Equal<string[]>(["RCPID", "RCPVER", "LENGTH", "RCPATTRNAME", "RCPATTRVAL"], [.. Items("S15F4")]);
+
+        foreach (var defined in new[] { "RCPID", "LENGTH" })
+        {
+            Assert.True(SecsCatalog.TryGetDataItem(defined, out _), defined);
+        }
+
+        foreach (var gap in new[] { "RCPVER", "RCPATTRNAME", "RCPATTRVAL" })
+        {
+            Assert.False(SecsCatalog.TryGetDataItem(gap, out _), gap);
+        }
+
+        Assert.Contains("RCPVER", Items("S15F36"));
+        Assert.Equal<string[]>(["RCPATTRNAME", "RCPATTRVAL"], [.. Items("S15F28")]);
+
+        // And the sibling the nesting comes from. S7F35 asks for the formatted process program
+        // directory with no items at all and S7F36 answers it - the same part of the same kind of
+        // pair, and the only directory reply in the reference whose entry carries more than an
+        // identifier. Barbatos.SecsGem.Gem serves it as a list of entries, each entry being
+        // S7F26's body: PPID, MDLN, SOFTREV and then a nested list of the commands.
+        Assert.Empty(Items("S7F35"));
+        Assert.Equal<string[]>(["PPID", "PPBODY"], [.. Items("S7F36")]);
+        Assert.Equal<string[]>(["PPID", "PPBODY"], [.. Items("S7F26")]);
+        Assert.Contains(((byte)7, (byte)35), GemEquipment.FormattedProcessProgramMessages);
+
+        // The two other directories are then duplicates: both carry S15F3's one item under
+        // S15F3's own name, which is the firmer-row measure and not a shape.
+        foreach (var twin in new[] { "S19F3", "S20F3" })
+        {
+            Assert.Equal(NameOf("S15F3"), NameOf(twin));
+            Assert.Single(Items(twin));
+            Assert.Contains(Refused, refusal => $"S{refusal.Stream}F{refusal.Function}" == twin
+                && refusal is { Reason: Reason.FirmerRow, Decides: "S15F3" });
+        }
+
+        // Stream 19's parameter rows are stream 15's attribute rows, and the dictionary says so
+        // from the other side: it writes RCPPARNM and RCPPARVAL, both A[n] and both named by no
+        // row, which is the route CJID read off CTLJOBID.
+        Assert.Equal<string[]>(["RCPNS", "RCPID", "RCPPNAME", "RCPPVAL"], [.. Items("S19F15")]);
+        Assert.Equal<string[]>(["RCPSPEC", "RCPID", "RCPATTRNAME", "RCPATTRVAL"], [.. Items("S15F29")]);
+
+        foreach (var definition in new[] { "RCPPARNM", "RCPPARVAL" })
+        {
+            Assert.True(SecsCatalog.TryGetDataItem(definition, out var item), definition);
+            Assert.Equal("A", item!.FormatToken);
+            Assert.True(item.IsNamedByNoMessage, definition);
+        }
+
+        // The revision history is the one that keeps a reason, and it is not a nesting: S15F48 is
+        // three flat items, which is the shape of the two namelists this repository serves. What
+        // refuses it is the third column - a value with NO name beside it, where S15F28 has both,
+        // so nothing in the stream can ever set one and the machine would mint it.
+        Assert.Equal<string[]>(["RCPVER", "TIME", "RCPATTRVAL"], [.. Items("S15F48")]);
+        Assert.Equal<string[]>(["SVID", "SVNAME", "UNITS"], [.. Items("S1F12")]);
+        Assert.DoesNotContain("RCPATTRNAME", Items("S15F48"));
+        Assert.True(SecsCatalog.TryGetDataItem("TIME", out _));
+
+        // So the measure is gone from the enum as well as from the table, and no refusal left
+        // anywhere here turns on how a body is nested.
+        Assert.Equal(7, Enum.GetValues<Reason>().Length);
+        Assert.DoesNotContain(Refused, refusal => refusal.Decides.Contains("entries", StringComparison.Ordinal));
     }
 
     [Fact]

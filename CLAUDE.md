@@ -42,7 +42,7 @@ Core  <-  Hsms  <-  Gem
                                capability, serve one or the other - and declaring two rows of
                                seventeen would answer S9F5 for the other fifteen functions where
                                leaving the stream alone answers S9F3.
-                               Sixteen of twenty-seven pairs. Nine have a primary and a reply made
+                               Seventeen of twenty-seven pairs. Nine have a primary and a reply made
                                entirely of defined items - which is what overturned chapter 42's
                                sweep of this stream into stream 19's refusal, since stream 19 has
                                none and provenance is not a veto. The body is PPBODY, stream 7's
@@ -54,14 +54,20 @@ Core  <-  Hsms  <-  Gem
                                reports a relation and was read as a verdict: RCPIDNEW, RCPSPECDST
                                and RCPIDDST each extend a name that is IN THE SAME BODY two
                                positions earlier, and RCPLOCKID is a lock token the machine mints
-                               and reads back, carried as the encoded item. The FIFTEENTH went in
-                               later and on a shape rather than an item: S15F36 is the current
-                               recipe, two items and no acknowledgement, and the sibling a nesting
-                               comes from need not be in this package - S7F6 is an identifier and a
-                               second field, flat. Its RCPVER is carried untouched where S15F49's
-                               owner could not be, because a version is a label a host prints and
-                               an owner is a field the far end must parse. The thirteen still out
-                               are refused one of four ways and the README gives them row by row.
+                               and reads back, carried as the encoded item. THREE more went in on
+                               a shape rather than on an item. S15F36 is the current recipe, two
+                               items and no acknowledgement, and the sibling a nesting comes from
+                               need not be in this package - S7F6 is an identifier and a second
+                               field, flat. Its RCPVER is carried untouched where S15F49's owner
+                               could not be, because a version is a label a host prints and an
+                               owner is a field the far end must parse. The DIRECTORY is the third
+                               and it retired the measure: S15F4 is a list of entries whose last
+                               column repeats, which is S7F36 exactly - the formatted process
+                               program directory, served here, entry by entry its row's items in
+                               order and then a nested list. Every item of S15F4 was already
+                               carried in the package, so the nesting was all that was left. The
+                               ten still out are refused one of three ways and the README gives
+                               them row by row.
                                Only stream here with a TWO-LEVEL space, so the store checks the
                                namespace at the grant AND at the send, and refuses to delete one
                                that still holds recipes - and the only one with a LOCK, whose
@@ -418,21 +424,22 @@ streams were. Both are finished now - stream 6 served five of its last seven pai
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about.
 
-**And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 218 of the reference's 274
-primaries are declared and the other **fifty-six are a partition** - each appears exactly once,
+**And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 219 of the reference's 274
+primaries are declared and the other **fifty-five are a partition** - each appears exactly once,
 under the one measure that decides it, and a row with two reasons is filed under the one that would
-still refuse it if the other were answered. The **eight** measures and their counts: the field the
-row turns on (12), producer and reader (15), a shape (6), a name with no second instance (1), a
-firmer row does the job (16), the addition is unobservable (1), the standard is contradicted (4),
-the addressing is missing (1). Eleven streams hold them and the other
-nine are served whole. **Five of the fifty-six are gap-free** - S7F21, S17F9, S17F13, S20F17 and
+still refuse it if the other were answered. The **seven** measures and their counts: the field the
+row turns on (12), producer and reader (16), a name with no second instance (1), a firmer row does
+the job (20), the addition is unobservable (1), the standard is contradicted (4), the addressing is
+missing (1). Eleven streams hold them and the other
+nine are served whole. **Five of the fifty-five are gap-free** - S7F21, S17F9, S17F13, S20F17 and
 S20F33 - and four of those five are refused because a firmer row does their job, so no gap-free row
-here is refused on a field or on a shape.
+here is refused on a field; and nothing anywhere is refused on a shape, there being no such measure
+left.
 
 Re-read a refusal by starting from its row in that table, and if the table is what turns out to be
-wrong, that is the chapter - which is how it came to have nine measures instead of the seven it
-shipped with, and why the figure above reads five where it read twenty-five. **Three chapters have
-re-read a measure and all three moved rows out of it.** Two were stream-level verdicts holding
+wrong, that is the chapter - which is how it came to have nine measures at its widest and seven
+now, and why the figure above reads five where it read twenty-five. **Five chapters have
+re-read a measure and all five moved rows out of it.** Two were stream-level verdicts holding
 thirty-eight rows between them and both collapsed, which retired the rule they taught: a measure
 that names a stream rather than a row is the one to re-read next, and there is none left. The third
 went at the largest row-level measure with the question those two had sharpened - what stands in the
@@ -445,6 +452,18 @@ served. The exceptions are what the measure was right about: a code with no valu
 whatever its format, and a value the machine must MINT has to be given a format the far end can
 parse - which is producer and reader, not a second measure. **So ask whether anything has to choose
 before counting two readings as a reason.**
+
+**The fifth retired "a shape", which held six rows, and it is the measure that had already lost
+twice without anybody going at it on purpose** - S6F25 and S7F35 were each refused because no served
+sibling settled a nesting, and each is served. So the only question left was which served row plays
+the same part in the same kind of pair, and for a recipe directory that row is **S7F36**: a list of
+entries, one per program, each entry being its row's items in order and ending in a nested list of
+the group that repeats. S15F4 is that with a recipe's columns, so S15F3 is served; S19F3 and S20F3
+are then duplicates of it, stream 19's parameter rows are stream 15's attribute rows under the other
+of the two spellings the dictionary writes, and the revision history keeps a reason about a field.
+**Three measures have now been retired outright and all three went the same way, one row at a
+time** - a verdict about a group has never once survived being read per row here, which is why the
+next chapter should look for the largest remaining measure rather than the oldest refusal.
 
 What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned
@@ -648,15 +667,22 @@ S6F11, by S6F13 and - in S6F25's own family - by S6F28, and by none of that fami
 rows, which also kills the reading that would have given the row a list of identifiers. So
 **compare a row with the sibling that plays the same part in its pair, and make the odd one explain
 itself**; where nothing explains it the shape really is open. S6F25/F26 is served, and S7F35 one
-chapter later, so **no refusal among the gap-free rows rests on a shape any more** - which is not
+chapter later, so **no refusal among the gap-free rows rested on a shape any more** - which was not
 the same as none anywhere, and the first draft of this paragraph said the stronger thing. Stream 15
-had three shape refusals of its own, all on rows that carry an item gap as well, and the current
-recipe was one of them.
+had three shape refusals of its own, all on rows that carry an item gap as well. All three have
+since gone, which makes the stronger claim true after all: **nothing anywhere here is refused for
+the shape of its body.**
 
-**A shape needs a size, which is what that chapter found.** S15F36 is a flat body of two items and
-has one reading; stream 15's directory and revision history are **lists of entries**, and a list has
-as many readings as there are nestings - which is why those two are still out while the current
-recipe went in. The other half of the same finding: **a reply with no acknowledgement item says no
+**A shape needs a size, which is what that chapter found - and a size is read off a sibling, which
+is what the next one found.** S15F36 is a flat body of two items and has one reading; stream 15's
+directory and revision history are **lists of entries**, and a list has as many readings as there
+are nestings, which is why those two stayed out while the current recipe went in. The directory
+went in two chapters later on the sibling question instead: S7F36 is a directory reply whose entries
+end in a nested list, so the recipe directory has a nesting to read off and the revision history
+never needed one - S15F48 is three flat items, and what refuses it is its third column, a value
+with no name beside it that nothing in the stream sets. So **ask which served row plays the same
+part before calling a nesting open**, and count the readings only of the row that has no such
+sibling. The other half of the same finding: **a reply with no acknowledgement item says no
 with a zero-length body**, and that is not an invention anywhere - S7F6, S7F26, S6F16, S6F20 and
 S6F28 all do it, in three packages. A refusal that says "there is no way to read no" has to count
 those first.
@@ -858,6 +884,28 @@ logs the *path* beside it - and a directory named `barbatos-sp-<guid>` contains 
 care to look for. So `line.Contains("7")` passed with the store's own warning deleted, and only a
 control found it. Match on the store's own words - `"service program 7"`, `"data set 42"` - and treat
 any assertion a stray hex character could satisfy as no assertion at all.
+
+**An item handed to a `SecsMessage` becomes that message's, and a store's own item is not the
+message's to dispose.** Two defects, both in the recipe attribute pair, both found by the chapter
+that added a second reader of it. `RecipeCodec.AttributeBody` put the store's `SecsItem` straight
+into S15F28, and the reply disposed it on its way out - so the first host that read an attribute
+destroyed it. And `TryReadAttributeSet` handed the arriving item to the store, which then kept it
+past the transaction that owned it, where `TryReadRecipeBody` two methods away had been copying for
+exactly that reason. Every other body in these packages is built from fresh items - a version and a
+lock token each decode a new one out of their bytes - so the rule was already universal and had one
+exception.
+
+**What hid both for a chapter is the FORMAT.** An `A[n]` decodes into a `StringItem` holding a
+string, which owns nothing and survives any dispose; only an array format above
+`SecsCodecOptions.PooledPayloadThreshold` - 1024 bytes - borrows a buffer the codec hands back. Every
+test of the pair set text, so nothing could fail. So **a test that means to prove a lifetime needs a
+format that actually pools**: the first draft of this one used a 4 KiB `A[n]` and passed with every
+copy removed. It also has to read the value *after* the pool has been churned, and to churn it by
+hand - a second exchange decodes the same bytes into the same size class and writes the value back
+unchanged, which is a control passing for the wrong reason. And `ArrayPool` keeps one buffer per
+bucket in the returning thread's own slot where nobody else can rent it, and the thread that
+disposes a message is never the test's, so **one large value hides in that slot and two do not**.
+The test sets two, and ten controls land on it.
 
 **Rebuild after a control run before trusting the suite.** A runner restores the *sources* it
 mutated and leaves the build output of its last control behind, and the catalogue's data file is

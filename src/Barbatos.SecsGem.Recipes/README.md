@@ -1,8 +1,9 @@
 # Barbatos.SecsGem.Recipes
 
-Recipe management - SECS-II stream 15 - for **.NET 8, 9 and 10**: the namespace directory, create
-and delete, the recipe download in its two transactions, the upload, the delete, the rename, the
-copy, the lock and unlock, the select and the operation abort.
+Recipe management - SECS-II stream 15 - for **.NET 8, 9 and 10**: the namespace list, create and
+delete, the recipe directory, the download in its two transactions, the upload, the delete, the
+rename, the copy, the lock and unlock, the attribute get and set, the select, the current recipe
+and the operation abort.
 
 > Part of **[Barbatos.SecsGem](https://github.com/Barbatos-Labs/Barbatos.SecsGem)** - a modern, allocation-conscious SECS-II / HSMS-SS / GEM stack
 > for .NET 8, 9 and 10.
@@ -36,10 +37,10 @@ management", check the stream number before wiring anything up: the hazard is pi
 standard from a document, not an ambiguity in flight - S15F11 and S19F11 are different messages on
 the wire and nothing can confuse them there.
 
-Six of this package's sixteen pairs - the copy, the lock, the unlock, the select, the current
-recipe and the operation abort, F21, F23, F25, F31, F35 and F53 - lie outside the range stream 19
-reaches at all, because stream 19 stops at F20. It was two of nine until the rename and the copy
-went in.
+Eight of this package's seventeen pairs - the copy, the lock, the unlock, the two attribute rows,
+the select, the current recipe and the operation abort, F21, F23, F25, F27, F29, F31, F35 and F53 -
+lie outside the range stream 19 reaches at all, because stream 19 stops at F20. It was two of nine
+until the rename and the copy went in.
 
 ## Why stream 15 is here when stream 19 was refused
 
@@ -108,15 +109,16 @@ argument `ACKC7`'s missing mismatch code makes about a verify.
 
 So stream 20 is still one capability under a second stream number - the position
 `Barbatos.SecsGem.Subsystems` describes for stream 18, **serve one or the other** - and stream 15's
-is the firmer because it is whole: sixteen pairs here against three of seventeen there.
+is the firmer because it is whole: seventeen pairs here against three of seventeen there.
 
 That used to be argued from the **routing table** as well: declaring three rows of stream 20 would
 make the connection answer S9F5 for the other fourteen functions where silence answers S9F3. A later
-chapter retired that reading, because it is true of stream 15 too - this package serves fourteen of
-twenty-seven pairs, so a host asking for the other thirteen gets S9F5 from a machine running this
-very code, and nobody calls that a claim. What is left is per row, and it is enough: six of stream
-20's rows are stream 15 rows this package already answers, four more carry a name that decides
-them, and S20F15 is the unobservable addition above.
+chapter retired that reading, because it is true of stream 15 too - this package serves seventeen of
+twenty-seven pairs, so a host asking for the other ten gets S9F5 from a machine running this
+very code, and nobody calls that a claim. What is left is per row, and it is enough: **eleven** of
+stream 20's seventeen rows are stream 15 rows this package already answers - the directory joined
+them when S15F3 went in - four more carry a name that decides them, and S20F15 is the unobservable
+addition above.
 `RecipeHostingTests.Nothing_in_this_package_claims_stream_19_or_stream_20` is the decision as a
 routing fact, `SecsCatalogRecipeRegionTests` holds the measurement, and
 `SecsCatalogRefusalPartitionTests` files each row under the measure that decides it.
@@ -141,12 +143,16 @@ names never travel - so the spelling the dictionary declines to define mislabels
 puts no byte in doubt.
 
 So stream 19 is a worse-*named* stream 15 and not a worse-documented one, and what keeps its rows
-out is per row. **Four of the ten are rows this package already answers**: S19F1 lists namespaces
-where S15F1 does, S19F5 uploads where S15F9 does, S19F7 downloads where S15F7 does, and S19F11
-deletes where S15F13 does. Of the other six, S19F9 carries the recipe checksum under its third
-spelling, `CKSUM`, which the reference defines under none of them; S19F17 and S19F19 report
-`RCPSTATE`, the state their rows turn on, exactly as the refused S15F33 does; and S19F3, S19F13 and
-S19F15 are lists of entries whose nesting no served sibling settles.
+out is per row. **Seven of the ten are rows this package already answers**: S19F1 lists namespaces
+where S15F1 does, S19F3 asks for a directory where S15F3 does, S19F5 uploads where S15F9 does,
+S19F7 downloads where S15F7 does, and S19F11 deletes where S15F13 does - and the two parameter
+rows are this package's attribute rows under the other of the two spellings the dictionary writes.
+It records both families: `RCPATTRID` and `RCPATTRDATA` on one side, `RCPPARNM` and `RCPPARVAL` on
+the other, all four defined `A[n]` and all four named by no message. S19F15 is S15F29 item for
+item; S19F13 names no parameter, so what it asks for is every one the recipe has - which is what
+S15F4 now carries per recipe. Of the three left, S19F9 carries the recipe checksum under its third
+spelling, `CKSUM`, which the reference defines under none of them, and S19F17 and S19F19 report
+`RCPSTATE`, the state their rows turn on, exactly as the refused S15F33 does.
 
 ### The recipe body needs no inference at all
 
@@ -280,10 +286,22 @@ var host = provider.GetRequiredService<RecipeHost>();
 foreach (var space in await host.ListNamespacesAsync(token))      // S15F1
 {
     Console.WriteLine(space);
+
+    foreach (var entry in await host.RequestDirectoryAsync(space, token))   // S15F3
+    {
+        // RCPID, RCPVER, LENGTH and the attribute pairs, one entry per recipe.
+        Console.WriteLine($"  {entry.Id} - {entry.Length} bytes, {entry.Attributes.Count} attribute(s)");
+    }
 }
 
 await host.CreateNamespaceAsync("DEV", token);                     // S15F15
 ```
+
+**The directory is the one question S15F1 could not answer.** A host could ask which namespaces a
+machine had and then had to be told the recipes' identifiers out of band; S15F3 lists them with
+their sizes and their attributes. An **empty** answer covers three things, because S15F4 carries no
+acknowledgement item: a namespace with none, a namespace the machine does not have, and a machine
+whose store serves no directory. The equipment logs which of the three it answered.
 
 Sending is two transactions, and this package keeps them two:
 
@@ -398,30 +416,54 @@ Three ways in, one declaration behind them:
 | `AddRecipeFileEquipment(directory)` | `RecipeFileStore` - a recipe survives the restart |
 | `AddRecipeEquipment<MyStore>()` / `AddRecipeEquipment(store)` | yours, by type or already built |
 
-`IRecipeStore` is fourteen methods, one per pair: `ListNamespacesAsync`, `CreateNamespaceAsync`,
-`DeleteNamespaceAsync`, `RequestDownloadAsync`, `SaveAsync`, `LoadAsync`, `DeleteAsync`,
-`SelectAsync`, `AbortAsync`, `RenameAsync`, `CopyAsync`, `LockAsync`, `UnlockAsync`,
-`CurrentAsync`. Each is awaited
+`IRecipeStore` is seventeen methods, one per pair: `ListNamespacesAsync`, `ListRecipesAsync`,
+`CreateNamespaceAsync`, `DeleteNamespaceAsync`, `RequestDownloadAsync`, `SaveAsync`, `LoadAsync`,
+`DeleteAsync`, `SelectAsync`, `AbortAsync`, `RenameAsync`, `CopyAsync`, `LockAsync`,
+`UnlockAsync`, `CurrentAsync`, `GetAttributeAsync` and `SetAttributeAsync`. Each is awaited
 inside the transaction the host is waiting on, so none should be slow - writing a recipe to flash
 while a host holds its T3 open is how a download times out.
 
-**Nine of the fourteen have no body and five do**, and the line between them is when they arrived
+**Nine of the seventeen have no body and eight do**, and the line between them is when they arrived
 rather than what they do. The nine shipped with this interface; the rename, the copy, the lock, the
-unlock and the current recipe came later, so they are default implementations and **a store written
-against the nine still compiles**. For four of the five the default is `Rejected`, which is also the
-honest answer: a machine that will not rename a recipe says so with the one refusal code S15F20
-has, and E5 has no code for "I do not implement this". `CurrentAsync` has no code to refuse with at
-all - S15F36 carries none - so its default is the other shape that row has, nothing selected.
+unlock, the current recipe, the two attribute rows and the directory came later, so they are default
+implementations and **a store written against the nine still compiles**. For five of the eight the
+default is `Rejected`, which is also the honest answer: a machine that will not rename a recipe says
+so with the one refusal code S15F20 has, and E5 has no code for "I do not implement this". The other
+three answer rows that carry no acknowledgement at all, so their defaults are the other shape those
+rows have: `CurrentAsync` says nothing is selected, `GetAttributeAsync` says the attribute is unset,
+and `ListRecipesAsync` says there is no such namespace - one zero-length body each.
 
 A recipe read off the wire is **copied** before it reaches the store, because the item it arrived in
 borrows pooled memory and is released with its message.
 
+### Whose item is it
+
+An attribute's value is a `SecsItem`, which is the whole point - a SECS-II item carries its own
+format, so nothing here chooses between the two readings `RCPATTRVAL` has. It does mean the question
+of **who owns it** has an answer at every hand-off, and two of those answers were wrong for a
+chapter:
+
+- **A store keeps what it is given.** The equipment copies the value out of the arriving S15F29
+  before calling `SetAttributeAsync`, because a payload of a kilobyte or more borrows a buffer the
+  codec hands back to its pool when the message is disposed - the same reason a recipe body is
+  copied. An application calling the store directly hands over an item it must not then dispose.
+- **A reply is built from fresh items.** `RecipeCodec` decodes a new item out of the stored bytes
+  for S15F28 and for every entry of S15F4, because an item handed to a `SecsMessage` is disposed
+  with it - so a reply carrying a store's own value straight out would destroy it on the way.
+- **`RecipeHost` hands back copies.** `RequestAttributeAsync` and `RequestDirectoryAsync` both
+  decode fresh items, so what they return outlives the reply; those are the caller's to dispose.
+
+Neither mistake could be seen with a text attribute: an `A[n]` decodes into a string, which owns
+nothing. Only an array format above the codec's pooling threshold borrows anything, and
+`RecipeDirectoryTests` drives a 4 KiB `B[n]` for that reason.
+
 ### Seven rules `RecipeInMemoryStore` makes up
 
-Ten of the fourteen replies carry one `RMACK` and nothing else, and two more carry one beside a
-payload - so every refusal looks like every other on the wire. The remaining two carry no
-acknowledgement at all: S15F2 is a list of namespaces and S15F36 is the current recipe. Each of these is therefore tested against the store, where the *reason* can
-be pinned:
+Eleven of the seventeen replies carry one `RMACK` and nothing else, and two more carry one beside a
+payload - so every refusal looks like every other on the wire. The remaining four carry no
+acknowledgement at all: S15F2 is a list of namespaces, S15F4 a directory, S15F28 an attribute and
+S15F36 the current recipe. Each of these is therefore tested against the store, where the *reason*
+can be pinned:
 
 - **A download must be granted before it is sent**, and the grant is keyed on the namespace *and*
   the identifier - a recipe granted for `DEV` must not land in `PROD`.
@@ -547,16 +589,17 @@ and goes to the log.
 
 What the acknowledgement still cannot do is say **why**. There is one refusal code, and the rows
 that would have carried a reason - the verify data's `VFACK`, the validate data's `VALACK` - are
-among the fourteen left out.
+among the ten left out.
 
 An `RMACK` item carrying **no value** throws rather than falling through to a zero. Zero means
 accepted, so a machine that sent `B,0` said nothing, and nothing is not yes.
 
-## The eleven pairs that are not here, row by row
+## The ten pairs that are not here, row by row
 
 **Three** reasons now, and each row is refused by one of them - it was four until the attribute pair
-retired one of them. **Not one of the eleven is refused for being undefined**, which was the shape of the old list and was never the argument: three packages here
-carry an undefined field untouched, and seven rows of this one now do.
+retired one of them and the directory retired another. **Not one of the ten is refused for being
+undefined**, which was the shape of the old list and was never the argument: three packages here
+carry an undefined field untouched, and eight rows of this one now do.
 
 It was thirteen until the attribute pair went in, and that one is worth its own paragraph because
 the measure it was refused on is **retired**. S15F27 and S15F29 carry `RCPATTRVAL`, which has two
@@ -578,13 +621,23 @@ refusal said no served row of this package had that shape - true, and the siblin
 from need not be in this package: S7F6 is an identifier and a second field, flat, recorded exactly
 as this row is. The other half, that there was no way to read "nothing is selected", is answered by
 five served rows in three packages - **a reply with no acknowledgement item says no with a
-zero-length body**. What is still refused on a shape here is the directory and the revision history,
-and those are lists of entries: a flat body of two items has one reading, where a list of entries
-has as many readings as there are nestings.
+zero-length body**.
+
+It was eleven until the **directory** went in, and that row is where the shape measure ran out. The
+refusal was right that a flat body of two items has one reading where a list of entries has as many
+as there are nestings - and the sibling that settles this one had been served two chapters earlier.
+**S7F36** is the formatted process program directory: a list of entries, one per program, each entry
+being its row's items in order and ending in a nested list of the group that repeats. S15F4 is that
+with a recipe's columns, and the pair at the end of each entry is written by the same code that
+writes S15F28, so the two rows cannot drift apart. The other reading - one attribute pair per entry,
+and a recipe repeated once per attribute - is the kind a served row teaches you to doubt.
+
+So **nothing here is refused for its shape any more**, and the revision history, which was the sixth
+row on that measure, keeps a reason about a field instead: S15F48 is three flat items and the third
+of them is a value with no name beside it, which no row of the stream ever sets.
 
 | | the reason | and what it is |
 | --- | --- | --- |
-| **S15F3/F4** directory | no sibling for the shape | A directory is a list of entries whose nesting no served row here settles. Its `RCPATTRNAME`, `RCPATTRVAL` and `RCPVER` are all carried elsewhere in this package now, so the shape is the whole of what is left |
 | **S15F11/F12** verify | nothing to read | `CHECKSUM` is defined nowhere under any spelling - see the line below |
 | **S15F51/F52** namespace attribute | **nobody sets it** | A *recipe* attribute is set at S15F29 and read at S15F27, both served: the value is the host's own data stored whole, and a SECS-II item carries its own format, so the two readings `RCPATTRVAL` has - an `A[n]` from the unused `RCPATTRDATA`, a list from E39's `ATTRDATA` - never have to be chosen between. A **namespace** attribute has no set anywhere in the reference, so the machine would be minting a value the host must parse, and there they do. `RCPOWNER`'s position at S15F49, the other way round |
 | **S15F33/F34** execution status | **the field is the message** | `RCPSTATE` is the whole reply, and its only twin `RCPSTAT` is a `U1[1]` **with no code table**, so even taking the spelling as a misprint there are no states to report |
@@ -593,11 +646,11 @@ has as many readings as there are nestings.
 | **S15F41/F42** auto-select | **the field is the message** | `AUTOSEL` is the flag the row turns on - `ENABLE`'s position in S14F23, which stream 14 refuses for the same reason |
 | **S15F43/F44** validate | **the field is the message** | `VALACK` is the verdict and nothing defines it. Its anagram `VLAACK` has a real table and a real row - **S2F46**, which `Barbatos.SecsGem.Gem` serves - so the definition belongs to a variable limit acknowledgement and reading it here would import another row's vocabulary. A code with no values is a number whatever its format, which is the one kind of gap a self-describing item cannot rescue |
 | **S15F45/F46** revision compare | **twin is shared** | `RCPVER` and `RCPVER2` both reach for the one `RCPVERS`, and there is only one of it; `CMPRESULT` is the verdict and has no table |
-| **S15F47/F48** revision history | no sibling for the shape | `RCPVER` and `RCPATTRVAL`, and a history is a list whose nesting no served row settles |
+| **S15F47/F48** revision history | **nobody sets it** | Not a shape: S15F48 is three flat items, which is `S1F12`'s shape and `S2F30`'s. `RCPVER` is carried untouched at S15F36 and `TIME` is defined - but the third column is an `RCPATTRVAL` with **no `RCPATTRNAME` beside it**, one unnamed value per revision, and no row of stream 15 sets one. The machine would mint it and the host would have to read it: S15F51's position |
 | **S15F49/F50** owner | **twin disagrees** | `RCPOWNER` against the unused `RCPOWCODE`, a `BOOLEAN` where an owner's name would be text - and the **host** builds this primary, so the end that would choose the format is not the end that parses it |
 
-The shape reasons are the stream 6 chapter's rule: a row's nesting comes from a served sibling and
-never from the catalogue's item list, which records the names a row's table mentions and is not a
+The nesting of every row here came from a served sibling and never from the catalogue's item list,
+which records the names a row's table mentions and is not a
 description of the message. **A body guessed wrong is unparseable rather than merely
 uninterpretable**, which ranks it below an item gap and above nothing.
 
@@ -610,8 +663,12 @@ what a recipe checksum is - so there is nothing to carry and nothing to compare.
 ## What is not here yet
 
 - A recipe's **version**, which nothing in stream 15 sets. `CurrentAsync` carries one when a store
-  has it, and neither store here does, because a download is a namespace, an identifier and a body.
-  An application that versions its recipes implements that one method over whatever already knows.
+  has it and so does every `RecipeDirectoryEntry`; neither store here has one, because a download is
+  a namespace, an identifier and a body. An application that versions its recipes implements those
+  two members over whatever already knows, and the rows send a zero-length `RCPVER` until it does.
+- A recipe's **revision history**, for the same reason one step further: S15F47 would report a list
+  of revisions and nothing in the stream creates one. Its third column is the part that keeps it
+  out - see the row-by-row table above.
 
 ## Documentation
 

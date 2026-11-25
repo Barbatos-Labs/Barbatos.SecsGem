@@ -123,8 +123,9 @@ public sealed class RecipeMutationTests
 
         // The machine is still set up to run the same bytes, so reporting nothing selected would
         // be false - which is the opposite of what a delete does, and the pair of rules is the
-        // point. Nothing in stream 15 reports what is selected, so this is only visible in the
-        // store: S15F35/F36 would say, and it is one of the fourteen pairs left out.
+        // point. Read off the store rather than off S15F35, which does report the selection and is
+        // served: what is being tested here is that the rename moved it, and the store is where
+        // that is a fact rather than a reply.
         Assert.Equal("ETCH-8", pair.Store.Selected!.Id);
         Assert.Equal(Body, pair.Store.Selected.Body.ToArray());
 

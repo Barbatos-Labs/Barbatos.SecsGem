@@ -2553,16 +2553,30 @@ internal static class Program
             Console.WriteLine();
 
             // What namespaces the machine has. Stream 15 has no message announcing a recipe, so a
-            // host asks - and this is as far as asking gets it: S15F3, the directory of ONE
-            // namespace, is not implemented. Its reply needs RCPATTRNAME and RCPATTRVAL, and the
-            // nearest names the dictionary has for those - RCPATTRID and RCPATTRDATA - say an
-            // attribute value is text where E39's ATTRDATA, which this repository does serve, says
-            // it is a list. Two readings, different bytes. A host has to be told the recipe names
-            // some other way, and that is the one gap in this stream nobody has closed.
+            // host asks - and now it can ask twice. This comment used to end "that is the one gap
+            // in this stream nobody has closed", because S15F3, the directory of ONE namespace,
+            // was refused for its SHAPE: a list of entries has as many readings as there are
+            // nestings. The nesting came off S7F36, the formatted process program directory served
+            // in Barbatos.SecsGem.Gem - a list of entries, each entry its row's items in order and
+            // then a nested list of the group that repeats.
             var spaces = await recipes.Host.ListNamespacesAsync(cancellationToken);
 
             Console.WriteLine($"   S15F1  -> {spaces.Count} namespace(s): {string.Join(", ", spaces)}");
             ok &= spaces.Contains("PROD") && spaces.Contains("DEV");
+
+            foreach (var space in spaces)
+            {
+                var directory = await recipes.Host.RequestDirectoryAsync(space, cancellationToken);
+
+                Console.WriteLine(
+                    $"   S15F3  -> {space} holds {directory.Count} recipe(s): "
+                    + string.Join(", ", directory.Select(entry => entry.ToString())));
+            }
+
+            // An empty answer covers three things, because S15F4 carries no acknowledgement item: a
+            // namespace with no recipes, one the machine has not got, and a store that serves no
+            // directory at all. The equipment logs which of the three it answered.
+            ok &= (await recipes.Host.RequestDirectoryAsync("NOT-A-NAMESPACE", cancellationToken)).Count == 0;
 
             // Fetching is one transaction, and the machine can say no - S15F10 carries RMACK and
             // PPBODY together, which is the thing stream 8's S8F6 cannot do.
@@ -2688,6 +2702,19 @@ internal static class Program
             ok &= owner?.GetString() == "night shift";
             ok &= limits is { IsList: true, Count: 2 };
             ok &= unset is null;
+
+            // And the same two values again inside the directory, which is where the shape argument
+            // pays off: each entry ends in a nested list of the attribute pairs, written by the
+            // same code that writes S15F28, so the two rows cannot disagree about the order.
+            var entries = await recipes.Host.RequestDirectoryAsync("DEV", cancellationToken);
+            var attributes = entries.Count == 1 ? entries[0].Attributes : [];
+
+            Console.WriteLine(
+                $"   S15F3  -> DEV/{entries.ElementAtOrDefault(0)?.Id ?? "?"} carries "
+                + string.Join(", ", attributes.Select(attribute => attribute.ToString())));
+
+            ok &= attributes.Count == 2 && attributes[0].Name == "LIMITS" && attributes[1].Name == "OWNER";
+            ok &= attributes.Count == 2 && attributes[1].Value.GetString() == "night shift";
 
             // The guard that matters most: S15F17 names no recipe, so deleting a namespace that
             // still holds one would take a whole directory with a single message. The in-memory

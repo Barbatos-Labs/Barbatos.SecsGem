@@ -398,10 +398,11 @@ public class RecipeTests
         // that nothing the equipment declares is unreachable from a host using this library.
         await pair.Host.SetAttributeAsync("PROD", "ETCH-7", "OWNER", SecsItem.A("days"), RecipePair.Token);
         await pair.Host.RequestAttributeAsync("PROD", "ETCH-7", "OWNER", RecipePair.Token);
+        await pair.Host.RequestDirectoryAsync("PROD", RecipePair.Token);
 
         await pair.Host.DeleteNamespaceAsync("PROD", RecipePair.Token);
 
-        // "Every" asserted rather than claimed: fourteen methods, fourteen declared primaries,
+        // "Every" asserted rather than claimed: seventeen methods, seventeen declared primaries,
         // and the host half declares none of its own.
         Assert.Equal(
             [.. RecipeEquipment.HandledMessages.Order()],
@@ -409,18 +410,19 @@ public class RecipeTests
     }
 
     [Fact(Timeout = 15_000)]
-    public void The_equipment_declares_sixteen_of_the_twenty_seven_pairs()
+    public void The_equipment_declares_seventeen_of_the_twenty_seven_pairs()
     {
-        Assert.Equal(16, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(17, RecipeEquipment.HandledMessages.Count);
 
         // Nine whose primary and reply are made entirely of defined items, four that carry exactly
         // one undefined name - the rename, the copy, the lock and the unlock - the current recipe,
-        // which carries one undefined name too and went in on a shape rather than on an item, and
-        // the attribute pair, which carries TWO and went in on neither: a SECS-II item carries its
-        // own format, so the two readings RCPATTRVAL has decide nothing where the value a host set
-        // is the value it reads back. The figures are measured in SecsCatalogStream15Tests.
+        // which carries one undefined name too and went in on a shape rather than on an item, the
+        // attribute pair, which carries TWO and went in on neither, and the directory, which
+        // carries THREE and went in on a shape again: its nesting is S7F36's, and every one of the
+        // three names is carried by one of the rows above it. The figures are measured in
+        // SecsCatalogStream15Tests.
         Assert.Equal<byte[]>(
-            [1, 5, 7, 9, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 35, 53],
+            [1, 3, 5, 7, 9, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 35, 53],
             [.. RecipeEquipment.HandledMessages.Select(pair => pair.Function)]);
 
         Assert.All(RecipeEquipment.HandledMessages, pair => Assert.Equal(15, pair.Stream));

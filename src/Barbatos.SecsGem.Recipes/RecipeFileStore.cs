@@ -94,7 +94,10 @@ public sealed class RecipeFileStore : IRecipeStore
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly DurableRecordDirectory _records;
     private readonly ConcurrentDictionary<string, bool> _namespaces = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<(string Namespace, string Id), long> _recipes = new();
+    // The sequence number of the record AND the length of the body in it. Both are facts about
+    // the one record, so they travel together: S15F4 reports a length, and reading every file to
+    // find one would undo the reason this store holds no bodies in the first place.
+    private readonly ConcurrentDictionary<(string Namespace, string Id), (long Sequence, uint Length)> _recipes = new();
     private readonly ConcurrentDictionary<(string Namespace, string Id), uint> _granted = new();
     private readonly ConcurrentDictionary<(string Namespace, string Id), RecipeLockToken> _locks = new();
 
@@ -161,18 +164,18 @@ public sealed class RecipeFileStore : IRecipeStore
                     "Two records hold {Namespace}/{Id}; keeping sequence {Kept} and deleting {Dropped}.",
                     record.Namespace,
                     record.Id,
-                    Math.Max(held, sequence),
-                    Math.Min(held, sequence));
+                    Math.Max(held.Sequence, sequence),
+                    Math.Min(held.Sequence, sequence));
 
-                _records.Delete(Math.Min(held, sequence));
+                _records.Delete(Math.Min(held.Sequence, sequence));
 
-                if (sequence < held)
+                if (sequence < held.Sequence)
                 {
                     continue;
                 }
             }
 
-            _recipes[key] = sequence;
+            _recipes[key] = (sequence, (uint)record.Body.Length);
             _namespaces[record.Namespace] = true;
             _next = Math.Max(_next, sequence + 1);
 
@@ -314,6 +317,78 @@ public sealed class RecipeFileStore : IRecipeStore
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <strong>Answered out of the index, not off the disk.</strong> The length comes from the
+    /// record that was written or adopted, which is why it is kept beside the sequence number: a
+    /// directory that read every file to measure it would undo the reason this store holds no
+    /// bodies. So a file somebody deleted behind this store is still listed, with the length it had
+    /// - and <see cref="LoadAsync"/> is where that is discovered, refused and logged.
+    /// </para>
+    /// <para>
+    /// No gate, like the other questions that only read. The attribute values are decoded fresh, so
+    /// two hosts asking at once never share one item - the rule
+    /// <see cref="GetAttributeAsync"/> states, and the one difference from the in-memory store,
+    /// which hands out its own.
+    /// </para>
+    /// </remarks>
+    public ValueTask<IReadOnlyList<RecipeDirectoryEntry>?> ListRecipesAsync(
+        string recipeNamespace,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!_namespaces.ContainsKey(recipeNamespace))
+        {
+            return ValueTask.FromResult<IReadOnlyList<RecipeDirectoryEntry>?>(null);
+        }
+
+        List<RecipeDirectoryEntry> entries = [];
+
+        foreach (var key in _recipes.Keys
+            .Where(key => string.Equals(key.Namespace, recipeNamespace, StringComparison.Ordinal))
+            .OrderBy(key => key.Id, StringComparer.Ordinal))
+        {
+            if (!_recipes.TryGetValue(key, out var entry))
+            {
+                // Deleted while this answer was being built. A directory is what is there now.
+                continue;
+            }
+
+            entries.Add(new RecipeDirectoryEntry
+            {
+                Id = key.Id,
+                Length = entry.Length,
+                Attributes = AttributesOf(key.Namespace, key.Id),
+            });
+        }
+
+        return ValueTask.FromResult<IReadOnlyList<RecipeDirectoryEntry>?>(entries);
+    }
+
+    // The attributes of one recipe, sorted by name so two directories can be diffed, and decoded
+    // out of the bytes this store keeps rather than shared.
+    private IReadOnlyList<RecipeAttribute> AttributesOf(string recipeNamespace, string recipeId)
+    {
+        List<RecipeAttribute> attributes = [];
+
+        foreach (var key in _attributes.Keys
+            .Where(key =>
+                string.Equals(key.Namespace, recipeNamespace, StringComparison.Ordinal)
+                && string.Equals(key.Id, recipeId, StringComparison.Ordinal))
+            .OrderBy(key => key.Attribute, StringComparer.Ordinal))
+        {
+            if (_attributes.TryGetValue(key, out var value))
+            {
+                attributes.Add(new RecipeAttribute { Name = key.Attribute, Value = SecsItem.Decode(value) });
+            }
+        }
+
+        return attributes;
+    }
+
+    /// <inheritdoc />
     public async ValueTask<RecipeAcknowledgement> CreateNamespaceAsync(
         string recipeNamespace,
         CancellationToken cancellationToken)
@@ -450,13 +525,13 @@ public sealed class RecipeFileStore : IRecipeStore
             // An overwrite rewrites the recipe's own file and a new recipe takes the next sequence,
             // which is what keeps one recipe to one record: the identifier is inside the record, so
             // there is nothing in the file name to disagree with.
-            var sequence = _recipes.TryGetValue((recipeNamespace, recipeId), out var held) ? held : _next;
+            var sequence = _recipes.TryGetValue((recipeNamespace, recipeId), out var held) ? held.Sequence : _next;
 
             await WriteRecordAsync(sequence, recipeNamespace, recipeId, body, cancellationToken)
                 .ConfigureAwait(false);
 
             _next = Math.Max(_next, sequence + 1);
-            _recipes[(recipeNamespace, recipeId)] = sequence;
+            _recipes[(recipeNamespace, recipeId)] = (sequence, (uint)body.Length);
             _granted.TryRemove((recipeNamespace, recipeId), out _);
 
             return RecipeAcknowledgement.Accepted;
@@ -480,12 +555,12 @@ public sealed class RecipeFileStore : IRecipeStore
 
         try
         {
-            if (!_recipes.TryGetValue((recipeNamespace, recipeId), out var sequence))
+            if (!_recipes.TryGetValue((recipeNamespace, recipeId), out var entry))
             {
                 return (RecipeAcknowledgement.Rejected, default);
             }
 
-            if (Read(sequence) is not { } record)
+            if (Read(entry.Sequence) is not { } record)
             {
                 // The index says it is here and the file says otherwise, so somebody has been in
                 // the directory. Refused rather than guessed at, and logged because S15F10's one
@@ -526,12 +601,12 @@ public sealed class RecipeFileStore : IRecipeStore
 
             _granted.TryRemove((recipeNamespace, recipeId), out _);
 
-            if (!_recipes.TryRemove((recipeNamespace, recipeId), out var sequence))
+            if (!_recipes.TryRemove((recipeNamespace, recipeId), out var entry))
             {
                 return RecipeAcknowledgement.Rejected;
             }
 
-            _records.Delete(sequence);
+            _records.Delete(entry.Sequence);
             MoveAttributes(recipeNamespace, recipeId, null, null);
 
             // A recipe that was selected and is now gone leaves nothing selected, where a rename
@@ -626,14 +701,14 @@ public sealed class RecipeFileStore : IRecipeStore
         try
         {
             if (newRecipeId.Length == 0
-                || !_recipes.TryGetValue((recipeNamespace, recipeId), out var sequence)
+                || !_recipes.TryGetValue((recipeNamespace, recipeId), out var entry)
                 || _locks.ContainsKey((recipeNamespace, recipeId))
                 || _recipes.ContainsKey((recipeNamespace, newRecipeId)))
             {
                 return RecipeAcknowledgement.Rejected;
             }
 
-            if (Read(sequence) is not { } record)
+            if (Read(entry.Sequence) is not { } record)
             {
                 return RecipeAcknowledgement.Rejected;
             }
@@ -643,10 +718,12 @@ public sealed class RecipeFileStore : IRecipeStore
             // name's attributes still filed under it, and a restart would read none.
             MoveAttributes(recipeNamespace, recipeId, recipeNamespace, newRecipeId);
 
-            await WriteRecordAsync(sequence, recipeNamespace, newRecipeId, record.Body, cancellationToken)
+            await WriteRecordAsync(entry.Sequence, recipeNamespace, newRecipeId, record.Body, cancellationToken)
                 .ConfigureAwait(false);
 
-            _recipes[(recipeNamespace, newRecipeId)] = sequence;
+            // The whole entry moves: a rename does not touch the body, so the length it recorded is
+            // still the length.
+            _recipes[(recipeNamespace, newRecipeId)] = entry;
             _recipes.TryRemove((recipeNamespace, recipeId), out _);
             _granted.TryRemove((recipeNamespace, recipeId), out _);
 
@@ -684,14 +761,14 @@ public sealed class RecipeFileStore : IRecipeStore
             // A locked source is copied happily, as the in-memory store's is: a lock stops a recipe
             // being changed, and reading one is what S15F9 does to a locked recipe too.
             if (destinationId.Length == 0
-                || !_recipes.TryGetValue((sourceNamespace, sourceId), out var sequence)
+                || !_recipes.TryGetValue((sourceNamespace, sourceId), out var entry)
                 || !_namespaces.ContainsKey(destinationNamespace)
                 || _recipes.ContainsKey((destinationNamespace, destinationId)))
             {
                 return RecipeAcknowledgement.Rejected;
             }
 
-            if (Read(sequence) is not { } record)
+            if (Read(entry.Sequence) is not { } record)
             {
                 return RecipeAcknowledgement.Rejected;
             }
@@ -704,7 +781,7 @@ public sealed class RecipeFileStore : IRecipeStore
                 .ConfigureAwait(false);
 
             _next = copy + 1;
-            _recipes[(destinationNamespace, destinationId)] = copy;
+            _recipes[(destinationNamespace, destinationId)] = (copy, entry.Length);
 
             return RecipeAcknowledgement.Accepted;
         }
@@ -915,7 +992,7 @@ public sealed class RecipeFileStore : IRecipeStore
 
         try
         {
-            if (!_recipes.TryGetValue((recipeNamespace, recipeId), out var sequence)
+            if (!_recipes.TryGetValue((recipeNamespace, recipeId), out var entry)
                 || _locks.ContainsKey((recipeNamespace, recipeId)))
             {
                 return RecipeAcknowledgement.Rejected;
@@ -932,9 +1009,9 @@ public sealed class RecipeFileStore : IRecipeStore
                 // One atomic rewrite of the recipe's own record, which is what this store does for
                 // a rename as well: the attribute is inside the record, so there is no second file
                 // to get out of step with it and no window where one is written and the other not.
-                var body = Read(sequence)?.Body ?? ReadOnlyMemory<byte>.Empty;
+                var body = Read(entry.Sequence)?.Body ?? ReadOnlyMemory<byte>.Empty;
 
-                await WriteRecordAsync(sequence, recipeNamespace, recipeId, body, cancellationToken)
+                await WriteRecordAsync(entry.Sequence, recipeNamespace, recipeId, body, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception) when (Rollback(recipeNamespace, recipeId, attributeName, previous))

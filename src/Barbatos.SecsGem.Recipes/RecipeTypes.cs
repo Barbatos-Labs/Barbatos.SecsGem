@@ -394,3 +394,101 @@ public sealed class RecipeVersion
             : $"{(Format is { } other ? other.ToString() : "unknown")}, {Encoded.Length} encoded bytes";
     }
 }
+
+/// <summary>
+/// One attribute of a recipe: the name a host chose and the item it set - <c>RCPATTRNAME</c> and
+/// <c>RCPATTRVAL</c>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A pair rather than a dictionary entry because S15F4 carries them <em>in order</em>, as a list of
+/// pairs inside the recipe's own entry - and a host diffing two directories wants the same order
+/// back. <see cref="IRecipeStore.ListRecipesAsync"/> says which order a store gives.
+/// </para>
+/// <para>
+/// <strong>The value is the item, never a chosen reading of it.</strong> That is what let the
+/// attribute rows be served at all: <c>RCPATTRVAL</c> has two candidate readings - an <c>A[n]</c>
+/// from the RCP family's own <c>RCPATTRDATA</c> and an <c>L[n]</c> from E39's <c>ATTRDATA</c> - and
+/// a SECS-II item carries its own format, so neither has to be picked. See
+/// <see cref="IRecipeStore.GetAttributeAsync"/>.
+/// </para>
+/// <para>
+/// Whose item it is to dispose depends on where the pair came from, and both ends say so: a store
+/// hands out its own, and <see cref="RecipeHost.RequestDirectoryAsync"/> hands out copies decoded
+/// out of the reply, because a value of a kilobyte or more arrives in a buffer the codec returns to
+/// its pool when the message is disposed.
+/// </para>
+/// </remarks>
+public sealed class RecipeAttribute
+{
+    /// <summary>Gets the attribute's name - <c>RCPATTRNAME</c>.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Gets the value, as the item it was set with - <c>RCPATTRVAL</c>.</summary>
+    public required SecsItem Value { get; init; }
+
+    /// <summary>Gets a short description, for logs.</summary>
+    /// <returns>The name, and the value's format and length.</returns>
+    /// <remarks>
+    /// The value's shape rather than its text, because an attribute can be a list and this has to
+    /// be one line in a log either way.
+    /// </remarks>
+    public override string ToString() => $"{Name} = {Value.Format}[{Value.Count}]";
+}
+
+/// <summary>
+/// One recipe's row in a namespace's directory - S15F4.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>The shape came from a served sibling, which is the whole reason this row went in.</strong>
+/// Every item of S15F4 was already carried in this package - <c>RCPID</c> everywhere, <c>RCPVER</c>
+/// untouched at S15F36, <c>LENGTH</c> read at S15F5, the attribute pair at S15F27 and S15F29 - so
+/// the nesting was the only thing left, and a nesting here has never come from the catalogue's item
+/// list. It comes from a row this repository already serves.
+/// </para>
+/// <para>
+/// That row is <strong>S7F36</strong>, the formatted process program directory: a list of entries,
+/// one per program, each entry being its row's items in order and <em>ending in a nested list</em>
+/// of the group that repeats - <c>PPID</c>, <c>MDLN</c>, <c>SOFTREV</c>, then the commands. This is
+/// that shape with a recipe's columns: an identifier, a version, a length, then the attribute pairs.
+/// The pair's own order is <c>RecipeCodec.AttributeBody</c>'s, which is S15F28's, so the two rows
+/// cannot drift apart.
+/// </para>
+/// <para>
+/// The other reading would put one attribute pair in each entry and repeat a recipe once per
+/// attribute. S7F36 is the answer to that too: a reading that makes a row say the same thing several
+/// times is a reading to doubt.
+/// </para>
+/// </remarks>
+public sealed class RecipeDirectoryEntry
+{
+    /// <summary>Gets what the recipe is called - <c>RCPID</c>.</summary>
+    public required string Id { get; init; }
+
+    /// <summary>Gets its version, or <see langword="null"/> when the store keeps none - <c>RCPVER</c>.</summary>
+    /// <remarks>
+    /// Nothing in stream 15 ever <em>sets</em> a version - S15F7 is a namespace, an identifier and a
+    /// body - so neither store here has one and the row sends a zero-length item. See
+    /// <see cref="RecipeVersion"/>, and <see cref="IRecipeStore.CurrentAsync"/>, which reports one
+    /// the same way.
+    /// </remarks>
+    public RecipeVersion? Version { get; init; }
+
+    /// <summary>Gets how large the body is, in bytes - <c>LENGTH</c>.</summary>
+    /// <remarks>
+    /// Bytes, and that needs no inference: <c>PPBODY</c> is a defined <c>B</c>, so a recipe has a
+    /// byte count - which is the same quantity S15F5 declares and this is why that row could check
+    /// it. <c>SPACEAVAIL</c> at S15F39 is the one that has no unit and stays refused.
+    /// </remarks>
+    public uint Length { get; init; }
+
+    /// <summary>Gets the recipe's attributes, in the order the store gave them.</summary>
+    /// <remarks>Empty when it has none, which is a zero-length list on the wire.</remarks>
+    public IReadOnlyList<RecipeAttribute> Attributes { get; init; } = [];
+
+    /// <summary>Gets a short description, for logs.</summary>
+    /// <returns>The identifier, the size and how many attributes it has.</returns>
+    public override string ToString()
+        => $"{Id} ({Length} bytes, {Attributes.Count} attribute(s))";
+}

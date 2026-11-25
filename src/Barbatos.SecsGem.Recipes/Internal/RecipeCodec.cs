@@ -513,7 +513,6 @@ internal static class RecipeCodec
 
     // --------------------------------------------------------- acknowledgement codes
 
-    /// <summary>Writes an <c>RMACK</c>.</summary>
     /// <summary>S15F27 - <c>L,3 { RCPSPEC, RCPID, RCPATTRNAME }</c>.</summary>
     /// <remarks>
     /// <c>RCPATTRNAME</c> is undefined and its format is read off <c>RCPATTRID</c>, the
@@ -567,6 +566,20 @@ internal static class RecipeCodec
 
     /// <summary>Reads S15F29.</summary>
     /// <returns>Whether all four items were there.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>The value is copied out of the arriving item</strong>, for the reason
+    /// <see cref="TryReadRecipeBody"/> copies a body: a payload of
+    /// <see cref="SecsCodecOptions.PooledPayloadThreshold"/> bytes or more borrows a buffer the
+    /// codec hands back to its pool when the message is disposed, and a store keeps what it is
+    /// given. So the item here outlives the transaction and is the store's.
+    /// </para>
+    /// <para>
+    /// Text never took that path - an <c>A[n]</c> decodes into a string - which is why the first
+    /// draft of the attribute pair looked right: every test of it set text. An attribute is
+    /// whatever item a host sent, and a <c>B[n]</c> of a kilobyte is one of them.
+    /// </para>
+    /// </remarks>
     internal static bool TryReadAttributeSet(
         SecsItem? body,
         out string recipeNamespace,
@@ -581,23 +594,169 @@ internal static class RecipeCodec
             return false;
         }
 
-        value = body.Items[3];
+        value = SecsItem.Decode(body.Items[3].ToByteArray());
 
         return true;
     }
 
     /// <summary>S15F28 and S15F52 - <c>L,2 { RCPATTRNAME, RCPATTRVAL }</c>.</summary>
     /// <remarks>
+    /// <para>
     /// A flat body of two items, which is the shape S15F36 has and the reason neither row needed a
     /// nesting decided for it: the request named one attribute, so the reply carries that one. An
     /// attribute nobody set comes back as a zero-length value, the way five served rows in three
     /// packages say no without an acknowledgement item.
+    /// </para>
+    /// <para>
+    /// <strong>The value is copied in, because an item handed to a message becomes that
+    /// message's.</strong> Every other body here is built from fresh items - a version and a lock
+    /// token each decode a new one out of their bytes - and this was the one place a store's own
+    /// item went straight onto the wire, where the reply disposed it on its way out. The hazard was
+    /// invisible for a chapter because every test set <em>text</em>, and text decodes into a string
+    /// that owns nothing; a <c>B[n]</c> of a kilobyte owns a pooled buffer.
+    /// </para>
     /// </remarks>
     internal static SecsItem AttributeBody(string attributeName, SecsItem? value)
         => SecsItem.L(
             SecsItem.A(attributeName).Named("RCPATTRNAME"),
-            (value ?? SecsItem.L()).Named("RCPATTRVAL"));
+            (value is null ? SecsItem.L() : SecsItem.Decode(value.ToByteArray())).Named("RCPATTRVAL"));
 
+    // --------------------------------------------------------------------- the directory
+
+    /// <summary>
+    /// S15F4 - <c>L,n { L,4 { RCPID, RCPVER, LENGTH, L,m { L,2 { RCPATTRNAME, RCPATTRVAL } } } }</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Read off S7F36, which is the same part of the same kind of pair.</strong> The
+    /// formatted process program directory is a list of entries, one per program, and each entry is
+    /// its row's items in order ending in a nested list of the group that repeats. This is that,
+    /// with a recipe's columns - and the pair at the end is written by
+    /// <see cref="AttributeBody"/>, so S15F4 and S15F28 cannot disagree about which of
+    /// <c>RCPATTRNAME</c> and <c>RCPATTRVAL</c> comes first.
+    /// </para>
+    /// <para>
+    /// A namespace with no recipes, and a namespace that is not there, are both the zero-length
+    /// body: S15F4 carries no acknowledgement item, so this row says no the way S7F6, S7F26, S6F16,
+    /// S6F20 and S6F28 do. S15F1 is where a host learns which namespaces exist.
+    /// </para>
+    /// </remarks>
+    internal static SecsItem DirectoryReplyBody(IReadOnlyList<RecipeDirectoryEntry>? entries)
+    {
+        if (entries is null || entries.Count == 0)
+        {
+            return SecsItem.L();
+        }
+
+        var rows = new List<SecsItem>(entries.Count);
+
+        foreach (var entry in entries)
+        {
+            var attributes = new List<SecsItem>(entry.Attributes.Count);
+
+            foreach (var attribute in entry.Attributes)
+            {
+                attributes.Add(AttributeBody(attribute.Name, attribute.Value));
+            }
+
+            rows.Add(SecsItem.L(
+                SecsItem.A(entry.Id).Named("RCPID"),
+                (entry.Version?.Decode() ?? SecsItem.L()).Named("RCPVER"),
+                SecsItem.U4(entry.Length).Named("LENGTH"),
+                SecsItem.L(attributes)));
+        }
+
+        return SecsItem.L(rows);
+    }
+
+    /// <summary>Reads S15F4.</summary>
+    /// <returns>The entries, which is empty for a zero-length body.</returns>
+    /// <remarks>
+    /// <para>
+    /// Leniently in one direction only: an entry with fewer items than four is read for what it has,
+    /// because a machine that keeps no versions, no lengths or no attributes has nothing to put in
+    /// those slots and the row has no acknowledgement item to say so with. An entry with no
+    /// identifier is <em>dropped</em>, because a directory row that does not name a recipe is not a
+    /// row about anything - the reading S15F36 gives an empty <c>RCPID</c>.
+    /// </para>
+    /// <para>
+    /// <strong>Every value is copied out of the reply.</strong> A payload of
+    /// <see cref="SecsCodecOptions.PooledPayloadThreshold"/> bytes or more is decoded into a buffer
+    /// the codec returns to its pool when the message is disposed, and a directory is meant to be
+    /// held - so the items here are fresh ones, decoded from the bytes that arrived, and are the
+    /// caller's to dispose. The version is kept the way every opaque item in this package is kept,
+    /// as its encoded bytes.
+    /// </para>
+    /// </remarks>
+    internal static List<RecipeDirectoryEntry> ReadDirectoryReply(SecsItem? body)
+    {
+        List<RecipeDirectoryEntry> entries = [];
+
+        if (body is null || !body.IsList)
+        {
+            return entries;
+        }
+
+        foreach (var row in body.Items)
+        {
+            if (!row.IsList || row.Count == 0)
+            {
+                continue;
+            }
+
+            var id = Word(row.Items[0]);
+
+            if (id.Length == 0)
+            {
+                continue;
+            }
+
+            RecipeVersion? version = null;
+
+            if (row.Count > 1 && row.Items[1] is var carried && (!carried.IsList || carried.Count > 0))
+            {
+                version = RecipeVersion.From(carried);
+            }
+
+            var length = row.Count > 2 ? UInt32(row.Items[2]) : 0u;
+
+            List<RecipeAttribute> attributes = [];
+
+            if (row.Count > 3 && row.Items[3].IsList)
+            {
+                foreach (var pair in row.Items[3].Items)
+                {
+                    if (pair is not { IsList: true, Count: >= 2 })
+                    {
+                        continue;
+                    }
+
+                    var name = Word(pair.Items[0]);
+
+                    if (name.Length > 0)
+                    {
+                        attributes.Add(new RecipeAttribute
+                        {
+                            Name = name,
+                            Value = SecsItem.Decode(pair.Items[1].ToByteArray()),
+                        });
+                    }
+                }
+            }
+
+            entries.Add(new RecipeDirectoryEntry
+            {
+                Id = id,
+                Version = version,
+                Length = length,
+                Attributes = attributes,
+            });
+        }
+
+        return entries;
+    }
+
+    /// <summary>Writes an <c>RMACK</c>.</summary>
     internal static SecsItem CodeItem(RecipeAcknowledgement acknowledgement)
         => SecsItem.B((byte)acknowledgement).Named("RMACK");
 
