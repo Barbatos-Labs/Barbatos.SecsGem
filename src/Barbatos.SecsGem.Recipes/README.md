@@ -36,7 +36,7 @@ management", check the stream number before wiring anything up: the hazard is pi
 standard from a document, not an ambiguity in flight - S15F11 and S19F11 are different messages on
 the wire and nothing can confuse them there.
 
-Six of this package's fourteen pairs - the copy, the lock, the unlock, the select, the current
+Six of this package's sixteen pairs - the copy, the lock, the unlock, the select, the current
 recipe and the operation abort, F21, F23, F25, F31, F35 and F53 - lie outside the range stream 19
 reaches at all, because stream 19 stops at F20. It was two of nine until the rename and the copy
 went in.
@@ -108,7 +108,7 @@ argument `ACKC7`'s missing mismatch code makes about a verify.
 
 So stream 20 is still one capability under a second stream number - the position
 `Barbatos.SecsGem.Subsystems` describes for stream 18, **serve one or the other** - and stream 15's
-is the firmer because it is whole: fourteen pairs here against three of seventeen there.
+is the firmer because it is whole: sixteen pairs here against three of seventeen there.
 
 That used to be argued from the **routing table** as well: declaring three rows of stream 20 would
 make the connection answer S9F5 for the other fourteen functions where silence answers S9F3. A later
@@ -192,6 +192,8 @@ dictionary does **not** define while a near-twin of it sits there unused:
 | `RCPSTATE` (S15F33) | `RCPSTAT` `U1[1]` | extends it | used by nothing |
 | `RCPVER` (S15F4, F36, F45) | `RCPVERS` `A[n]` | its stem | used by nothing |
 | `VALACK` (S15F44) | `VLAACK` `B[1]` | **exact anagram** | used by **S2F46** |
+| `RCPATTRNAME` (S15F27, F29) | `RCPATTRID` `A[n]` | its stem | used by nothing |
+| `RCPATTRVAL` (S15F28, F29) | `RCPATTRDATA` `A[n]` | its stem | used by nothing |
 
 Across the whole reference, **74** names are used by a message and defined nowhere, and exactly
 **three** of those are an anagram of something the dictionary defines. **Two of the three are
@@ -550,11 +552,25 @@ among the fourteen left out.
 An `RMACK` item carrying **no value** throws rather than falling through to a zero. Zero means
 accepted, so a machine that sent `B,0` said nothing, and nothing is not yes.
 
-## The thirteen pairs that are not here, row by row
+## The eleven pairs that are not here, row by row
 
-Four reasons, and each row is refused by one of them. **Not one of the thirteen is refused for being
-undefined**, which was the shape of the old list and was never the argument: three packages here
-carry an undefined field untouched, and five rows of this one now do.
+**Three** reasons now, and each row is refused by one of them - it was four until the attribute pair
+retired one of them. **Not one of the eleven is refused for being undefined**, which was the shape of the old list and was never the argument: three packages here
+carry an undefined field untouched, and seven rows of this one now do.
+
+It was thirteen until the attribute pair went in, and that one is worth its own paragraph because
+the measure it was refused on is **retired**. S15F27 and S15F29 carry `RCPATTRVAL`, which has two
+candidate readings that disagree - the RCP family's own `RCPATTRDATA` is an `A[n]` and E39's
+`ATTRDATA` is an `L[n]` - and the refusal was that the two put different bytes out. True, and it
+decides nothing: **a SECS-II item carries its own format**. The value a host sets comes back as the
+item it was sent as, so nothing here chooses, and the host that reads one is the host that wrote it.
+That is `DSDATA`'s answer in stream 13, `ITEMDATA`'s in stream 21 and this package's own lock
+token's. `RCPATTRNAME` beside it read off `RCPATTRID`, a defined `A[n]` the messages never name.
+
+What the measure was right about is the two rows that only **report** an attribute. S15F51 asks for
+a *namespace* attribute and the reference gives that no set anywhere, so the machine would be
+minting a value the host must parse - and there the two readings have to be chosen between. That row
+is refused on producer and reader now, which is `RCPOWNER`'s position at S15F49 the other way round.
 
 It was fourteen until the current recipe went in, and that row is worth a paragraph here for what it
 was refused over. **A shape needs a size.** S15F36 is two items and no acknowledgement, and the
@@ -568,14 +584,14 @@ has as many readings as there are nestings.
 
 | | the reason | and what it is |
 | --- | --- | --- |
-| **S15F3/F4** directory | twin disagrees, **and** no sibling for the shape | `RCPATTRNAME` and `RCPATTRVAL` below, plus `RCPVER`; and a directory is a list of entries whose nesting no served row here settles |
+| **S15F3/F4** directory | no sibling for the shape | A directory is a list of entries whose nesting no served row here settles. Its `RCPATTRNAME`, `RCPATTRVAL` and `RCPVER` are all carried elsewhere in this package now, so the shape is the whole of what is left |
 | **S15F11/F12** verify | nothing to read | `CHECKSUM` is defined nowhere under any spelling - see the line below |
-| **S15F27/F28, S15F29/F30, S15F51/F52** attributes | **twin disagrees** | `RCPATTRNAME`/`RCPATTRVAL` against the unused `RCPATTRID`/`RCPATTRDATA`, which say an attribute value is an `A[n]` - where E39's `ATTRDATA`, which this repository *does* serve, is a list, meaning any format at all. Two readings, different bytes |
+| **S15F51/F52** namespace attribute | **nobody sets it** | A *recipe* attribute is set at S15F29 and read at S15F27, both served: the value is the host's own data stored whole, and a SECS-II item carries its own format, so the two readings `RCPATTRVAL` has - an `A[n]` from the unused `RCPATTRDATA`, a list from E39's `ATTRDATA` - never have to be chosen between. A **namespace** attribute has no set anywhere in the reference, so the machine would be minting a value the host must parse, and there they do. `RCPOWNER`'s position at S15F49, the other way round |
 | **S15F33/F34** execution status | **the field is the message** | `RCPSTATE` is the whole reply, and its only twin `RCPSTAT` is a `U1[1]` **with no code table**, so even taking the spelling as a misprint there are no states to report |
 | **S15F37/F38** existence | **the field is the message** | `RCPEXIST` is the whole answer, so carrying it untouched leaves the library unable to tell yes from no |
-| **S15F39/F40** namespace space | **the field is the message** | `SPACEAVAIL` and `SPACETOTAL` are the whole reply, two numbers with no format and no units |
+| **S15F39/F40** namespace space | **nobody sets the unit** | `SPACEAVAIL` and `SPACETOTAL` are the whole reply. A format they have, off the unused `RMSPACE`, a `U4`; a **unit** nothing anywhere gives them, and the machine would be minting two numbers a host does arithmetic with - it compares the space left against the size of what it means to send. Where stream 21's `LENGTH` survived the same gap, a store reports a count it was handed |
 | **S15F41/F42** auto-select | **the field is the message** | `AUTOSEL` is the flag the row turns on - `ENABLE`'s position in S14F23, which stream 14 refuses for the same reason |
-| **S15F43/F44** validate | **twin is live elsewhere** | `VALACK` is an anagram of `VLAACK`, whose table is real and whose row is **S2F46**; reading it would import another row's vocabulary. `RCPATTRNAME` besides |
+| **S15F43/F44** validate | **the field is the message** | `VALACK` is the verdict and nothing defines it. Its anagram `VLAACK` has a real table and a real row - **S2F46**, which `Barbatos.SecsGem.Gem` serves - so the definition belongs to a variable limit acknowledgement and reading it here would import another row's vocabulary. A code with no values is a number whatever its format, which is the one kind of gap a self-describing item cannot rescue |
 | **S15F45/F46** revision compare | **twin is shared** | `RCPVER` and `RCPVER2` both reach for the one `RCPVERS`, and there is only one of it; `CMPRESULT` is the verdict and has no table |
 | **S15F47/F48** revision history | no sibling for the shape | `RCPVER` and `RCPATTRVAL`, and a history is a list whose nesting no served row settles |
 | **S15F49/F50** owner | **twin disagrees** | `RCPOWNER` against the unused `RCPOWCODE`, a `BOOLEAN` where an owner's name would be text - and the **host** builds this primary, so the end that would choose the format is not the end that parses it |

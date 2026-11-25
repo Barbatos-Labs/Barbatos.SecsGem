@@ -154,29 +154,28 @@ dotnet run -c Release --project benchmarks/Barbatos.SecsGem.Benchmarks -- --filt
 
 ## Coverage, and what is not here
 
-**216 of the reference's 274 primaries are declared.** The other fifty-eight are not "rows nobody has
+**218 of the reference's 274 primaries are declared.** The other fifty-six are not "rows nobody has
 got to": each is refused for a stated reason, written down once and asserted as a partition - every
 refused primary appears exactly once, under the one measure that decides it.
 
 | the measure | rows |
 | --- | --- |
-| the field the row turns on is undefined | 11 |
-| the undefined field is written by one end and must be understood by the other | 13 |
-| a rival spelling gives it a second reading, and the two put different bytes out | 7 |
+| the field the row turns on is undefined | 12 |
+| the undefined field is written by one end and must be understood by the other | 15 |
 | the body is a list of entries whose nesting no served row settles | 6 |
 | the name's object appears nowhere else, and the reply is only an acknowledgement | 1 |
-| a row this repository already serves does the same job, from a firmer source | 14 |
+| a row this repository already serves does the same job, from a firmer source | 16 |
 | every field reads and the job is new, but what it adds cannot be seen on the wire | 1 |
 | the row describes a transaction the standard it names does not have | 4 |
 | one undefined name addresses the capability, and nothing anywhere reads it | 1 |
 
-Five of the fifty-eight are gap-free, and four of those five are refused because a firmer row does
+Five of the fifty-six are gap-free, and four of those five are refused because a firmer row does
 their job - so the frontier is rows whose fields cannot honestly go on a wire, and rows that would
 say a second time what this repository already says. The last three measures arrived when two
 chapters re-read the stream-level readings that used to hold thirty-eight of these rows between
 them - what declaring a stream claims, and a missing addressing item - and found a name for every
 row either had. A measure that names a stream rather than a row is the one to re-read next.
-Eleven of the reference's twenty streams hold the fifty-eight; the other nine
+Eleven of the reference's twenty streams hold the fifty-six; the other nine
 are served whole. The table, the arithmetic and the per-row reasons are in
 [`Barbatos.SecsGem.Catalog`](src/Barbatos.SecsGem.Catalog/README.md#what-this-repository-does-not-serve-and-which-measure-decides-it).
 

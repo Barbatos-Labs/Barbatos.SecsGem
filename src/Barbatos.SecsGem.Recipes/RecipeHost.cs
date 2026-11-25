@@ -530,6 +530,90 @@ public sealed class RecipeHost
         return (recipeId, version);
     }
 
+    /// <summary>Reads one attribute of a recipe - S15F27, answered by S15F28.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="recipeId">Which recipe - <c>RCPID</c>.</param>
+    /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The value as the item it arrived as, or <see langword="null"/> when there is none.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// The value is handed back as the <see cref="SecsItem"/> that arrived, because that is what
+    /// let the row be served at all: <c>RCPATTRVAL</c> has two candidate readings - an <c>A[n]</c>
+    /// from the RCP family's own <c>RCPATTRDATA</c> and an <c>L[n]</c> from E39's <c>ATTRDATA</c> -
+    /// and a SECS-II item carries its own format, so neither has to be chosen.
+    /// </para>
+    /// <para>
+    /// A zero-length value is how S15F28 says there is no such attribute, since the row carries no
+    /// acknowledgement item. This method reports that as <see langword="null"/> rather than as an
+    /// empty list, so a host can tell "nothing set" from "set to an empty list" - which a host
+    /// that set one would otherwise have no way to do.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<SecsItem?> RequestAttributeAsync(
+        string recipeNamespace,
+        string recipeId,
+        string attributeName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(attributeName);
+
+        using var reply = await ExchangeAsync(
+            new SecsMessage(15, 27, replyExpected: true)
+            {
+                Name = "RecipeAttributeGetRequest",
+                Item = RecipeCodec.AttributeGetBody(recipeNamespace, recipeId, attributeName),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (reply.Item is not { IsList: true, Count: 2 } body)
+        {
+            return null;
+        }
+
+        var value = body.Items[1];
+
+        return value is { IsList: true, Count: 0 } ? null : value;
+    }
+
+    /// <summary>Sets one attribute of a recipe - S15F29, answered by S15F30.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="recipeId">Which recipe - <c>RCPID</c>.</param>
+    /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
+    /// <param name="value">The value - <c>RCPATTRVAL</c>, sent as the item it is given as.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it was set.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+    /// <exception cref="SecsException">The reply carried no <c>RMACK</c>.</exception>
+    public async ValueTask<RecipeAcknowledgement> SetAttributeAsync(
+        string recipeNamespace,
+        string recipeId,
+        string attributeName,
+        SecsItem value,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        ArgumentNullException.ThrowIfNull(value);
+
+        using var reply = await ExchangeAsync(
+            new SecsMessage(15, 29, replyExpected: true)
+            {
+                Name = "RecipeAttributeSetRequest",
+                Item = RecipeCodec.AttributeSetBody(recipeNamespace, recipeId, attributeName, value),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        var code = RecipeCodec.ReadCode(reply.Item)
+            ?? throw new SecsException("S15F30 carried no RMACK.");
+
+        return Read(code, "S15F30");
+    }
+
     /// <summary>Aborts a recipe operation - S15F53, answered by S15F54.</summary>
     /// <param name="recipeNamespace">Which namespace.</param>
     /// <param name="recipeId">Which recipe.</param>

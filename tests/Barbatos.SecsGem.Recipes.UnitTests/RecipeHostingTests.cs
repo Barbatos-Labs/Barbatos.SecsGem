@@ -57,7 +57,7 @@ public class RecipeHostingTests
             Assert.NotNull(handler);
         }
 
-        Assert.Equal(14, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(16, RecipeEquipment.HandledMessages.Count);
     }
 
     [Fact(Timeout = 15_000)]
@@ -75,19 +75,20 @@ public class RecipeHostingTests
     }
 
     [Fact(Timeout = 15_000)]
-    public async Task The_thirteen_pairs_this_package_leaves_out_are_not_claimed()
+    public async Task The_eleven_pairs_this_package_leaves_out_are_not_claimed()
     {
         await using var provider = BuildEquipment();
 
         var router = provider.GetRequiredService<ISecsMessageRouter>();
 
-        // Every primary stream 15 has that is not one of the fourteen. It was eighteen until the
-        // rename, the copy, the lock and the unlock went in, and fourteen until the current recipe
-        // did - and each of those left for a reason that had never been stated right. The last one
-        // was a shape: no row here answered a request with a multi-item body and no
-        // acknowledgement, which is true of this package and was never true of the repository.
-        // What keeps these thirteen out is measured in SecsCatalogStream15Tests.
-        foreach (byte function in (byte[])[3, 11, 27, 29, 33, 37, 39, 41, 43, 45, 47, 49, 51])
+        // Every primary stream 15 has that is not one of the sixteen. It was eighteen until the
+        // rename, the copy, the lock and the unlock went in, fourteen until the current recipe did,
+        // and thirteen until the attribute pair - and each of those left for a reason that had
+        // never been stated right. The current recipe was a shape; the attributes were two readings
+        // that differ, which turned out to decide nothing, because a SECS-II item carries its own
+        // format and the value a host sets is the value it reads back. What keeps these eleven out
+        // is measured in SecsCatalogStream15Tests.
+        foreach (byte function in (byte[])[3, 11, 33, 37, 39, 41, 43, 45, 47, 49, 51])
         {
             Assert.False(
                 router.TryGetHandler(15, function, out _),

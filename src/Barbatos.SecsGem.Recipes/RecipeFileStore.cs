@@ -97,6 +97,12 @@ public sealed class RecipeFileStore : IRecipeStore
     private readonly ConcurrentDictionary<(string Namespace, string Id), long> _recipes = new();
     private readonly ConcurrentDictionary<(string Namespace, string Id), uint> _granted = new();
     private readonly ConcurrentDictionary<(string Namespace, string Id), RecipeLockToken> _locks = new();
+
+    // Encoded, not as a SecsItem, for the reason ItemFileStore keeps stream 21's attributes that
+    // way: the bytes are what was written down, and decoding fresh per request is what stops one
+    // caller's item being handed to another.
+    private readonly ConcurrentDictionary<(string Namespace, string Id, string Attribute), byte[]> _attributes = new();
+
     private readonly ILogger _logger;
 
     private Selection? _selected;
@@ -137,7 +143,7 @@ public sealed class RecipeFileStore : IRecipeStore
 
         foreach (var (sequence, path) in _records.Records())
         {
-            if (Read(path) is not { } record)
+            if (ReadFull(path) is not { } record)
             {
                 unreadable++;
                 continue;
@@ -169,6 +175,16 @@ public sealed class RecipeFileStore : IRecipeStore
             _recipes[key] = sequence;
             _namespaces[record.Namespace] = true;
             _next = Math.Max(_next, sequence + 1);
+
+            // Attributes come back because a host set them, which is the rule: what the host told
+            // the machine returns and what the machine observed does not. They are in the recipe's
+            // own record rather than in a side file, so a recipe and its attributes cannot be
+            // adopted apart - and the one that loses the duplicate check above loses its
+            // attributes with it.
+            foreach (var (name, value) in record.Attributes)
+            {
+                _attributes[(record.Namespace, record.Id, name)] = value;
+            }
         }
 
         foreach (var name in _records.ReadEntries(NamespacesFile))
@@ -516,6 +532,7 @@ public sealed class RecipeFileStore : IRecipeStore
             }
 
             _records.Delete(sequence);
+            MoveAttributes(recipeNamespace, recipeId, null, null);
 
             // A recipe that was selected and is now gone leaves nothing selected, where a rename
             // moves the selection with it: the in-memory store's two rules. The small file has to
@@ -621,6 +638,11 @@ public sealed class RecipeFileStore : IRecipeStore
                 return RecipeAcknowledgement.Rejected;
             }
 
+            // Before the write and not after, because WriteRecordAsync reads the index to decide
+            // what goes in the record: moving them afterwards would write the new name with the old
+            // name's attributes still filed under it, and a restart would read none.
+            MoveAttributes(recipeNamespace, recipeId, recipeNamespace, newRecipeId);
+
             await WriteRecordAsync(sequence, recipeNamespace, newRecipeId, record.Body, cancellationToken)
                 .ConfigureAwait(false);
 
@@ -675,6 +697,8 @@ public sealed class RecipeFileStore : IRecipeStore
             }
 
             var copy = _next;
+
+            CopyAttributes(sourceNamespace, sourceId, destinationNamespace, destinationId);
 
             await WriteRecordAsync(copy, destinationNamespace, destinationId, record.Body, cancellationToken)
                 .ConfigureAwait(false);
@@ -850,11 +874,148 @@ public sealed class RecipeFileStore : IRecipeStore
         string recipeId,
         ReadOnlyMemory<byte> body,
         CancellationToken cancellationToken)
-        => _records.WriteRecordAsync(
-            sequence,
-            [DurableRecordDirectory.Bytes(recipeNamespace), DurableRecordDirectory.Bytes(recipeId)],
-            body,
-            cancellationToken);
+    {
+        // The attributes come out of the index rather than off the caller, so every path that
+        // rewrites a record keeps them without having to remember to - an overwrite at S15F7, a
+        // rename, a copy and the attribute set itself. Move or copy the index first; the write
+        // reads it.
+        List<ReadOnlyMemory<byte>> fields =
+        [
+            DurableRecordDirectory.Bytes(recipeNamespace),
+            DurableRecordDirectory.Bytes(recipeId),
+        ];
+
+        foreach (var key in _attributes.Keys)
+        {
+            if (string.Equals(key.Namespace, recipeNamespace, StringComparison.Ordinal)
+                && string.Equals(key.Id, recipeId, StringComparison.Ordinal)
+                && _attributes.TryGetValue(key, out var value))
+            {
+                fields.Add(DurableRecordDirectory.Bytes(key.Attribute));
+                fields.Add(value);
+            }
+        }
+
+        return _records.WriteRecordAsync(sequence, fields, body, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<RecipeAcknowledgement> SetAttributeAsync(
+        string recipeNamespace,
+        string recipeId,
+        string attributeName,
+        SecsItem value,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        ArgumentNullException.ThrowIfNull(value);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            if (!_recipes.TryGetValue((recipeNamespace, recipeId), out var sequence)
+                || _locks.ContainsKey((recipeNamespace, recipeId)))
+            {
+                return RecipeAcknowledgement.Rejected;
+            }
+
+            var previous = _attributes.TryGetValue((recipeNamespace, recipeId, attributeName), out var held)
+                ? held
+                : null;
+
+            _attributes[(recipeNamespace, recipeId, attributeName)] = value.ToByteArray();
+
+            try
+            {
+                // One atomic rewrite of the recipe's own record, which is what this store does for
+                // a rename as well: the attribute is inside the record, so there is no second file
+                // to get out of step with it and no window where one is written and the other not.
+                var body = Read(sequence)?.Body ?? ReadOnlyMemory<byte>.Empty;
+
+                await WriteRecordAsync(sequence, recipeNamespace, recipeId, body, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception) when (Rollback(recipeNamespace, recipeId, attributeName, previous))
+            {
+                throw;
+            }
+
+            return RecipeAcknowledgement.Accepted;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<SecsItem?> GetAttributeAsync(
+        string recipeNamespace,
+        string recipeId,
+        string attributeName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Decoded fresh, so two hosts asking at once never share one item - the reason this store
+        // keeps the bytes where the in-memory one keeps the caller's own SecsItem.
+        return ValueTask.FromResult(
+            _attributes.TryGetValue((recipeNamespace, recipeId, attributeName), out var value)
+                ? SecsItem.Decode(value)
+                : null);
+    }
+
+    // Puts an attribute back when the write failed, so the index never claims something the disk
+    // does not have. Returns false so the filter does not swallow the exception.
+    private bool Rollback(string recipeNamespace, string recipeId, string attributeName, byte[]? previous)
+    {
+        if (previous is null)
+        {
+            _attributes.TryRemove((recipeNamespace, recipeId, attributeName), out _);
+        }
+        else
+        {
+            _attributes[(recipeNamespace, recipeId, attributeName)] = previous;
+        }
+
+        return false;
+    }
+
+    private void MoveAttributes(string fromSpace, string fromId, string? toSpace, string? toId)
+    {
+        foreach (var key in _attributes.Keys)
+        {
+            if (!string.Equals(key.Namespace, fromSpace, StringComparison.Ordinal)
+                || !string.Equals(key.Id, fromId, StringComparison.Ordinal)
+                || !_attributes.TryRemove(key, out var value))
+            {
+                continue;
+            }
+
+            if (toSpace is not null && toId is not null)
+            {
+                _attributes[(toSpace, toId, key.Attribute)] = value;
+            }
+        }
+    }
+
+    private void CopyAttributes(string fromSpace, string fromId, string toSpace, string toId)
+    {
+        foreach (var key in _attributes.Keys)
+        {
+            if (string.Equals(key.Namespace, fromSpace, StringComparison.Ordinal)
+                && string.Equals(key.Id, fromId, StringComparison.Ordinal)
+                && _attributes.TryGetValue(key, out var value))
+            {
+                _attributes[(toSpace, toId, key.Attribute)] = value;
+            }
+        }
+    }
 
     /// <summary>Reads one recipe's record.</summary>
     /// <remarks>
@@ -865,9 +1026,34 @@ public sealed class RecipeFileStore : IRecipeStore
         => Read(_records.PathFor(sequence));
 
     private (string Namespace, string Id, ReadOnlyMemory<byte> Body)? Read(string path)
-        => _records.TryReadRecord(path) is { Fields.Count: 2, Tail: { } body } record
-            ? (Text(record.Fields[0]), Text(record.Fields[1]), body)
-            : null;
+        => ReadFull(path) is { } record ? (record.Namespace, record.Id, record.Body) : null;
+
+    /// <summary>Reads one recipe's record, attributes and all.</summary>
+    /// <remarks>
+    /// Two fields and then a name-and-value pair per attribute, so an <strong>even</strong> count
+    /// of at least two is a record this version can read. A record written before attributes
+    /// existed has exactly two and comes back with none, which is why the count is a floor and a
+    /// parity rather than a number: a store pointed at a directory an earlier version wrote finds
+    /// its recipes rather than finding nothing.
+    /// </remarks>
+    private (string Namespace, string Id, ReadOnlyMemory<byte> Body, IReadOnlyList<(string Name, byte[] Value)> Attributes)? ReadFull(string path)
+    {
+        if (_records.TryReadRecord(path) is not { Tail: { } body } record
+            || record.Fields.Count < 2
+            || record.Fields.Count % 2 != 0)
+        {
+            return null;
+        }
+
+        List<(string Name, byte[] Value)> attributes = [];
+
+        for (var i = 2; i + 1 < record.Fields.Count; i += 2)
+        {
+            attributes.Add((Text(record.Fields[i]), record.Fields[i + 1]));
+        }
+
+        return (Text(record.Fields[0]), Text(record.Fields[1]), body, attributes);
+    }
 
 
     /// <summary>What is selected, as one reference.</summary>

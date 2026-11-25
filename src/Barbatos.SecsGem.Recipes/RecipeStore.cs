@@ -267,6 +267,63 @@ public interface IRecipeStore
         string recipeNamespace,
         CancellationToken cancellationToken)
         => ValueTask.FromResult<(string, RecipeVersion?)?>(null);
+
+    /// <summary>Reads one attribute of a recipe - S15F27, answered by S15F28.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="recipeId">Which recipe - <c>RCPID</c>.</param>
+    /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The value, or <see langword="null"/> when there is none. The default has none.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Both names in this pair are undefined and neither had to be guessed.</strong>
+    /// <c>RCPATTRNAME</c> reads off <c>RCPATTRID</c> - the dictionary's own recipe attribute
+    /// identifier, a defined <c>A[n]</c> that no row names - which is the route <c>CJID</c> was read
+    /// by. <c>RCPATTRVAL</c> needed no route at all, and that is the finding this pair went in on.
+    /// </para>
+    /// <para>
+    /// It was refused for chapters because its two candidate readings <em>differ</em>: the RCP
+    /// family's own <c>RCPATTRDATA</c> is a defined <c>A[n]</c> and E39's <c>ATTRDATA</c>, which
+    /// ten rows name and three of them served, is a defined <c>L[n]</c> - text against a list. True,
+    /// and it decides nothing, because <strong>a SECS-II item carries its own format</strong>. The
+    /// value a host set arrives as the item it was sent as, is stored whole, and goes back as
+    /// itself; nothing here chooses between the two readings, and the host that reads it is the host
+    /// that wrote it. That is <c>DSDATA</c>'s answer, <c>ITEMDATA</c>'s and the recipe lock token's.
+    /// </para>
+    /// <para>
+    /// Which is why the two rows that only <em>report</em> an attribute are still refused - S15F51
+    /// and S20F1 ask for a <em>namespace</em> attribute and the reference gives that no set, so the
+    /// machine would be minting a value a host has to parse. Two readings differ there and it
+    /// matters.
+    /// </para>
+    /// </remarks>
+    ValueTask<SecsItem?> GetAttributeAsync(
+        string recipeNamespace,
+        string recipeId,
+        string attributeName,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult<SecsItem?>(null);
+
+    /// <summary>Sets one attribute of a recipe - S15F29.</summary>
+    /// <param name="recipeNamespace">Which namespace - <c>RCPSPEC</c>.</param>
+    /// <param name="recipeId">Which recipe - <c>RCPID</c>.</param>
+    /// <param name="attributeName">Which attribute - <c>RCPATTRNAME</c>.</param>
+    /// <param name="value">The value as it arrived - <c>RCPATTRVAL</c>.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether it was set. The default refuses.</returns>
+    /// <remarks>
+    /// One attribute per message, because the row carries one name and one value. The value is
+    /// handed over as the <see cref="SecsItem"/> that arrived rather than as bytes or as a string:
+    /// a store that re-encoded it would be choosing one of the two readings after all, and a host
+    /// that set a list would read back text.
+    /// </remarks>
+    ValueTask<RecipeAcknowledgement> SetAttributeAsync(
+        string recipeNamespace,
+        string recipeId,
+        string attributeName,
+        SecsItem value,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult(RecipeAcknowledgement.Rejected);
 }
 
 /// <summary>
@@ -309,13 +366,23 @@ public sealed class RecipeInMemoryStore : IRecipeStore
     private readonly ConcurrentDictionary<(string Namespace, string Id), uint> _granted = new();
     private readonly ConcurrentDictionary<(string Namespace, string Id), RecipeLockToken> _locks = new();
 
+    // Keyed by the attribute's name as well as the recipe's, because S15F27 asks for one attribute
+    // by name and S15F29 sets one. The value is the item that arrived: see IRecipeStore for why
+    // nothing here re-encodes it.
+    private readonly ConcurrentDictionary<(string Namespace, string Id, string Attribute), SecsItem> _attributes = new();
+
     private long _minted;
 
     /// <summary>Gets or sets the largest recipe this store will take. Default one mebibyte.</summary>
     /// <remarks>
     /// A declared length beyond this is refused at S15F5, which is what the request exists for.
-    /// Stream 15's own way of reporting space - S15F39/F40 - needs <c>SPACEAVAIL</c> and
-    /// <c>SPACETOTAL</c>, both undefined, so it is not implemented and a host cannot ask.
+    /// Stream 15's own way of reporting space - S15F39/F40 - is not implemented, so a host cannot
+    /// ask. Both of its items are undefined, which used to be the whole reason and is not: the
+    /// RM family's own <c>RMSPACE</c> is a defined <c>U4</c> that names no row, and it gives both a
+    /// format by the route <c>RCPATTRID</c> gives <c>RCPATTRNAME</c> one. What nothing gives them is
+    /// a <strong>unit</strong>, and that is fatal where stream 21's <c>LENGTH</c> survived it: there
+    /// a store reports a count it was handed, here the machine would mint two numbers a host does
+    /// arithmetic with - it compares the space left against the size of what it means to send.
     /// </remarks>
     public uint MaximumLength { get; set; } = 1024 * 1024;
 
@@ -574,6 +641,12 @@ public sealed class RecipeInMemoryStore : IRecipeStore
             return ValueTask.FromResult(RecipeAcknowledgement.Rejected);
         }
 
+        // Attributes are part of the recipe, which is one rule covering all three mutations here -
+        // a delete drops them, a rename takes them along, a copy gets a copy of them. The
+        // reference says nothing about any of the three, so the rule is this store's and is stated
+        // rather than left to be discovered; what it is not is three different rules.
+        MoveAttributes(recipeNamespace, recipeId, null, null);
+
         // A recipe that was selected and is now gone leaves nothing selected, because a host that
         // read Selected afterwards would otherwise be told the machine is set up to run something
         // it no longer has.
@@ -663,6 +736,7 @@ public sealed class RecipeInMemoryStore : IRecipeStore
 
         _recipes.TryRemove((recipeNamespace, recipeId), out _);
         _granted.TryRemove((recipeNamespace, recipeId), out _);
+        MoveAttributes(recipeNamespace, recipeId, recipeNamespace, newRecipeId);
 
         // And the selection follows the recipe, where a delete clears it: the machine is still set
         // up to run the same bytes, so reporting nothing selected would be false.
@@ -709,10 +783,51 @@ public sealed class RecipeInMemoryStore : IRecipeStore
             return ValueTask.FromResult(RecipeAcknowledgement.Rejected);
         }
 
-        return ValueTask.FromResult(
-            _recipes.TryAdd((destinationNamespace, destinationId), body)
-                ? RecipeAcknowledgement.Accepted
-                : RecipeAcknowledgement.Rejected);
+        if (!_recipes.TryAdd((destinationNamespace, destinationId), body))
+        {
+            return ValueTask.FromResult(RecipeAcknowledgement.Rejected);
+        }
+
+        CopyAttributes(sourceNamespace, sourceId, destinationNamespace, destinationId);
+        return ValueTask.FromResult(RecipeAcknowledgement.Accepted);
+    }
+
+    // Moves a recipe's attributes, or drops them when the destination is null. Written as one
+    // helper because a delete and a rename differing here is the kind of thing nobody notices
+    // until a renamed recipe answers S15F27 with nothing.
+    private void MoveAttributes(string fromSpace, string fromId, string? toSpace, string? toId)
+    {
+        foreach (var key in _attributes.Keys)
+        {
+            if (!string.Equals(key.Namespace, fromSpace, StringComparison.Ordinal)
+                || !string.Equals(key.Id, fromId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!_attributes.TryRemove(key, out var value))
+            {
+                continue;
+            }
+
+            if (toSpace is not null && toId is not null)
+            {
+                _attributes[(toSpace, toId, key.Attribute)] = value;
+            }
+        }
+    }
+
+    private void CopyAttributes(string fromSpace, string fromId, string toSpace, string toId)
+    {
+        foreach (var key in _attributes.Keys)
+        {
+            if (string.Equals(key.Namespace, fromSpace, StringComparison.Ordinal)
+                && string.Equals(key.Id, fromId, StringComparison.Ordinal)
+                && _attributes.TryGetValue(key, out var value))
+            {
+                _attributes[(toSpace, toId, key.Attribute)] = value;
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -797,5 +912,76 @@ public sealed class RecipeInMemoryStore : IRecipeStore
             Selected is { } selected && string.Equals(selected.Namespace, recipeNamespace, StringComparison.Ordinal)
                 ? ((string, RecipeVersion?)?)(selected.Id, null)
                 : null);
+    }
+
+    /// <summary>Sets an attribute without a host - the store's own door.</summary>
+    /// <param name="recipeNamespace">Which namespace.</param>
+    /// <param name="recipeId">Which recipe.</param>
+    /// <param name="attributeName">Which attribute.</param>
+    /// <param name="value">The value, as the item a host would have sent.</param>
+    /// <returns>Whether the recipe was there to carry it.</returns>
+    /// <remarks>
+    /// The convenience the wire does not need, unlike the transfer stores' <c>AddAsync</c>: S15F29
+    /// exists, so a host can set an attribute itself. This is for seeding one before a host
+    /// arrives, and for an application that keeps attributes of its own.
+    /// </remarks>
+    public bool SetAttribute(string recipeNamespace, string recipeId, string attributeName, SecsItem value)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (!_recipes.ContainsKey((recipeNamespace, recipeId)))
+        {
+            return false;
+        }
+
+        _attributes[(recipeNamespace, recipeId, attributeName)] = value;
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<SecsItem?> GetAttributeAsync(
+        string recipeNamespace,
+        string recipeId,
+        string attributeName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // A recipe that is not here has no attributes, and that is a different answer from an
+        // attribute nobody set - but S15F28 carries no acknowledgement, so both come back as a
+        // zero-length value. Five served rows in three packages say no that way.
+        return ValueTask.FromResult(
+            _attributes.TryGetValue((recipeNamespace, recipeId, attributeName), out var value) ? value : null);
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<RecipeAcknowledgement> SetAttributeAsync(
+        string recipeNamespace,
+        string recipeId,
+        string attributeName,
+        SecsItem value,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(recipeNamespace);
+        ArgumentNullException.ThrowIfNull(recipeId);
+        ArgumentNullException.ThrowIfNull(attributeName);
+        ArgumentNullException.ThrowIfNull(value);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Locked recipes refuse, as every other mutation here does: a lock whose consequences are
+        // this store's invention is worth nothing if one of them is missing.
+        if (!_recipes.ContainsKey((recipeNamespace, recipeId)) || IsLocked(recipeNamespace, recipeId))
+        {
+            return ValueTask.FromResult(RecipeAcknowledgement.Rejected);
+        }
+
+        _attributes[(recipeNamespace, recipeId, attributeName)] = value;
+        return ValueTask.FromResult(RecipeAcknowledgement.Accepted);
     }
 }

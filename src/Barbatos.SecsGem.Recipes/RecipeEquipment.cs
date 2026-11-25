@@ -66,6 +66,8 @@ public sealed class RecipeEquipment
         (15, 21),   // Recipe Copy Request
         (15, 23),   // Recipe Lock Request
         (15, 25),   // Recipe Unlock Request
+        (15, 27),   // Recipe Attribute Get Request
+        (15, 29),   // Recipe Attribute Set Request
         (15, 31),   // Recipe Select Request
         (15, 35),   // Current Recipe Request
         (15, 53),   // Recipe Operation Abort Request
@@ -120,6 +122,8 @@ public sealed class RecipeEquipment
             21 => await OnCopyAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             23 => await OnLockAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             25 => await OnUnlockAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            27 => await OnAttributeGetAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
+            29 => await OnAttributeSetAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             31 => await OnSelectAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             35 => await OnCurrentAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
             53 => await OnAbortAsync(transaction.Message, cancellationToken).ConfigureAwait(false),
@@ -271,6 +275,42 @@ public sealed class RecipeEquipment
             .ConfigureAwait(false);
 
         return Reply(22, "RecipeCopyAcknowledge", RecipeCodec.CodeItem(acknowledgement));
+    }
+
+    private async ValueTask<SecsMessage> OnAttributeGetAsync(SecsMessage message, CancellationToken cancellationToken)
+    {
+        if (!RecipeCodec.TryReadAttributeGet(message.Item, out var recipeNamespace, out var recipeId, out var name))
+        {
+            // S15F28 has no acknowledgement item, so a body this reader cannot use is answered the
+            // only way the row can answer anything: the attribute it asked for, with nothing in it.
+            // The name comes back even when it could not be read, as an empty one.
+            return Reply(28, "RecipeAttributeData", RecipeCodec.AttributeBody(string.Empty, null));
+        }
+
+        var value = await _store
+            .GetAttributeAsync(recipeNamespace, recipeId, name, cancellationToken)
+            .ConfigureAwait(false);
+
+        return Reply(28, "RecipeAttributeData", RecipeCodec.AttributeBody(name, value));
+    }
+
+    private async ValueTask<SecsMessage> OnAttributeSetAsync(SecsMessage message, CancellationToken cancellationToken)
+    {
+        if (!RecipeCodec.TryReadAttributeSet(
+            message.Item,
+            out var recipeNamespace,
+            out var recipeId,
+            out var name,
+            out var value))
+        {
+            return Refuse(30, "RecipeAttributeSetAcknowledge", "S15F29");
+        }
+
+        var acknowledgement = await _store
+            .SetAttributeAsync(recipeNamespace, recipeId, name, value, cancellationToken)
+            .ConfigureAwait(false);
+
+        return Reply(30, "RecipeAttributeSetAcknowledge", RecipeCodec.CodeItem(acknowledgement));
     }
 
     private async ValueTask<SecsMessage> OnLockAsync(SecsMessage message, CancellationToken cancellationToken)

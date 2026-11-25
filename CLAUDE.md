@@ -42,7 +42,7 @@ Core  <-  Hsms  <-  Gem
                                capability, serve one or the other - and declaring two rows of
                                seventeen would answer S9F5 for the other fifteen functions where
                                leaving the stream alone answers S9F3.
-                               Fourteen of twenty-seven pairs. Nine have a primary and a reply made
+                               Sixteen of twenty-seven pairs. Nine have a primary and a reply made
                                entirely of defined items - which is what overturned chapter 42's
                                sweep of this stream into stream 19's refusal, since stream 19 has
                                none and provenance is not a veto. The body is PPBODY, stream 7's
@@ -359,11 +359,16 @@ is blind in two directions because of it. A definition that extends a used name 
 invisible: `SPACK` against `RSPACK` is a suffix pair and the measure reports nothing. So is a
 **tail-divergent twin**, a used name and a definition sharing a long stem and then parting, where
 neither is a prefix of the other - there are **ten** of those, seven of them recipe names, and they
-are what keeps seven of stream 15's pairs out, because `RCPATTRVAL` against `RCPATTRDATA` and
-`RCPOWNER` against `RCPOWCODE` are readings that DIFFER: a list against text, text against a
-BOOLEAN. Ask `i.Streams` as well, which is what found the front-extension one. There are eight
-rivals in twenty streams and every one is a recipe name, which is why stream 15 ships fourteen pairs
-of twenty-seven and why it shipped only nine for six chapters.
+were read for several chapters as keeping seven of stream 15's pairs out, because `RCPATTRVAL`
+against `RCPATTRDATA` and `RCPOWNER` against `RCPOWCODE` are readings that DIFFER: a list against
+text, text against a BOOLEAN. **Both of those are still true and only the second is still a
+reason.** A twin's two readings matter when something has to CHOOSE: `RCPOWNER` travels host to
+machine and the machine must parse it, where a recipe attribute is set by a host and read back by a
+host, and a SECS-II item carries its own format - so the value goes back as the item it arrived as
+and neither reading is picked. S15F27 and S15F29 are served on that, and the measure is retired.
+Ask `i.Streams` as well, which is what found the front-extension one. There are eight rivals in
+twenty streams and every one is a recipe name, which is why stream 15 ships sixteen pairs of
+twenty-seven and why it shipped only nine for six chapters.
 
 `Provenance.DetailedUnusedDefinitions` is the companion:
 44 definitions carry a full table of values and no message names them, so a capability being
@@ -413,14 +418,14 @@ streams were. Both are finished now - stream 6 served five of its last seven pai
 of its last ten - so **every row of every stream has either been served or refused with a reason on
 the record**, and there is nothing left that nobody has argued about.
 
-**And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 216 of the reference's 274
-primaries are declared and the other **fifty-eight are a partition** - each appears exactly once,
+**And the record is one table now: `SecsCatalogRefusalPartitionTests`.** 218 of the reference's 274
+primaries are declared and the other **fifty-six are a partition** - each appears exactly once,
 under the one measure that decides it, and a row with two reasons is filed under the one that would
-still refuse it if the other were answered. The **nine** measures and their counts: the field the
-row turns on (11), producer and reader (13), two readings that differ (7), a shape (6), a name with
-no second instance (1), a firmer row does the job (14), the addition is unobservable (1), the
-standard is contradicted (4), the addressing is missing (1). Eleven streams hold them and the other
-nine are served whole. **Five of the fifty-eight are gap-free** - S7F21, S17F9, S17F13, S20F17 and
+still refuse it if the other were answered. The **eight** measures and their counts: the field the
+row turns on (12), producer and reader (15), a shape (6), a name with no second instance (1), a
+firmer row does the job (16), the addition is unobservable (1), the standard is contradicted (4),
+the addressing is missing (1). Eleven streams hold them and the other
+nine are served whole. **Five of the fifty-six are gap-free** - S7F21, S17F9, S17F13, S20F17 and
 S20F33 - and four of those five are refused because a firmer row does their job, so no gap-free row
 here is refused on a field or on a shape.
 
@@ -431,8 +436,15 @@ re-read a measure and all three moved rows out of it.** Two were stream-level ve
 thirty-eight rows between them and both collapsed, which retired the rule they taught: a measure
 that names a stream rather than a row is the one to re-read next, and there is none left. The third
 went at the largest row-level measure with the question those two had sharpened - what stands in the
-gap's slot - and it is the only chapter so far that took a row **out** of the table rather than
-moving it: S6F29 is served, which is where the 216 and the fifty-eight come from.
+gap's slot - and it was the first chapter to take a row **out** of the table rather than moving it.
+The fourth retired a measure outright: **"two readings, different bytes"** held seven rows and holds
+none, because `RCPATTRVAL`'s two candidate readings - an `A[n]` from the RCP family and an `L[n]`
+from E39 - decide nothing where this library never chooses. **A SECS-II item carries its own
+format**, so the value a host sets comes back as the item it was sent as, and S15F27 and S15F29 are
+served. The exceptions are what the measure was right about: a code with no values is a number
+whatever its format, and a value the machine must MINT has to be given a format the far end can
+parse - which is producer and reader, not a second measure. **So ask whether anything has to choose
+before counting two readings as a reason.**
 
 What a new chapter does is
 therefore re-read a refusal rather than find a row, and four of those have been overturned

@@ -82,6 +82,56 @@ public class RecipeFileStoreTests
     }
 
     [Fact(Timeout = 15_000)]
+    public async Task An_attribute_a_host_set_survives_and_stays_in_the_recipes_own_record()
+    {
+        using var temporary = new TempDirectory();
+
+        var store = new RecipeFileStore(temporary.Path);
+
+        await SeedAsync(store, "PROD", "ETCH-7", Body);
+
+        Assert.Equal(
+            RecipeAcknowledgement.Accepted,
+            await store.SetAttributeAsync("PROD", "ETCH-7", "LIMITS", SecsItem.L(SecsItem.U4(10u)), Token));
+
+        // One record still, because the attribute is inside the recipe's own: a side file would be
+        // two writes with a window between them, and a restart could find a recipe without its
+        // attributes or attributes without their recipe.
+        Assert.Single(Records(temporary.Path));
+
+        var reopened = new RecipeFileStore(temporary.Path);
+        var value = await reopened.GetAttributeAsync("PROD", "ETCH-7", "LIMITS", Token);
+
+        Assert.NotNull(value);
+        Assert.True(value!.IsList);
+        Assert.Equal(10u, value.Items[0].FirstValueOrDefault<uint>());
+
+        // And the body is still there beside it, which is what the record format buys: fields then
+        // a payload, so neither half can be written without the other.
+        var (acknowledgement, body) = await reopened.LoadAsync("PROD", "ETCH-7", Token);
+
+        Assert.Equal(RecipeAcknowledgement.Accepted, acknowledgement);
+        Assert.Equal(Body, body.ToArray());
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task A_record_written_before_attributes_existed_still_reads()
+    {
+        using var temporary = new TempDirectory();
+
+        await SeedAsync(new RecipeFileStore(temporary.Path), "PROD", "ETCH-7", Body);
+
+        // Seeded with no attribute, so the record on the disk has exactly two fields - which is
+        // what a directory written by an earlier version of this library contains. The reader
+        // takes an even count of at least two rather than exactly two, so those recipes come back
+        // with no attributes instead of not coming back at all.
+        var reopened = new RecipeFileStore(temporary.Path);
+
+        Assert.Equal(1, reopened.Count);
+        Assert.Null(await reopened.GetAttributeAsync("PROD", "ETCH-7", "LIMITS", Token));
+    }
+
+    [Fact(Timeout = 15_000)]
     public async Task One_recipe_is_one_record_however_often_it_is_sent()
     {
         using var temporary = new TempDirectory();
@@ -683,7 +733,7 @@ public class RecipeFileStoreTests
                 $"S{stream}F{function} should have a handler.");
         }
 
-        Assert.Equal(14, RecipeEquipment.HandledMessages.Count);
+        Assert.Equal(16, RecipeEquipment.HandledMessages.Count);
     }
 
     private sealed class TempDirectory : IDisposable

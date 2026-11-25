@@ -514,6 +514,90 @@ internal static class RecipeCodec
     // --------------------------------------------------------- acknowledgement codes
 
     /// <summary>Writes an <c>RMACK</c>.</summary>
+    /// <summary>S15F27 - <c>L,3 { RCPSPEC, RCPID, RCPATTRNAME }</c>.</summary>
+    /// <remarks>
+    /// <c>RCPATTRNAME</c> is undefined and its format is read off <c>RCPATTRID</c>, the
+    /// dictionary's own recipe attribute identifier - a defined <c>A[n]</c> that no row names, which
+    /// is the route <c>CJID</c>'s format was read by.
+    /// </remarks>
+    internal static SecsItem AttributeGetBody(string recipeNamespace, string recipeId, string attributeName)
+        => SecsItem.L(
+            SecsItem.A(recipeNamespace).Named("RCPSPEC"),
+            SecsItem.A(recipeId).Named("RCPID"),
+            SecsItem.A(attributeName).Named("RCPATTRNAME"));
+
+    /// <summary>Reads S15F27.</summary>
+    /// <returns>Whether all three items were there.</returns>
+    internal static bool TryReadAttributeGet(
+        SecsItem? body,
+        out string recipeNamespace,
+        out string recipeId,
+        out string attributeName)
+    {
+        attributeName = string.Empty;
+
+        if (!TryReadRecipeName(body, out recipeNamespace, out recipeId) || body!.Count < 3)
+        {
+            return false;
+        }
+
+        attributeName = Word(body.Items[2]);
+
+        return attributeName.Length > 0;
+    }
+
+    /// <summary>S15F29 - <c>L,4 { RCPSPEC, RCPID, RCPATTRNAME, RCPATTRVAL }</c>.</summary>
+    /// <remarks>
+    /// The value goes on the wire as the item it was given, which is the whole reason this row is
+    /// served: <c>RCPATTRVAL</c> has two candidate readings - the RCP family's own
+    /// <c>RCPATTRDATA</c>, an <c>A[n]</c>, and E39's <c>ATTRDATA</c>, an <c>L[n]</c> - and nothing
+    /// here chooses between them, because a SECS-II item carries its own format and the host that
+    /// reads one back is the host that wrote it.
+    /// </remarks>
+    internal static SecsItem AttributeSetBody(
+        string recipeNamespace,
+        string recipeId,
+        string attributeName,
+        SecsItem value)
+        => SecsItem.L(
+            SecsItem.A(recipeNamespace).Named("RCPSPEC"),
+            SecsItem.A(recipeId).Named("RCPID"),
+            SecsItem.A(attributeName).Named("RCPATTRNAME"),
+            value.Named("RCPATTRVAL"));
+
+    /// <summary>Reads S15F29.</summary>
+    /// <returns>Whether all four items were there.</returns>
+    internal static bool TryReadAttributeSet(
+        SecsItem? body,
+        out string recipeNamespace,
+        out string recipeId,
+        out string attributeName,
+        out SecsItem value)
+    {
+        value = SecsItem.L();
+
+        if (!TryReadAttributeGet(body, out recipeNamespace, out recipeId, out attributeName) || body!.Count < 4)
+        {
+            return false;
+        }
+
+        value = body.Items[3];
+
+        return true;
+    }
+
+    /// <summary>S15F28 and S15F52 - <c>L,2 { RCPATTRNAME, RCPATTRVAL }</c>.</summary>
+    /// <remarks>
+    /// A flat body of two items, which is the shape S15F36 has and the reason neither row needed a
+    /// nesting decided for it: the request named one attribute, so the reply carries that one. An
+    /// attribute nobody set comes back as a zero-length value, the way five served rows in three
+    /// packages say no without an acknowledgement item.
+    /// </remarks>
+    internal static SecsItem AttributeBody(string attributeName, SecsItem? value)
+        => SecsItem.L(
+            SecsItem.A(attributeName).Named("RCPATTRNAME"),
+            (value ?? SecsItem.L()).Named("RCPATTRVAL"));
+
     internal static SecsItem CodeItem(RecipeAcknowledgement acknowledgement)
         => SecsItem.B((byte)acknowledgement).Named("RMACK");
 

@@ -2663,6 +2663,32 @@ internal static class Program
 
             ok &= await recipes.Host.RequestCurrentRecipeAsync("PROD", cancellationToken) is null;
 
+            // S15F29 and S15F27, the attribute pair - and the point of the demonstration is the
+            // second value. RCPATTRVAL has two candidate readings that disagree, an A[n] from the
+            // RCP family and an L[n] from E39, and nothing here chooses: a SECS-II item carries its
+            // own format, so a list goes out as a list and text as text.
+            await recipes.Host.SetAttributeAsync("DEV", "ETCH-8", "OWNER", SecsItem.A("night shift"), cancellationToken);
+
+            await recipes.Host.SetAttributeAsync(
+                "DEV",
+                "ETCH-8",
+                "LIMITS",
+                SecsItem.L(SecsItem.U4(10u), SecsItem.U4(90u)),
+                cancellationToken);
+
+            var owner = await recipes.Host.RequestAttributeAsync("DEV", "ETCH-8", "OWNER", cancellationToken);
+            var limits = await recipes.Host.RequestAttributeAsync("DEV", "ETCH-8", "LIMITS", cancellationToken);
+            var unset = await recipes.Host.RequestAttributeAsync("DEV", "ETCH-8", "NOBODY-SET-THIS", cancellationToken);
+
+            Console.WriteLine(
+                $"   S15F27 -> OWNER is {owner?.Format.ToString() ?? "nothing"} \"{owner?.GetString()}\", "
+                + $"LIMITS is a {limits?.Format.ToString() ?? "nothing"} of {limits?.Count ?? 0}, "
+                + $"and an attribute nobody set reads back as {unset?.ToString() ?? "nothing"}");
+
+            ok &= owner?.GetString() == "night shift";
+            ok &= limits is { IsList: true, Count: 2 };
+            ok &= unset is null;
+
             // The guard that matters most: S15F17 names no recipe, so deleting a namespace that
             // still holds one would take a whole directory with a single message. The in-memory
             // store refuses, which is its own choice - RMACK has no code to explain it.
